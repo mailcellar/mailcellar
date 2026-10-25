@@ -12,6 +12,7 @@ mailcellar: one command for the Gmail backups and what is done with them.
   mailcellar restore ACCOUNT --batch B | --rule R | --id G | --offloaded | --all
                      [--to ACCOUNT] [--yes]   put backed-up mail back into Gmail
   mailcellar export  ACCOUNT <selection> --to FILE.mbox|FILE.zip   copy mail out, read-only
+  mailcellar search  QUERY [ACCOUNT ...] [--offloaded]   find mail in the backups
   mailcellar report  storage | bulk | volume | threads | labels | correspondents
                      | health | senders
   mailcellar config  where the config and data live; each account's state
@@ -20,7 +21,7 @@ backup, count and meta take every account in accounts.toml unless given
 some. Each command takes --help. Anywhere on the line, -v also shows
 Gmail's retries and waits, and -q shows only warnings and errors. The
 work is done by the modules each command dispatches to (backup/, dedup/,
-offload/, restore/, report/).
+offload/, restore/, search/, report/).
 """
 
 import difflib
@@ -85,6 +86,12 @@ def _export(argv: list[str]) -> int:
     from mailcellar.restore.export import main
 
     return main(argv, prog="mailcellar export")
+
+
+def _search(argv: list[str]) -> int:
+    from mailcellar.search.cli import main
+
+    return main(argv, prog="mailcellar search")
 
 
 def _report(argv: list[str]) -> int:
@@ -263,6 +270,7 @@ COMMANDS = {
     "offload": _offload,
     "restore": _restore,
     "export": _export,
+    "search": _search,
     "report": _report,
     "config": _config,
 }

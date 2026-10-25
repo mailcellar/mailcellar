@@ -21,6 +21,7 @@ uv run mailcellar schedule <install|remove|status>   # the unattended backup job
 uv run mailcellar dedup <index|match|plan|apply> [options]
 uv run mailcellar offload <plan|apply> [options]
 uv run mailcellar restore ACCOUNT <--batch|--rule|--id|--offloaded|--all> [--to ACCOUNT] [--yes]
+uv run mailcellar search QUERY [ACCOUNT ...] [--offloaded] [--rule R] [--before DATE]
 uv run mailcellar export ACCOUNT <--batch|--rule|--id|--offloaded|--all> --to FILE.mbox|FILE.zip
 uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|health|senders>
 ```
@@ -45,8 +46,8 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
   moving or deleting the data root or config folder. Fine without asking:
   - dry runs, `config`, `count`, `verify`, `schedule status`, the reports;
   - `export`, read-only, with `--to` in the scratchpad (it copies mail);
-  - `dedup index/match/plan` and `offload plan`, which write only their
-    own files in the data root;
+  - `dedup index/match/plan`, `offload plan` and `search`, which write
+    only their own files in the data root;
   - plain `backup` and `meta`, which add to and refresh the backup but
     never delete from it.
 - Copy a database aside before running a schema migration on real data

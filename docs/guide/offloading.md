@@ -214,6 +214,17 @@ Gmail's storage figure drops only after the Trash is emptied, which
 Gmail does 30 days after the move. Do not empty it earlier unless you are
 certain of the backup and your second copy.
 
+## Finding offloaded mail
+
+Gmail's search no longer finds mail once it is offloaded. `mailcellar search`
+does, and says how to put each match back:
+
+```bash
+uv run mailcellar search "build failed" work --offloaded
+```
+
+See [Searching mail](../../README.md#searching-mail).
+
 ## Changing your mind
 
 Offloaded mail can be put back with `mailcellar restore`, which is a dry run

@@ -16,6 +16,7 @@ mailcellar dedup   …               find duplicates and remove them from Gmail,
 mailcellar offload …               take old mail out of Gmail, keeping it in the backup
 mailcellar restore ACCOUNT …       put backed-up mail back into Gmail
 mailcellar export  ACCOUNT …       copy mail out as an mbox file or a zip of .eml files
+mailcellar search  QUERY …         find mail in the backups, offloaded mail included
 mailcellar report  …               storage, bulk mail, volume, threads, labels, correspondents,
                                    backup health, top senders
 mailcellar config                  where the config and data live; each account's state
@@ -432,6 +433,38 @@ missing from the backup is left out and reported, and the exit status is 1:
 An export is a copy of your mail, outside the backup: keep it, and delete it,
 with the same care. The [Exporting mail](docs/guide/exporting.md) guide has
 worked selections and what to do with the result.
+
+## Searching mail
+
+Gmail's search no longer finds mail once it has been offloaded. `search`
+finds mail in the backups, offloaded or not, by words in the sender,
+recipients, subject and body (not attachments). It is read-only towards
+Gmail and the backups, and needs no Gmail access.
+
+```bash
+uv run mailcellar search "invoice 2024"                        # every backup
+uv run mailcellar search "from:alex subject:contract" work      # one backup
+uv run mailcellar search '"quarterly figures"' --offloaded --after 2020-01-01
+```
+
+Every word must be found, whole and ignoring case and accents. A
+`"phrase"` must be found as written; `from:`, `to:` and `subject:` look only
+in that field (`from:example.org` finds a domain); `OR` between two words
+takes either; `-word` leaves out mail with that word (after `--` if the query
+starts with one); and `word*` matches words starting with it. Narrow with
+`--offloaded`, `--rule`, `--batch`, `--after` and `--before`.
+
+Results are newest first, at most 50 (`--limit`): the date, sender, subject
+and `.eml` file, and for offloaded mail the `mailcellar restore … --id`
+command that puts it back. The exit status is 1 when nothing matches.
+
+The index is `<data root>/search/search.sqlite`. Each search first adds new
+and changed mail to it for the backups searched, so the first search reads
+every message once and takes a while; later ones read only what changed
+(`--no-update` skips that). It holds what is needed to find a message, not
+the text itself, so the results show where to look and the `.eml` file
+holds the message. Deleting the file is safe: the next search builds it
+again.
 
 ## Reports
 
