@@ -42,6 +42,7 @@ from pathlib import Path
 
 from mailcellar.backup import gyb, sidecar
 from mailcellar.dedup.apply import DEDUP_LABEL
+from mailcellar.dedup.rules import is_user_label
 from mailcellar.message import PARSER_VERSION, parse_message
 from mailcellar.offload.apply import OFFLOAD_LABEL, upgrade_log
 
@@ -104,6 +105,44 @@ class Candidate:
     content_hash: str  # "" for a message with no text or attachments
     parser_version: str  # "" if the sidecar has no row
     offloaded: bool = True
+    sender: str = ""  # the From address, lower case; "" if the sidecar has no row
+
+
+@dataclass(frozen=True)
+class Narrowing:
+    """
+    Further conditions on the candidates, all of which must hold; the values
+    of labels and senders are alternatives (any one will do), as in offload
+    rules. Dates are ms UTC: a message is before_ms when older than it,
+    after_ms when as old as it or newer.
+    """
+
+    before_ms: int | None = None
+    after_ms: int | None = None
+    labels: tuple[str, ...] = ()  # user labels, by name, case ignored
+    senders: tuple[str, ...] = ()  # an address, or "@domain"; case ignored
+
+    def __bool__(self) -> bool:
+        return bool(
+            self.before_ms is not None or self.after_ms is not None or self.labels or self.senders
+        )
+
+
+def matches(c: Candidate, n: Narrowing) -> bool:
+    """Whether a candidate meets every condition of a narrowing. Pure."""
+    if n.before_ms is not None and not c.internal_date < n.before_ms:
+        return False
+    if n.after_ms is not None and not c.internal_date >= n.after_ms:
+        return False
+    if n.labels:
+        wanted = {name.lower() for name in n.labels}
+        if not any(label.lower() in wanted for label in c.labels if is_user_label(label)):
+            return False
+    if n.senders:
+        senders = [s.lower() for s in n.senders]
+        if not any(c.sender == s or (s.startswith("@") and c.sender.endswith(s)) for s in senders):
+            return False
+    return True
 
 
 @dataclass(frozen=True)
@@ -156,13 +195,20 @@ def _open_current(folder: Path) -> sqlite3.Connection:
 
 
 def candidates(
-    folder: Path, batches=(), rules=(), ids=(), everything: bool = False, target: str = ""
+    folder: Path,
+    batches=(),
+    rules=(),
+    ids=(),
+    everything: bool = False,
+    target: str = "",
+    narrow: Narrowing | None = None,
 ) -> list[Candidate]:
     """
     Messages of the backup in `folder` not yet restored into `target` ('' =
     the backup's own account), oldest first: the offloaded ones, narrowed
     to the given batches, rules and Gmail IDs (any of each), or with
     `everything` the whole backup (old IDs superseded by a restore apart).
+    `narrow` then keeps only those that meet its dates, labels and senders.
     """
     con = _open_current(folder)
     try:
@@ -171,9 +217,10 @@ def candidates(
             for gid, batch, rule in con.execute("SELECT gmail_id, batch, rule FROM offloaded")
         }
         stored = {
-            gid: (internal_date, content_hash, version)
-            for gid, internal_date, content_hash, version in con.execute(
-                "SELECT gmail_id, internal_date, content_hash, parser_version FROM messages"
+            gid: (internal_date, content_hash, version, sender)
+            for gid, internal_date, content_hash, version, sender in con.execute(
+                """SELECT gmail_id, internal_date, content_hash, parser_version, sender_addr
+                   FROM messages"""
             )
         }
         done = sidecar.restored_ids(con, target)
@@ -186,7 +233,7 @@ def candidates(
     def candidate(gid: str) -> Candidate:
         batch, rule = offload.get(gid, ("", ""))
         bm = index.get(gid)
-        internal_date, content_hash, version = stored.get(gid, (None, "", ""))
+        internal_date, content_hash, version, sender = stored.get(gid, (None, "", "", ""))
         return Candidate(
             gid,
             batch,
@@ -197,6 +244,7 @@ def candidates(
             content_hash or "",
             version or "",
             offloaded=gid in offload,
+            sender=(sender or "").lower(),
         )
 
     chosen = (
@@ -206,6 +254,8 @@ def candidates(
         and (not batches or offload.get(gid, ("", ""))[0] in batches)
         and (not rules or offload.get(gid, ("", ""))[1] in rules)
     )
+    if narrow:
+        chosen = (c for c in chosen if matches(c, narrow))
     return sorted(chosen, key=lambda c: (c.internal_date, c.source_id))
 
 

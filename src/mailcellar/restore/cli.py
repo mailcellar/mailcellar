@@ -13,12 +13,15 @@ from pathlib import Path
 
 from mailcellar.backup import sidecar
 from mailcellar.paths import backup_folder, config_root, data_root
+from mailcellar.report.cli import parse_before
+from mailcellar.report.db import AnalyticsError
 from mailcellar.report.output import human_size
 from mailcellar.restore.apply import (
     DONE,
     DRY_RUN,
     IMPORT,
     IMPORTS_PER_SECOND,
+    Narrowing,
     apply,
     candidates,
     dry_run,
@@ -53,6 +56,35 @@ def main(argv=None, prog: str | None = None) -> int:
         "--all",
         action="store_true",
         help="Every message in the backup; those still in Gmail are left alone",
+    )
+    narrow = p.add_argument_group(
+        "narrow the selection (combine with any of the above; all must hold)"
+    )
+    narrow.add_argument(
+        "--before",
+        metavar="DATE",
+        help="Only mail older than this: YYYY-MM-DD (UTC), or a number of years ago",
+    )
+    narrow.add_argument(
+        "--after",
+        metavar="DATE",
+        help="Only mail from this date on: YYYY-MM-DD (UTC), or a number of years ago",
+    )
+    narrow.add_argument(
+        "--has-label",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="Only mail with this user label, ignoring case (repeatable: any of them). "
+        "Not --label, which names the label restored mail gets",
+    )
+    narrow.add_argument(
+        "--sender",
+        action="append",
+        default=[],
+        metavar="ADDRESS|@DOMAIN",
+        help="Only mail from this From address, or any address at @domain (repeatable: "
+        "any of them)",
     )
     p.add_argument(
         "--to",
@@ -90,7 +122,29 @@ def main(argv=None, prog: str | None = None) -> int:
     if not (args.batch or args.rule or args.id or args.offloaded or args.all):
         p.error("say which messages: --batch, --rule, --id, --offloaded or --all")
     if args.all and (args.batch or args.rule or args.offloaded):
-        p.error("--all takes every message; use --id to narrow it")
+        p.error(
+            "--all takes every message; use --id, --before, --after, --has-label or "
+            "--sender to narrow it"
+        )
+
+    def date(option: str, value: str | None) -> int | None:
+        try:
+            return parse_before(value)
+        except AnalyticsError:
+            p.error(f"{option} {value!r}: give a date (YYYY-MM-DD) or a number of years")
+
+    narrowing = Narrowing(
+        date("--before", args.before),
+        date("--after", args.after),
+        tuple(args.has_label),
+        tuple(args.sender),
+    )
+    if (
+        narrowing.before_ms is not None
+        and narrowing.after_ms is not None
+        and narrowing.after_ms >= narrowing.before_ms
+    ):
+        p.error("--after must be earlier than --before")
 
     from mailcellar import gmailapi
 
@@ -114,6 +168,7 @@ def main(argv=None, prog: str | None = None) -> int:
             set(args.id),
             everything=args.all,
             target=target if other else "",
+            narrow=narrowing,
         )
     except sidecar.MetaError as exc:
         sys.exit(f"error: {exc}")
