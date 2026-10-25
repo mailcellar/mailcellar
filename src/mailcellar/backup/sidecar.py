@@ -198,7 +198,9 @@ CREATE TABLE IF NOT EXISTS runs (
     command          TEXT NOT NULL,       -- 'backup' | 'count' | 'sync'
     mode             TEXT NOT NULL DEFAULT '',  -- backup: 'history' | 'full'
     reason           TEXT NOT NULL DEFAULT '',  -- why full: 'no-history' | 'expired' |
-                                                -- 'full' | 'search' | 'refresh-labels'
+                                                -- 'full' | 'search' | 'refresh-labels';
+                                                -- 'needs-consent': an unattended run
+                                                -- that could not sign in
     status           TEXT NOT NULL,       -- 'ok' | 'failures' | 'missing' | 'error' |
                                           -- 'aborted' | 'declined'
     listed           INTEGER,             -- backup (full): messages listed

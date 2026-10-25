@@ -65,7 +65,8 @@ The same listing happens on the first run in a folder and with `--full`.
 carries on, since messages already saved are skipped. The history position
 is stored only after a run with no failed downloads, so a failed run is
 repeated in full next time, not skipped. A scheduled backup at least every
-four weeks avoids all of this.
+four weeks avoids all of this: `mailcellar schedule install` sets one up (see
+[Scheduled backups](scheduling.md)).
 
 ## An interrupted offload or restore
 

@@ -5,6 +5,7 @@ mailcellar: one command for the Gmail backups and what is done with them.
   mailcellar count   [ACCOUNT ...]      compare Gmail with the backup
   mailcellar meta    [ACCOUNT ...]      fill meta.sqlite for older mail
   mailcellar verify  [ACCOUNT ...] [--offloaded] [--sample N]   check the backup's files
+  mailcellar schedule install | status | remove   run backups regularly, unattended
   mailcellar auth    [ACCOUNT ...] --scope readonly|modify [--renew]   authorise or renew access
   mailcellar dedup   index | match | plan | apply
   mailcellar offload plan | apply       take old mail out of Gmail, keep it here
@@ -44,6 +45,12 @@ def _verify(argv: list[str]) -> int:
     from mailcellar.backup.verify import main
 
     return main(argv, prog="mailcellar verify")
+
+
+def _schedule(argv: list[str]) -> int:
+    from mailcellar.backup.schedule import main
+
+    return main(argv, prog="mailcellar schedule")
 
 
 def _auth(argv: list[str]) -> int:
@@ -244,6 +251,7 @@ COMMANDS = {
     "meta": _backup_command("meta"),
     "verify": _verify,
     "auth": _auth,
+    "schedule": _schedule,
     "dedup": _dedup,
     "offload": _offload,
     "restore": _restore,
