@@ -1,9 +1,18 @@
+import copy
 import csv
+import dataclasses
 
 import pytest
 
+from mailcellar.dedup import apply as dedup_apply
 from mailcellar.dedup import cli as dedup
-from mailcellar.dedup.apply import DEDUP_LABEL, apply_plan, check_row, unusable_label
+from mailcellar.dedup.apply import (
+    DEDUP_LABEL,
+    Result,
+    apply_plan,
+    check_row,
+    unusable_label,
+)
 from mailcellar.dedup.plan import PLAN_COLUMNS
 
 A, B = "a@example.com", "b@example.com"
@@ -71,7 +80,7 @@ def setup(a_msgs, b_msgs, **b_kwargs):
 
 
 def outcomes(log):
-    return {e["row"]["gmail_id"]: (e["outcome"], e["detail"]) for e in log}
+    return {e.row["gmail_id"]: (e.outcome, e.detail) for e in log}
 
 
 # ── check_row ────────────────────────────────────────────────────────────────
@@ -321,3 +330,110 @@ def test_cli_refuses_a_label_planned_messages_already_had(cli, stage):
     with pytest.raises(SystemExit, match="already had the label 'work'"):
         run(stage, "work")
     assert gmail[B].calls == []  # Gmail never contacted
+
+
+# ── results: frozen values, and the pure steps ───────────────────────────────
+
+
+def ok(tmp_path, gid="b1", **kwargs):
+    return Result(row(tmp_path, gid, **kwargs), "ok", "", frozenset({"INBOX"}))
+
+
+def test_a_result_is_a_frozen_value(tmp_path):
+    result = ok(tmp_path)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        result.outcome = "trashed"
+    assert dataclasses.replace(result, outcome="trashed").outcome == "trashed"
+    assert result.outcome == "ok"  # the copy is a new value
+
+
+def test_the_steps_after_acting_name_each_outcome(tmp_path):
+    results = [ok(tmp_path, "b1"), ok(tmp_path, "b2")]
+    assert [r.outcome for r in dedup_apply.after_dry_run(results)] == ["would label or trash"] * 2
+    assert [r.outcome for r in dedup_apply.after_label(results)] == ["labelled"] * 2
+    declined = dedup_apply.after_declined(results)
+    assert [(r.outcome, r.detail) for r in declined] == [("skipped", "not confirmed")] * 2
+    after = dedup_apply.after_trash(results, {"b2": "HttpError 500"})
+    assert [(r.outcome, r.detail) for r in after] == [("trashed", ""), ("failed", "HttpError 500")]
+    assert [r.outcome for r in results] == ["ok", "ok"]  # none of them changed the originals
+    assert all(a.row is b.row for a, b in zip(after, results, strict=True))  # the same plan rows
+
+
+def test_act_in_a_dry_run_touches_nothing(tmp_path):
+    gmail = FakeGmail({"b1": set()})
+    done = dedup_apply.act(
+        "dry-run", B, [ok(tmp_path)], gmail, lambda p: 1 / 0, DEDUP_LABEL, lambda *a: 1 / 0
+    )
+    assert [r.outcome for r in done] == ["would label or trash"] and gmail.calls == []
+
+
+def test_act_labels_the_ids_once(tmp_path):
+    gmail = FakeGmail({"b1": set(), "b2": set()})
+    results = [ok(tmp_path, "b1"), ok(tmp_path, "b2")]
+    done = dedup_apply.act("label", B, results, gmail, lambda p: 1 / 0, "to-trash", None)
+    assert [r.outcome for r in done] == ["labelled", "labelled"]
+    assert gmail.calls == [("label", ["b1", "b2"], "to-trash")]
+
+
+def test_act_asks_once_and_trashes_only_when_confirmed(tmp_path):
+    results = [ok(tmp_path, "b1"), ok(tmp_path, "b2")]
+    prompts, trashed = [], []
+    gmail = FakeGmail({"b1": set(), "b2": set()}, fail_trash={"b2"})
+    done = dedup_apply.act(
+        "trash",
+        B,
+        results,
+        gmail,
+        lambda p: prompts.append(p) or True,
+        DEDUP_LABEL,
+        lambda account, rows: trashed.append((account, [r["gmail_id"] for r in rows])),
+    )
+    assert prompts == [f"Move 2 messages in {B} to Trash?"]
+    assert [(r.outcome, r.detail) for r in done] == [("trashed", ""), ("failed", "HttpError 500")]
+    assert trashed == [(B, ["b1"])]  # only what was trashed is recorded
+
+    gmail = FakeGmail({"b1": set()})
+    done = dedup_apply.act(
+        "trash", B, [ok(tmp_path)], gmail, lambda p: False, DEDUP_LABEL, lambda *a: 1 / 0
+    )
+    assert [(r.outcome, r.detail) for r in done] == [("skipped", "not confirmed")]
+    assert gmail.calls == []  # not asked to trash, not recorded
+    assert dedup_apply.act(
+        "trash", B, [ok(tmp_path)], FakeGmail({"b1": set()}), lambda p: True, DEDUP_LABEL, None
+    )
+
+
+def test_checked_asks_the_local_check_only_of_rows_that_pass_the_gmail_checks(tmp_path):
+    asked = []
+
+    def local(r):
+        asked.append(r["gmail_id"])
+        return "not in the sidecar"
+
+    good = row(tmp_path, "b1")
+    bad = row(tmp_path, "b2")
+    passed = dedup_apply.checked(good, "label", {"INBOX"}, {"INBOX"}, DEDUP_LABEL, local)
+    assert (passed.outcome, passed.detail) == ("skipped", "not in the sidecar")
+    gone = dedup_apply.checked(bad, "label", None, {"INBOX"}, DEDUP_LABEL, local)
+    assert (gone.outcome, gone.detail, gone.live) == ("skipped", "message no longer in Gmail", None)
+    assert asked == ["b1"]  # b2 failed the Gmail check first
+    fine = dedup_apply.checked(good, "label", {"INBOX"}, {"INBOX"}, DEDUP_LABEL, None)
+    assert (fine.outcome, fine.detail, fine.live) == ("ok", "", frozenset({"INBOX"}))
+    assert fine.row is good
+
+
+def test_apply_plan_returns_results_in_order_and_leaves_the_rows_alone(tmp_path):
+    rows = [row(tmp_path, "b1"), row(tmp_path, "b2"), row(tmp_path, "b3")]
+    rows[1]["account"] = A  # a second account, in the middle
+    before = copy.deepcopy(rows)
+    gmail, _scopes, gmail_for = setup(
+        {"a1": set(), "b2": {DEDUP_LABEL}}, {"b1": {DEDUP_LABEL}, "b3": set()}
+    )
+    log = apply_plan(rows, "trash", gmail_for, confirm=lambda p: True)
+    assert all(isinstance(r, Result) for r in log)
+    assert [r.row["gmail_id"] for r in log] == ["b1", "b2", "b3"]  # the rows' order
+    assert [r.outcome for r in log] == ["trashed", "trashed", "skipped"]
+    assert [r.row for r in log] == before and all(
+        r.row is o for r, o in zip(log, rows, strict=True)
+    )
+    assert rows == before  # the plan rows were not changed

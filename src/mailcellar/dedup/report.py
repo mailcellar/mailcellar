@@ -4,6 +4,7 @@ Text reports printed by match, plan and apply.
 
 import sqlite3
 
+from mailcellar.dedup.apply import Result
 from mailcellar.dedup.rules import ORIGIN
 from mailcellar.report.output import human_size
 
@@ -123,11 +124,11 @@ def report_plan(
             print(f"    {label:<28} {n:>6,}")
 
 
-def report_apply(log: list[dict], mode: str) -> None:
+def report_apply(log: list[Result], mode: str) -> None:
     print(f"\nApply ({mode})")
     counts: dict[tuple, int] = {}
     for e in log:
-        key = (e["row"]["account"], e["outcome"], e["detail"].split(":")[0])
+        key = (e.row["account"], e.outcome, e.detail.split(":")[0])
         counts[key] = counts.get(key, 0) + 1
     for (account, outcome, detail), n in sorted(counts.items()):
         print(f"  {account:<30} {outcome:<22} {n:>6,}  {detail}")

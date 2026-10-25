@@ -65,7 +65,7 @@ mailcellar` and `python -m mailcellar` both work.
 | `dedup/index.py` | Catalogue backups into `dedup.sqlite`, from the sidecars where possible |
 | `dedup/match.py` | Group copies of the same message |
 | `dedup/rules.py`, `dedup/plan.py` | Keep / remove / review decisions; the plan CSV |
-| `dedup/apply.py` | Live checks against Gmail, then label or trash; the audit log. Shared with offload |
+| `dedup/apply.py` | Live checks against Gmail, then label or trash; the audit log. Shared with offload. `apply_plan()` reads Gmail's state, `check_row()`/`checked()` decide, and `act()` carries out one account's rows; each returns new frozen `Result`s (the plan rows are never changed) |
 | `dedup/report.py`, `dedup/paths.py` | Text reports; default output locations |
 | `offload/` | `rules.py` (TOML rules), `plan.py` (selection, plan CSV, summary), `apply.py` (backup checks, the offload record, batch manifests on top of dedup's label → trash loop), `cli.py` |
 | `restore/` | `apply.py` (which offloaded messages, backup checks, each message's way back: untrash, already in Gmail, found by Message-ID, or import; indexing a new ID in the backup), `cli.py` |
