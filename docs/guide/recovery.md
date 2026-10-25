@@ -31,12 +31,16 @@ tick the Gmail permission; the command then carries on. On a machine with
 no browser, or from a scheduled job, authorise ahead of time:
 
 ```bash
-uv run mailcellar dedup auth ACCOUNT --scope readonly   # for backup, count, meta, reports
-uv run mailcellar dedup auth ACCOUNT --scope modify     # for apply and restore --yes
+uv run mailcellar auth ACCOUNT --scope readonly   # for backup, count, meta, reports
+uv run mailcellar auth ACCOUNT --scope modify     # for apply and restore --yes
 ```
 
-`dedup auth` changes nothing in the mailbox and takes every account if none
-is named. If it ends with `Google did not grant gmail.…`, the Gmail
+`auth` changes nothing in the mailbox and takes every account if none is
+named. (It used to be `mailcellar dedup auth`, which still works.) To avoid
+the error, renew a token that is getting old before it runs out: add
+`--renew`, which asks for consent again and starts Google's 7 days afresh.
+mailcellar warns when a token is 5 days past consent, and `mailcellar config`
+and `report health` show how old each one is. If it ends with `Google did not grant gmail.…`, the Gmail
 permission box was not ticked; delete the token file it names, in the
 account's folder in the config folder, and run it again. To stop the weekly
 sign-in, publish the app (*In production*) as the Google Cloud guide

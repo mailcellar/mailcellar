@@ -18,6 +18,8 @@ DATA_DIR = "data"  # the default data root, relative to the working directory
 DATA_ENV = "MAILCELLAR_DATA"
 CONFIG_ENV = "MAILCELLAR_CONFIG"
 SETTINGS_NAME = "settings.toml"  # in the config folder: data_dir = "~/data/mailcellar"
+SETTINGS_KEYS = {"data_dir", "token_warn_days"}
+TOKEN_WARN_DAYS = 5  # days after consent when a token starts to be reported as ageing
 PRUNED_DIR = "_pruned"  # <data>/_pruned/<email>/<timestamp>/, written by --sync
 
 
@@ -64,7 +66,7 @@ def data_setting() -> tuple[str, str]:
     if settings_file.is_file():
         with settings_file.open("rb") as fh:
             settings = tomllib.load(fh)
-        unknown = set(settings) - {"data_dir"}
+        unknown = set(settings) - SETTINGS_KEYS
         if unknown:
             raise ValueError(f"{settings_file}: unknown settings {sorted(unknown)}")
         value = settings.get("data_dir", "")
@@ -73,6 +75,25 @@ def data_setting() -> tuple[str, str]:
         if value.strip():
             return value.strip(), str(settings_file)
     return DATA_DIR, "default"
+
+
+def token_warn_days(config: Path | None = None) -> int:
+    """
+    Days after consent when a token is reported as ageing (token_warn_days in
+    <config>/settings.toml; 0 turns the warning off). With the consent screen
+    in Testing status, Google expires a token after 7 days; mailcellar can't
+    see that status, so the warning goes by the time since consent.
+    """
+    import tomllib
+
+    settings_file = (config or config_root()) / SETTINGS_NAME
+    if not settings_file.is_file():
+        return TOKEN_WARN_DAYS
+    with settings_file.open("rb") as fh:
+        value = tomllib.load(fh).get("token_warn_days", TOKEN_WARN_DAYS)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{settings_file}: token_warn_days must be a number of days, or 0")
+    return value
 
 
 def data_root() -> Path:

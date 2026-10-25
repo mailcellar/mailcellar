@@ -87,8 +87,20 @@ scheduled job is enough.
 **Tokens and the consent screen.** If the consent screen's publishing
 status is *Testing*, Google expires its tokens after 7 days, and the next
 backup asks you to sign in again. Either set the status to *In production*
-or refresh access when needed with
-`mailcellar dedup auth --scope readonly` (or `--scope modify` for `apply`).
+or renew access before it runs out:
+
+```bash
+uv run mailcellar auth work --scope readonly --renew   # or --scope modify for apply and restore
+```
+
+`auth` asks for consent again (`--renew`), which starts the 7 days afresh;
+without `--renew` it only signs in if the token no longer works. mailcellar
+records when consent was given, shows it in `mailcellar config` and
+`report health`, and warns when a token is 5 days old or more, printing this
+command. It can't see the consent screen's status, so the warning goes by
+the time since consent; if your tokens don't expire, turn it off with
+`token_warn_days = 0` in `settings.toml`. (`mailcellar dedup auth` still
+works, as an alias.)
 
 ## What changes Gmail
 
@@ -99,7 +111,7 @@ or stages its changes:
 |---|---|---|
 | `dedup apply --label` / `offload apply --label` | adds a review label to the planned messages | modify |
 | `dedup apply --trash` / `offload apply --trash` | moves labelled messages to Gmail's Trash | modify |
-| `dedup auth ACCOUNT --scope modify` | grants modify access (changes nothing in the mailbox) | modify |
+| `auth ACCOUNT --scope modify` | grants modify access (changes nothing in the mailbox) | modify |
 | `restore ACCOUNT … --yes` | moves offloaded mail out of Trash, or uploads backed-up mail Gmail no longer has (into this account or, with `--to`, another); adds a `restored/<date>` label | modify |
 | `backup --sync` | the *backup*: moves mail permanently deleted from Gmail into `<data root>/_pruned/` | read-only |
 
@@ -129,7 +141,7 @@ dotfile manager or sync:
 ```
 ~/.config/mailcellar/
   accounts.toml            # config name → address
-  settings.toml            # optional: data_dir
+  settings.toml            # optional: data_dir, token_warn_days
   <name>/client_secrets.json
   <name>/dedup-token-readonly.json, dedup-token-modify.json   # written on first use
 ```
@@ -158,6 +170,7 @@ count and last backup. It never prints a credential.
 ```toml
 # settings.toml
 data_dir = "~/data/mailcellar"
+token_warn_days = 5     # warn when a token is this many days past consent; 0 = never
 ```
 
 To move existing backups, move the whole folder and set the new path. Then
@@ -326,7 +339,7 @@ upload to that message instead of storing this one.
 
 **Into another account** (`--to`): every message is looked up by
 Message-ID there, and new IDs go into that account's backup. It needs
-modify access to that account (`mailcellar dedup auth ACCOUNT --scope
+modify access to that account (`mailcellar auth ACCOUNT --scope
 modify`). `--label-prefix P` nests the backed-up user labels under `P/`;
 `--strip-labels` restores none, so the messages arrive archived with only
 the `restored/` label.

@@ -32,9 +32,10 @@ removed from Gmail in stages.
           pass, then --trash [NAME] moves rows carrying it to Trash. NAME
           must be a label no planned message already had. Nothing is ever
           permanently deleted, and every run is appended to an audit log.
-  auth    Obtain or refresh an account's Gmail token (--scope readonly or
-          modify) and check that it reaches the right mailbox. Changes
-          nothing in Gmail.
+  auth    Obtain or renew an account's Gmail token (--scope readonly or
+          modify) and check that it reaches the right mailbox; --renew asks
+          for consent again before a token runs out. Changes nothing in
+          Gmail. Also available as `mailcellar auth`.
 
 Usage
   mailcellar dedup index
@@ -43,7 +44,7 @@ Usage
   mailcellar dedup plan --keep alex@example.org
   mailcellar dedup plan --keep origin
   mailcellar dedup plan --scope within
-  mailcellar dedup auth work --scope modify
+  mailcellar auth work --scope modify
   mailcellar dedup apply                     # dry run
   mailcellar dedup apply --label --limit 5
   mailcellar dedup apply --trash --limit 5

@@ -34,7 +34,7 @@ Only the latest release, and the `main` branch, receive fixes.
    issued to your OAuth client, for this account.
 2. Delete the token files in the account's config folder
    (`mailcellar config` shows where).
-3. Authorise again: `mailcellar dedup auth ACCOUNT --scope readonly`.
+3. Authorise again: `mailcellar auth ACCOUNT --scope readonly`.
 
 If `client_secrets.json` leaked too, delete the OAuth client in the Google
 Cloud console and create a new one.

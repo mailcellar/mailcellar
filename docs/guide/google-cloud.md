@@ -58,7 +58,9 @@ Audience page:
 | **In production** | Anyone who has the client | Tokens last until you revoke them. Google shows an "unverified app" warning at consent, because the app has not been through Google's review; for your own use you can continue past it. |
 
 Testing is the default and needs no more work, but expect to approve access
-weekly. **Publish app**, on the same page, moves it to production. Google's
+weekly. mailcellar warns when a token is 5 days past consent, and
+`mailcellar auth ACCOUNT --scope readonly --renew` renews it before it runs
+out (see [recovery](recovery.md#a-token-expired-or-was-revoked)). **Publish app**, on the same page, moves it to production. Google's
 verification review only matters if more than a hundred users are to approve
 the app, which a program you run for yourself never needs.
 Google's rules on both are in

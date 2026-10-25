@@ -58,7 +58,8 @@ they do not look like missing mail.
 ## Signing in again every week
 
 The Google Cloud project's consent screen is in *Testing* status, where
-Google expires tokens after 7 days. Either accept the weekly sign-in, or
+Google expires tokens after 7 days. Either accept the weekly sign-in (and
+renew ahead of it with `mailcellar auth ACCOUNT --scope readonly --renew`), or
 publish the app. See
 [Setting up Google Cloud](google-cloud.md#testing-or-in-production).
 The error you see in the meantime, and how to sign in ahead of time, is in

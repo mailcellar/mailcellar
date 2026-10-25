@@ -5,7 +5,8 @@ mailcellar: one command for the Gmail backups and what is done with them.
   mailcellar count   [ACCOUNT ...]      compare Gmail with the backup
   mailcellar meta    [ACCOUNT ...]      fill meta.sqlite for older mail
   mailcellar verify  [ACCOUNT ...] [--offloaded] [--sample N]   check the backup's files
-  mailcellar dedup   index | match | plan | apply | auth
+  mailcellar auth    [ACCOUNT ...] --scope readonly|modify [--renew]   authorise or renew access
+  mailcellar dedup   index | match | plan | apply
   mailcellar offload plan | apply       take old mail out of Gmail, keep it here
   mailcellar restore ACCOUNT --batch B | --rule R | --id G | --offloaded | --all
                      [--to ACCOUNT] [--yes]   put backed-up mail back into Gmail
@@ -24,6 +25,7 @@ import difflib
 import logging
 import sqlite3
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 SYNOPSIS, FOOTER = __doc__.split("\n\n")[1:3]
@@ -42,6 +44,13 @@ def _verify(argv: list[str]) -> int:
     from mailcellar.backup.verify import main
 
     return main(argv, prog="mailcellar verify")
+
+
+def _auth(argv: list[str]) -> int:
+    from mailcellar.dedup.cli import main
+
+    main(["auth", *argv], prog="mailcellar")
+    return 0
 
 
 def _dedup(argv: list[str]) -> int:
@@ -146,13 +155,18 @@ def _config(argv: list[str]) -> int:
             continue
 
     rows = []
+    now = datetime.now(UTC)
     for account in sorted(set(configured) | set(backups)):
         cfg = configured.get(account)
-        tokens = [
-            scope
-            for scope in gmailapi.SCOPES
-            if cfg is not None and gmailapi.token_file(cfg, scope).is_file()
-        ]
+        tokens = []
+        for scope in gmailapi.SCOPES:
+            if cfg is not None and gmailapi.token_file(cfg, scope).is_file():
+                authorised = gmailapi.token_authorised_at(cfg, scope)
+                tokens.append(
+                    f"{scope} ({gmailapi.token_age_days(authorised, now):.0f} days)"
+                    if authorised
+                    else f"{scope} (age unknown)"
+                )
         folder = backups.get(account)
         messages = last = None
         if folder is not None:
@@ -212,7 +226,10 @@ def _config(argv: list[str]) -> int:
             else [
                 "Config: $MAILCELLAR_CONFIG, else ~/.config/mailcellar, else ./config. "
                 "Data: $MAILCELLAR_DATA, else data_dir in settings.toml, else ./data. "
-                "Tokens: the access each account has granted (readonly, modify)."
+                "Tokens: the access each account has granted (readonly, modify) and the days "
+                "since consent was given: with the consent screen in Testing status, Google "
+                "expires a token 7 days after that (renew: mailcellar auth ACCOUNT --scope S "
+                "--renew)."
             ],
             limit=False,
         ),
@@ -226,6 +243,7 @@ COMMANDS = {
     "count": _backup_command("count"),
     "meta": _backup_command("meta"),
     "verify": _verify,
+    "auth": _auth,
     "dedup": _dedup,
     "offload": _offload,
     "restore": _restore,
