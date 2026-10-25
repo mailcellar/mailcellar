@@ -90,6 +90,13 @@ uv run mailcellar offload plan work
   and by sender (`--top N` sets how many senders are shown);
 - how many it kept, and which protection kept them.
 
+For a rule that selects more than you can read through, add `--review`:
+it writes a page per rule to `<data root>/offload/review/`, to open in a
+browser, with a random sample of what the rule would offload and of what
+each protection keeps, the largest messages, the threads with most messages
+in the offload, and attachment types. It shows senders and subjects only;
+keep it to yourself.
+
 Read it against what you expected. If the numbers are far larger than you
 had in mind, or a sender you recognise is in the list, adjust the rule and
 plan again; each run replaces the plan file.
@@ -212,7 +219,9 @@ backup's completeness, its recent runs and how much mail is offloaded.
 
 Gmail's storage figure drops only after the Trash is emptied, which
 Gmail does 30 days after the move. Do not empty it earlier unless you are
-certain of the backup and your second copy.
+certain of the backup and your second copy. `uv run mailcellar report
+storage work` shows each batch's progress: how much has been freed so far,
+how much is still in Trash, and when Gmail will empty it.
 
 ## Finding offloaded mail
 

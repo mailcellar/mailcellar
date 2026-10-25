@@ -32,6 +32,7 @@ from mailcellar.offload.apply import (
     upgrade_log,
 )
 from mailcellar.offload.plan import PLAN_COLUMNS, build_plan, plan_rows, summary
+from mailcellar.offload.review import write_reviews
 from mailcellar.offload.rules import RuleError, load_rules
 from mailcellar.paths import backup_folder, config_root, data_root
 from mailcellar.report.cli import parse_before, resolve_folders
@@ -44,6 +45,11 @@ logger = logging.getLogger(__name__)
 def offload_dir() -> Path:
     """offload/ in the data root (paths.data_root())."""
     return data_root() / "offload"
+
+
+def review_dir() -> Path:
+    """Where offload plan --review writes its pages."""
+    return offload_dir() / "review"
 
 
 def resolve_account(name: str) -> str:
@@ -75,6 +81,7 @@ def cmd_plan(args) -> None:
             if rule.accounts and not set(rule.accounts) & set(accounts):
                 logger.warning(f"rule {rule.name!r}: none of its accounts is chosen")
         results = build_plan(con, rules, accounts, {backup_account(f): str(f) for f in folders})
+        reviews = write_reviews(con, results, accounts, review_dir()) if args.review else []
     planned = int(time.time() * 1000)
     rows = plan_rows(results, planned)
     write_plan(rows, Path(args.plan))
@@ -95,6 +102,8 @@ def cmd_plan(args) -> None:
     if args.csv:
         paths = write_csv(tables, Path(args.csv), "offload")
         logger.info(f"CSV → {args.csv}/ ({len(paths)} files)")
+    for path in reviews:
+        logger.info(f"Review → {path}")
     size = sum(r["size"] for r in rows)
     logger.info(
         f"Plan → {args.plan}: {len(rows):,} messages, {human_size(size)} (kept as {kept}). "
@@ -219,6 +228,13 @@ def main(argv=None, prog: str | None = None) -> None:
     )
     pl.add_argument(
         "--csv", default=None, metavar="DIR", help="Also write the summary tables as CSV in DIR"
+    )
+    pl.add_argument(
+        "--review",
+        action="store_true",
+        help="Also write a review page per rule, in <data root>/offload/review/: samples of "
+        "what it would offload and what it keeps, the largest messages and threads, "
+        "attachment types (senders and subjects, never bodies; for you alone)",
     )
     pl.set_defaults(func=cmd_plan)
 

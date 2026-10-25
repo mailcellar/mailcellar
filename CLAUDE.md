@@ -19,7 +19,7 @@ uv run mailcellar <backup|count|meta|verify> [ACCOUNT ...] [options]   # all acc
 uv run mailcellar auth [ACCOUNT ...] [--scope readonly|modify] [--renew]   # `dedup auth` still works
 uv run mailcellar schedule <install|remove|status>   # the unattended backup job
 uv run mailcellar dedup <index|match|plan|apply> [options]
-uv run mailcellar offload <plan|apply> [options]
+uv run mailcellar offload <plan [--review]|apply> [options]
 uv run mailcellar restore ACCOUNT <--batch|--rule|--id|--offloaded|--all> [--to ACCOUNT] [--yes]
 uv run mailcellar restore ACCOUNT <--from-pruned BATCH|--from-mbox FILE|--from-folder DIR> [--yes]
 uv run mailcellar search QUERY [ACCOUNT ...] [--offloaded] [--rule R] [--before DATE]

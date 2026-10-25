@@ -186,7 +186,7 @@ def test_cli_text_and_csv(two_accounts, tmp_path, capsys):
     assert out.startswith(f"Storage report — {A}, {B}")
     assert "Removal candidates" in out
     files = sorted(p.name for p in (tmp_path / "reports").iterdir())
-    assert "storage-candidates.csv" in files and len(files) == 11
+    assert "storage-candidates.csv" in files and len(files) == 12  # with offload-batches
     with (tmp_path / "reports" / "storage-largest-messages.csv").open() as fh:
         assert len(list(csv.reader(fh))) == 1 + 7  # header + every message
 
