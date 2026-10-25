@@ -37,6 +37,8 @@ How it fits together: [docs/architecture.md](docs/architecture.md).
   writing a rule to restoring.
 - [Recovering when something goes wrong](docs/guide/recovery.md): an expired token,
   a long gap between backups, an interrupted run, a lost data root.
+- [Troubleshooting and FAQ](docs/guide/troubleshooting.md): slow runs, `count` results,
+  chats, weekly sign-in, why not IMAP or Takeout.
 
 ## Quick start
 
