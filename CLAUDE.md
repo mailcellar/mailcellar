@@ -17,7 +17,7 @@ uv run pytest                          # all tests; no network
 uv run pytest --cov                    # with branch coverage; a guide, no minimum
 uv run ruff format && uv run ruff check   # format, then lint; both must pass
 uv run mailcellar config               # where the config and data are; each account's state
-uv run mailcellar <backup|count|meta> [ACCOUNT ...] [options]   # all accounts by default
+uv run mailcellar <backup|count|meta|verify> [ACCOUNT ...] [options]   # all accounts by default
 uv run mailcellar dedup <index|match|plan|apply|auth> [options]
 uv run mailcellar offload <plan|apply> [options]
 uv run mailcellar restore ACCOUNT <--batch|--rule|--id|--offloaded|--all> [--to ACCOUNT] [--yes]
@@ -41,7 +41,7 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
   `dedup apply --label/--trash`, `offload apply --label/--trash`,
   `restore --yes`, `backup --sync`, `dedup auth --scope modify`, and
   moving or deleting the data root or config folder. Fine without asking:
-  - dry runs, `config`, `count`, the reports;
+  - dry runs, `config`, `count`, `verify`, the reports;
   - `dedup index/match/plan` and `offload plan`, which write only their
     own files in the data root;
   - plain `backup` and `meta`, which add to and refresh the backup but
