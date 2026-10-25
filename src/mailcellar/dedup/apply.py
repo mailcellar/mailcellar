@@ -3,11 +3,16 @@ apply: check planned removals against live Gmail, then label or trash them.
 
 Shared with offload apply, whose rows have no keeper: rows without a
 keeper_gmail_id skip the keeper checks.
+
+The shape is restore's: apply_plan() reads what Gmail says, check_row() and
+checked() decide, and act() carries out one account's rows; each step
+returns new frozen Results rather than changing the ones it was given.
 """
 
 import csv
 import logging
 import sys
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -114,6 +119,86 @@ def read_removals(plan_path: Path) -> list[dict]:
     return [r for r in rows if r["action"] == "remove"]
 
 
+@dataclass(frozen=True)
+class Result:
+    """
+    What came of one planned removal: its plan row (as read, never changed),
+    the outcome and detail the apply log records, and the message's label
+    names in Gmail when checked (None: it no longer exists there).
+    """
+
+    row: dict
+    outcome: str
+    detail: str = ""
+    live: frozenset[str] | None = None
+
+
+def after_dry_run(results: list[Result]) -> list[Result]:
+    return [replace(r, outcome="would label or trash") for r in results]
+
+
+def after_label(results: list[Result]) -> list[Result]:
+    return [replace(r, outcome="labelled") for r in results]
+
+
+def after_declined(results: list[Result]) -> list[Result]:
+    return [replace(r, outcome="skipped", detail="not confirmed") for r in results]
+
+
+def after_trash(results: list[Result], failures: dict[str, str]) -> list[Result]:
+    """The results once trashing is done; failures maps a Gmail ID to why it failed."""
+    return [
+        replace(r, outcome="failed", detail=failures[r.row["gmail_id"]])
+        if r.row["gmail_id"] in failures
+        else replace(r, outcome="trashed")
+        for r in results
+    ]
+
+
+def act(
+    mode: str, account: str, results: list[Result], client, confirm, dedup_label: str, on_trashed
+) -> list[Result]:
+    """
+    Carry out `mode` on the results of one account that passed the checks,
+    and return them as new Results. client is that account's Gmail
+    (add_label / trash); confirm and on_trashed are as in apply_plan.
+    """
+    ids = [r.row["gmail_id"] for r in results]
+    if mode == "dry-run":
+        return after_dry_run(results)
+    if mode == "label":
+        client.add_label(ids, dedup_label)
+        return after_label(results)
+    if not confirm(f"Move {len(ids):,} messages in {account} to Trash?"):
+        return after_declined(results)
+    failures = dict(f.split(": ", 1) for f in client.trash(ids))
+    done = after_trash(results, failures)
+    if on_trashed is not None:
+        on_trashed(account, [r.row for r in done if r.outcome == "trashed"])
+    return done
+
+
+def checked(
+    row: dict,
+    mode: str,
+    live: set[str] | None,
+    keeper: set[str] | None,
+    dedup_label: str,
+    local_check,
+) -> Result:
+    """
+    The planned removal against what Gmail says about it: "ok" if it is still
+    safe, else "skipped" with why. local_check(row) -> "" or why to skip is
+    asked only of rows that pass the Gmail checks.
+    """
+    reason = check_row(row, mode, live, keeper, dedup_label)
+    if not reason and local_check is not None:
+        reason = local_check(row)
+    return Result(
+        row, "skipped" if reason else "ok", reason, None if live is None else frozenset(live)
+    )
+
+
 def apply_plan(
     rows: list[dict],
     mode: str,
@@ -122,17 +207,16 @@ def apply_plan(
     dedup_label: str = DEDUP_LABEL,
     local_check=None,
     on_trashed=None,
-) -> list[dict]:
+) -> list[Result]:
     """
     Check every planned removal against live Gmail state and, outside a dry
-    run, act on the ones that pass. Returns one log entry per row.
+    run, act on the ones that pass. Returns one Result per row, in order;
+    the rows are not changed.
 
     gmail_for(account, scope) -> object with message_labels / add_label / trash.
     confirm(prompt) -> bool, asked once per account before trashing.
     local_check(row) -> "" or why to skip; run on rows that pass the Gmail checks.
     on_trashed(account, rows) is called with the rows trashed in each account.
-    Each log entry: row, outcome, detail, and live (the message's label names
-    in Gmail when checked, or None).
     """
     write_scope = "readonly" if mode == "dry-run" else "modify"
     remove_accounts = {r["account"] for r in rows}
@@ -156,60 +240,39 @@ def apply_plan(
         for gid, labels in client(account).message_labels(ids).items():
             live[(account, gid)] = labels
 
-    log = []
-    for r in rows:
-        reason = check_row(
+    results = [
+        checked(
             r,
             mode,
             live.get((r["account"], r["gmail_id"])),
             live.get((r.get("keeper_account"), r.get("keeper_gmail_id"))),
             dedup_label,
+            local_check,
         )
-        if not reason and local_check is not None:
-            reason = local_check(r)
-        log.append(
-            {
-                "row": r,
-                "outcome": "skipped" if reason else "ok",
-                "detail": reason,
-                "live": live.get((r["account"], r["gmail_id"])),  # label names, or None
-            }
+        for r in rows
+    ]
+
+    passed: dict[str, list[int]] = {}
+    for n, result in enumerate(results):
+        if result.outcome == "ok":
+            passed.setdefault(result.row["account"], []).append(n)
+    for account, positions in sorted(passed.items()):
+        acted = act(
+            mode,
+            account,
+            [results[n] for n in positions],
+            client(account),
+            confirm,
+            dedup_label,
+            on_trashed,
         )
-
-    passed: dict[str, list[dict]] = {}
-    for entry in log:
-        if entry["outcome"] == "ok":
-            passed.setdefault(entry["row"]["account"], []).append(entry)
-
-    for account, entries in sorted(passed.items()):
-        ids = [e["row"]["gmail_id"] for e in entries]
-        if mode == "dry-run":
-            outcome = "would label or trash"
-        elif mode == "label":
-            client(account).add_label(ids, dedup_label)
-            outcome = "labelled"
-        else:
-            if not confirm(f"Move {len(ids):,} messages in {account} to Trash?"):
-                for e in entries:
-                    e["outcome"], e["detail"] = "skipped", "not confirmed"
-                continue
-            failures = dict(f.split(": ", 1) for f in client(account).trash(ids))
-            for e in entries:
-                gid = e["row"]["gmail_id"]
-                if gid in failures:
-                    e["outcome"], e["detail"] = "failed", failures[gid]
-                else:
-                    e["outcome"] = "trashed"
-            if on_trashed is not None:
-                on_trashed(account, [e["row"] for e in entries if e["outcome"] == "trashed"])
-            continue
-        for e in entries:
-            e["outcome"] = outcome
-    return log
+        for n, result in zip(positions, acted, strict=True):
+            results[n] = result
+    return results
 
 
 def write_apply_log(
-    log: list[dict], mode: str, log_path: Path, columns: list[str] = APPLY_LOG_COLUMNS
+    log: list[Result], mode: str, log_path: Path, columns: list[str] = APPLY_LOG_COLUMNS
 ) -> None:
     """
     Append this run to the apply log (CSV, one row per planned removal).
@@ -223,5 +286,5 @@ def write_apply_log(
         if new:
             w.writeheader()
         for e in log:
-            entry = {"time": now, "mode": mode, "outcome": e["outcome"], "detail": e["detail"]}
-            w.writerow({c: entry[c] if c in entry else e["row"].get(c, "") for c in columns})
+            entry = {"time": now, "mode": mode, "outcome": e.outcome, "detail": e.detail}
+            w.writerow({c: entry[c] if c in entry else e.row.get(c, "") for c in columns})

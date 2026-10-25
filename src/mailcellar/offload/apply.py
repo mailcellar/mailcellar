@@ -22,10 +22,12 @@ import subprocess
 import sys
 import time
 from calendar import timegm
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
 from mailcellar.backup import sidecar
+from mailcellar.dedup.apply import Result
 from mailcellar.message import PARSER_VERSION, parse_eml
 from mailcellar.offload.plan import PLAN_COLUMNS, PLANNED_FORMAT
 
@@ -319,31 +321,57 @@ def remaining(
     return rows
 
 
-def recover_trashed(log: list[dict], mode: str, label: str, checks, on_trashed) -> int:
+def trashed_before(entry: Result, label: str) -> bool:
+    """
+    Whether the message looks trashed by an earlier run: in Trash and still
+    carrying the label (a message trashed by hand has lost it, or never had it).
+    """
+    live = entry.live or frozenset()
+    return "TRASH" in live and label in live
+
+
+def recovered(entry: Result, mode: str, problem: str) -> Result:
+    """
+    A message trashed by an earlier run, as this run's mode treats it, given
+    why its backup copy can't be used ("" if it can). A copy that can't be used
+    is skipped in every mode; a dry run reports the message; --trash records it;
+    any other mode leaves it alone. Pure.
+    """
+    if problem:
+        return replace(
+            entry,
+            outcome="skipped",
+            detail=f"in Trash, but {problem}; restore it from Gmail's Trash",
+        )
+    if mode == "dry-run":
+        return replace(entry, outcome="would record (already in trash)")
+    if mode != "trash":
+        return entry
+    return replace(entry, outcome="recorded", detail="already in trash")
+
+
+def recover_trashed(
+    log: list[Result], mode: str, label: str, checks, on_trashed
+) -> tuple[list[Result], int]:
     """
     Messages trashed by an earlier run that died before recording them: in
     Trash, still carrying the label, not offloaded. --trash records them
-    (after the backup checks); a dry run reports them. Returns how many.
+    (after the backup checks); a dry run reports them. Returns the log with
+    those entries replaced, and how many were recorded; `log` is not changed.
     """
+    out: list[Result] = []
     found: dict[str, list[dict]] = {}
-    for e in log:
-        live = e.get("live") or set()
-        if "TRASH" not in live or label not in live:
+    for entry in log:
+        if not trashed_before(entry, label):
+            out.append(entry)
             continue
         # The Gmail checks stop at the first problem: the backup checks decide.
-        problem = "no local backup copy" if not Path(e["row"]["path"]).is_file() else ""
-        problem = problem or checks(e["row"])
-        if problem:
-            e["outcome"] = "skipped"
-            e["detail"] = f"in Trash, but {problem}; restore it from Gmail's Trash"
-            continue
-        if mode == "dry-run":
-            e["outcome"] = "would record (already in trash)"
-            continue
-        if mode != "trash":
-            continue
-        e["outcome"], e["detail"] = "recorded", "already in trash"
-        found.setdefault(e["row"]["account"], []).append(e["row"])
+        problem = "no local backup copy" if not Path(entry.row["path"]).is_file() else ""
+        problem = problem or checks(entry.row)
+        new = recovered(entry, mode, problem)
+        out.append(new)
+        if new.outcome == "recorded":
+            found.setdefault(entry.row["account"], []).append(entry.row)
     for account, rows in found.items():
         on_trashed(account, rows)
-    return sum(len(rows) for rows in found.values())
+    return out, sum(len(rows) for rows in found.values())

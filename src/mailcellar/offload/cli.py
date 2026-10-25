@@ -175,7 +175,7 @@ def cmd_apply(args) -> None:
         )
     except gmailapi.GmailError as exc:
         sys.exit(f"error: {exc}")
-    recovered = recover_trashed(log, mode, label, checks, record)
+    log, recovered = recover_trashed(log, mode, label, checks, record)
     if recovered:
         print(f"Recorded {recovered:,} messages an earlier run trashed without recording.")
     logged_mode = mode if mode == "dry-run" else f"{mode} ({label})"
@@ -183,7 +183,7 @@ def cmd_apply(args) -> None:
     upgrade_log(Path(args.log), APPLY_LOG_COLUMNS)
     write_apply_log(log, logged_mode, Path(args.log), APPLY_LOG_COLUMNS)
     print(f"Log → {args.log}")
-    trashed = sum(e["outcome"] in ("trashed", "recorded") for e in log)
+    trashed = sum(e.outcome in ("trashed", "recorded") for e in log)
     if trashed:
         print(
             f"Recorded {trashed:,} offloaded messages (batch {batch}); --sync keeps them in the "

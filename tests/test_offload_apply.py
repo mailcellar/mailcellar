@@ -8,6 +8,7 @@ import pytest
 
 from mailcellar import gmailapi
 from mailcellar.backup import commands, sidecar
+from mailcellar.dedup.apply import Result
 from mailcellar.offload import apply as offload_apply
 from mailcellar.offload import cli
 from mailcellar.offload.apply import OFFLOAD_LABEL, second_copy_report
@@ -449,21 +450,83 @@ def test_recording_nothing_writes_no_manifest(env, tmp_path):
 
 def test_a_label_run_leaves_messages_trashed_before_a_crash_alone(env):
     path = next(env.folder.rglob("w0.eml"))
-    entry = {
-        "live": {"TRASH", OFFLOAD_LABEL},
-        "row": {"account": A, "gmail_id": "w0", "path": str(path)},
-        "outcome": "x",
-        "detail": "",
-    }
+    row = {"account": A, "gmail_id": "w0", "path": str(path)}
+    entry = Result(row, "x", "", frozenset({"TRASH", OFFLOAD_LABEL}))
     recorded = []
-    label = OFFLOAD_LABEL
-    assert (
-        offload_apply.recover_trashed(
-            [entry], "label", label, lambda row: "", lambda a, rows: recorded.append(rows)
-        )
-        == 0
+    log, count = offload_apply.recover_trashed(
+        [entry], "label", OFFLOAD_LABEL, lambda row: "", lambda a, rows: recorded.append(rows)
     )
-    assert recorded == [] and (entry["outcome"], entry["detail"]) == ("x", "")
+    assert count == 0 and recorded == []
+    assert log == [entry]
+
+
+# ── recognising messages trashed before a crash ──────────────────────────────
+
+
+def entry(live, gid="w0", path="x", outcome="ok", detail=""):
+    row = {"account": A, "gmail_id": gid, "path": path}
+    return Result(row, outcome, detail, None if live is None else frozenset(live))
+
+
+@pytest.mark.parametrize(
+    ("live", "expected"),
+    [
+        ({"TRASH", OFFLOAD_LABEL}, True),
+        ({"TRASH", OFFLOAD_LABEL, "work"}, True),
+        ({"TRASH"}, False),  # trashed by hand: never had, or lost, the label
+        ({OFFLOAD_LABEL}, False),  # labelled, not trashed
+        ({"INBOX"}, False),
+        (set(), False),
+        (None, False),  # no longer in Gmail
+    ],
+)
+def test_trashed_before_needs_trash_and_the_label(live, expected):
+    assert offload_apply.trashed_before(entry(live), OFFLOAD_LABEL) is expected
+
+
+@pytest.mark.parametrize(
+    ("mode", "problem", "outcome", "detail"),
+    [
+        ("trash", "", "recorded", "already in trash"),
+        ("dry-run", "", "would record (already in trash)", ""),
+        ("label", "", "ok", ""),  # a label run leaves it alone
+        ("trash", "no local backup copy", "skipped", "in Trash, but no local backup copy; "),
+        ("dry-run", "backup copy differs", "skipped", "in Trash, but backup copy differs; "),
+        ("label", "backup copy differs", "skipped", "in Trash, but backup copy differs; "),
+    ],
+)
+def test_recovered_by_mode_and_backup_problem(mode, problem, outcome, detail):
+    before = entry({"TRASH", OFFLOAD_LABEL})
+    after = offload_apply.recovered(before, mode, problem)
+    assert after.outcome == outcome and after.detail.startswith(detail)
+    assert after.row is before.row and before.outcome == "ok"  # a new value; the old is unchanged
+    if problem:
+        assert after.detail.endswith("restore it from Gmail's Trash")
+
+
+def test_recover_trashed_returns_a_new_log_and_changes_nothing(env):
+    path = str(next(env.folder.rglob("w0.eml")))
+    other = str(next(env.folder.rglob("w1.eml")))
+    log = [
+        entry({"INBOX"}, "w0", path),  # not trashed: passes through as it is
+        entry({"TRASH", OFFLOAD_LABEL}, "w0", path),
+        entry({"TRASH", OFFLOAD_LABEL}, "w1", other),
+        entry({"TRASH", OFFLOAD_LABEL}, "w2", str(env.folder / "no-such.eml")),
+    ]
+    snapshot = list(log)
+    recorded = []
+    new, count = offload_apply.recover_trashed(
+        log,
+        "trash",
+        OFFLOAD_LABEL,
+        lambda row: "",
+        lambda account, rows: recorded.append((account, [r["gmail_id"] for r in rows])),
+    )
+    assert [r.outcome for r in new] == ["ok", "recorded", "recorded", "skipped"]
+    assert new[0] is log[0]  # an entry that needed nothing is the same value
+    assert "no local backup copy" in new[3].detail
+    assert count == 2 and recorded == [(A, ["w0", "w1"])]  # one call per account
+    assert log == snapshot and [r.outcome for r in log] == ["ok"] * 4  # the old log is as it was
 
 
 # ── the second-copy report ───────────────────────────────────────────────────
