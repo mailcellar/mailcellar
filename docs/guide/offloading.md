@@ -78,8 +78,8 @@ afterwards to see what the rule now takes.
 ## 2. Plan
 
 ```bash
-uv run mailcellar backup work           # the plan reads the backup, so bring it up to date
-uv run mailcellar offload plan work
+mailcellar backup work           # the plan reads the backup, so bring it up to date
+mailcellar offload plan work
 ```
 
 `plan` changes nothing in Gmail or the backup. It writes the plan to
@@ -113,7 +113,7 @@ Two typical adjustments:
 ## 3. A dry run
 
 ```bash
-uv run mailcellar offload apply
+mailcellar offload apply
 ```
 
 With no flag, `apply` is a dry run: it checks each planned message against
@@ -134,7 +134,7 @@ stay in Gmail.
 ## 4. Label
 
 ```bash
-uv run mailcellar offload apply --label --limit 2000
+mailcellar offload apply --label --limit 2000
 ```
 
 This adds the Gmail label `offload-candidate` to the next 2,000 planned
@@ -166,7 +166,7 @@ and skips it.
 ## 6. A fresh backup
 
 ```bash
-uv run mailcellar backup work
+mailcellar backup work
 ```
 
 `--trash` refuses to run until each account's last backup succeeded **and**
@@ -177,7 +177,7 @@ tells you which account needs one.
 ## 7. Trash
 
 ```bash
-uv run mailcellar offload apply --trash --limit 2000
+mailcellar offload apply --trash --limit 2000
 ```
 
 Before it moves anything, `apply --trash` repeats the Gmail and backup
@@ -208,8 +208,8 @@ on the next run, and the rest carry on.
 ## 8. Check
 
 ```bash
-uv run mailcellar count work
-uv run mailcellar report health work
+mailcellar count work
+mailcellar report health work
 ```
 
 `count` compares Gmail with the backup. Offloaded mail is no longer in Gmail
@@ -219,7 +219,7 @@ backup's completeness, its recent runs and how much mail is offloaded.
 
 Gmail's storage figure drops only after the Trash is emptied, which
 Gmail does 30 days after the move. Do not empty it earlier unless you are
-certain of the backup and your second copy. `uv run mailcellar report
+certain of the backup and your second copy. `mailcellar report
 storage work` shows each batch's progress: how much has been freed so far,
 how much is still in Trash, and when Gmail will empty it.
 
@@ -229,7 +229,7 @@ Gmail's search no longer finds mail once it is offloaded. `mailcellar search`
 does, and says how to put each match back:
 
 ```bash
-uv run mailcellar search "build failed" work --offloaded
+mailcellar search "build failed" work --offloaded
 ```
 
 See [Searching mail](../../README.md#searching-mail).
@@ -241,9 +241,9 @@ until you add `--yes`. The name of each batch is a folder in
 `<data root>/offload/batches/`.
 
 ```bash
-uv run mailcellar restore work --batch 2026-01-15-093000          # dry run
-uv run mailcellar restore work --batch 2026-01-15-093000 --yes
-uv run mailcellar restore work --rule "old build notifications" --yes
+mailcellar restore work --batch 2026-01-15-093000          # dry run
+mailcellar restore work --batch 2026-01-15-093000 --yes
+mailcellar restore work --rule "old build notifications" --yes
 ```
 
 - **Within Gmail's 30 days**, a message still in Trash is moved out of it,

@@ -31,8 +31,8 @@ tick the Gmail permission; the command then carries on. On a machine with
 no browser, or from a scheduled job, authorise ahead of time:
 
 ```bash
-uv run mailcellar auth ACCOUNT --scope readonly   # for backup, count, meta, reports
-uv run mailcellar auth ACCOUNT --scope modify     # for apply and restore --yes
+mailcellar auth ACCOUNT --scope readonly   # for backup, count, meta, reports
+mailcellar auth ACCOUNT --scope modify     # for apply and restore --yes
 ```
 
 `auth` changes nothing in the mailbox and takes every account if none is
@@ -107,11 +107,11 @@ whatever you set up). Restore the whole folder from it, as it was, to where
 with files from the damaged folder. Then:
 
 ```bash
-uv run mailcellar config               # the folder is found; each account's state looks right
-uv run mailcellar backup               # catches up with what Gmail gained since the copy
-uv run mailcellar meta                 # fills meta.sqlite for anything it lacks
-uv run mailcellar dedup index          # rebuilds the dedup index
-uv run mailcellar count                # compare Gmail with the backup
+mailcellar config               # the folder is found; each account's state looks right
+mailcellar backup               # catches up with what Gmail gained since the copy
+mailcellar meta                 # fills meta.sqlite for anything it lacks
+mailcellar dedup index          # rebuilds the dedup index
+mailcellar count                # compare Gmail with the backup
 ```
 
 `backup` after an older copy reads Gmail's history from where the copy

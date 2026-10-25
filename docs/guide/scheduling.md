@@ -5,9 +5,9 @@ and `offload apply --trash` wants a recent backup. Both assume backups
 happen on time, so it is worth not depending on remembering.
 
 ```bash
-uv run mailcellar schedule install     # weekly, Sunday 03:30, every account
-uv run mailcellar schedule status      # is it installed; each account's last backup and token
-uv run mailcellar schedule remove
+mailcellar schedule install     # weekly, Sunday 03:30, every account
+mailcellar schedule status      # is it installed; each account's last backup and token
+mailcellar schedule remove
 ```
 
 ## What install does
@@ -46,7 +46,7 @@ reason is `needs-consent`). `schedule install` refuses an account that has no
 token yet:
 
 ```bash
-uv run mailcellar auth work --scope readonly
+mailcellar auth work --scope readonly
 ```
 
 With the Google Cloud consent screen in *Testing* status, a token expires

@@ -28,14 +28,14 @@ narrowing option are alternatives, and every option you give must hold.
 
 ```bash
 # everything from 2024
-uv run mailcellar export personal --all --after 2024-01-01 --before 2025-01-01 --to ~/mail-2024.zip
+mailcellar export personal --all --after 2024-01-01 --before 2025-01-01 --to ~/mail-2024.zip
 
 # what one offload batch took out of Gmail
-uv run mailcellar export personal --batch 2026-01-15-093000 --to ~/batch.mbox
+mailcellar export personal --batch 2026-01-15-093000 --to ~/batch.mbox
 
 # one company's mail, and the mail with one label
-uv run mailcellar export personal --all --sender @example.com --to ~/example-com.zip
-uv run mailcellar export personal --all --has-label Invoices --to ~/invoices.zip
+mailcellar export personal --all --sender @example.com --to ~/example-com.zip
+mailcellar export personal --all --has-label Invoices --to ~/invoices.zip
 ```
 
 `--after` is inclusive and `--before` is not. Try a selection on a small scale

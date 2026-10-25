@@ -14,7 +14,7 @@ backup, `offload apply` and `restore` all meet this.
 To see what it is doing, add `-v` to the command:
 
 ```bash
-uv run mailcellar backup work -v
+mailcellar backup work -v
 ```
 
 `-v` shows every retry and wait. Waits of 10 seconds or more are shown
@@ -31,7 +31,7 @@ uploading about six), run it in the background.
 ## `count` reports mail missing from the backup
 
 ```bash
-uv run mailcellar count work
+mailcellar count work
 ```
 
 The line `Missing from backup` is mail Gmail has that the backup lacks. Most
