@@ -69,7 +69,9 @@ def now_ms() -> int:
 def connect(args) -> tuple[str, Path, gmailapi.GmailAccount]:
     config_root = Path(args.config)
     account, config_folder = gmailapi.resolve_account(config_root, args.account)
-    creds = gmailapi.load_credentials(config_folder, account, "readonly")
+    creds = gmailapi.load_credentials(
+        config_folder, account, "readonly", interactive=not getattr(args, "unattended", False)
+    )
     folder = Path(args.folder) if args.folder else backup_folder(account)
     return account, folder, gmailapi.GmailAccount(account, creds)
 
@@ -432,13 +434,35 @@ def _sync(
     return {"pruned": len(manifest), "dest": dest}, "ok"
 
 
+def record_unattended_failure(args) -> None:
+    """
+    An unattended backup that needed a sign-in is recorded as an `error` run in
+    the account's meta.sqlite, so `report health` and `schedule status` show it.
+    Nothing is recorded for an account that has no backup yet.
+    """
+    account, _config = gmailapi.resolve_account(Path(args.config), args.account)
+    folder = Path(args.folder) if args.folder else backup_folder(account)
+    if not sidecar.meta_path(folder).is_file():
+        return
+    mcon = sidecar.open_meta(folder)
+    try:
+        now = now_ms()
+        sidecar.record_run(mcon, "backup", now, now, "error", reason="needs-consent")
+    finally:
+        mcon.close()
+
+
 def cmd_backup(args) -> int:
     if args.sync and args.search:
         sys.exit(
             "error: --sync can't be combined with --search: messages outside "
             "the search would look deleted."
         )
-    account, folder, gmail = connect(args)
+    try:
+        account, folder, gmail = connect(args)
+    except gmailapi.NeedsConsent:
+        record_unattended_failure(args)
+        raise
     stats = backup(gmail, account, folder, args.search, args.refresh_labels, args.full)
     print(
         f"Downloaded {stats['downloaded']:,} messages"
@@ -776,6 +800,12 @@ def main(argv=None, prog: str | None = None) -> int:
     )
     p_backup.add_argument(
         "--yes", action="store_true", help="With --sync: don't ask before moving messages"
+    )
+    p_backup.add_argument(
+        "--unattended",
+        action="store_true",
+        help="For scheduled runs: never open a browser. A token that needs signing in fails "
+        "the run, with the command to fix it, and is recorded for `report health`",
     )
     p_backup.add_argument(
         "--force",

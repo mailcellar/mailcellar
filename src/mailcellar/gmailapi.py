@@ -63,6 +63,10 @@ class GmailError(Exception):
     pass
 
 
+class NeedsConsent(GmailError):
+    """A token needs the user to sign in, which an unattended run can't do."""
+
+
 class HistoryExpired(GmailError):
     """history.list refused the start ID (404): too old, so do a full sync."""
 
@@ -186,14 +190,22 @@ def aging_notice(
     )
 
 
-def load_credentials(config_folder: Path, account: str, scope: str, renew: bool = False):
+def load_credentials(
+    config_folder: Path,
+    account: str,
+    scope: str,
+    renew: bool = False,
+    interactive: bool = True,
+):
     """
     Cached or freshly authorised credentials for `account` with `scope`.
     A token Google no longer accepts (revoked, or expired after 7 days in a
     "Testing" Cloud project) falls through to a new consent flow; so does
     renew=True, which replaces a token that still works with a new one,
     starting Google's 7 days afresh. A token that is getting old is
-    reported (see aging_notice).
+    reported (see aging_notice). With interactive=False (an unattended run:
+    nobody to sign in) a token that needs consent raises NeedsConsent, naming
+    the command that fixes it, instead of opening a browser.
     """
     from google.auth.exceptions import RefreshError
     from google.auth.transport.requests import Request
@@ -205,18 +217,27 @@ def load_credentials(config_folder: Path, account: str, scope: str, renew: bool 
     token_path = token_file(config_folder, scope)
     previous = token_authorised_at(config_folder, scope)
     creds = None
+    why = "has no token yet"
     if token_path.is_file() and not renew:
         creds = Credentials.from_authorized_user_file(str(token_path), [scope_url])
+        why = "is not valid"
         if creds.expired and creds.refresh_token:
             try:
                 creds.refresh(Request())
             except RefreshError as exc:
-                print(
-                    f"Stored {scope} token for {account} was rejected ({exc}); authorising again."
-                    f" To do it ahead of an unattended run: {renew_command(account, scope)}"
-                )
+                why = f"was rejected ({exc})"
+                if interactive:
+                    print(
+                        f"Stored {scope} token for {account} {why}; authorising again."
+                        f" To do it ahead of an unattended run: {renew_command(account, scope)}"
+                    )
                 creds = None
     consented = not creds or not creds.valid
+    if consented and not interactive:
+        raise NeedsConsent(
+            f"{account}: the {scope} token {why}, and an unattended run can't sign in. "
+            f"Run: mailcellar auth {account} --scope {scope}"
+        )
     if consented:
         print(
             f"Authorising {account} for gmail.{scope} — sign in as {account} "

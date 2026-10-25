@@ -9,6 +9,7 @@ mailcellar backup  [ACCOUNT ...]   incremental backups in gyb's format
 mailcellar count   [ACCOUNT ...]   compare Gmail with the backup
 mailcellar meta    [ACCOUNT ...]   fill the per-message sidecar for older mail
 mailcellar verify  [ACCOUNT ...]   check that the backup's files are still intact
+mailcellar schedule install|status|remove   run backups regularly, unattended
 mailcellar dedup   …               find duplicates and remove them from Gmail, in stages
 mailcellar offload …               take old mail out of Gmail, keeping it in the backup
 mailcellar restore ACCOUNT …       put backed-up mail back into Gmail
@@ -32,6 +33,8 @@ How it fits together: [docs/architecture.md](docs/architecture.md).
 
 - [Setting up Google Cloud](docs/guide/google-cloud.md): the project and
   OAuth client mailcellar signs in with, and the first consent screen.
+- [Scheduled backups](docs/guide/scheduling.md): run backups regularly, unattended,
+  and what happens when a token needs signing in.
 - [Migrating from gyb](docs/guide/from-gyb.md): continue an existing Got Your Back
   backup instead of starting again.
 - [Offloading old mail safely](docs/guide/offloading.md): a worked example, from
@@ -82,7 +85,17 @@ Gmail's change history and take seconds.
 **Back up at least every four weeks.** Gmail keeps change history for
 about four weeks. A backup after a longer gap still works, but it lists the
 whole mailbox again instead of reading the changes. A monthly or weekly
-scheduled job is enough.
+scheduled job is enough, and mailcellar can set one up:
+
+```bash
+uv run mailcellar schedule install     # macOS: a launchd agent, weekly; elsewhere: a cron line
+uv run mailcellar schedule status      # installed? each account's last backup and token
+uv run mailcellar schedule remove
+```
+
+The job runs `backup --unattended`, which never opens a browser: a token that
+needs signing in fails that account's run, with the command to fix it, and is
+recorded for `report health`. See [Scheduled backups](docs/guide/scheduling.md).
 
 **Tokens and the consent screen.** If the consent screen's publishing
 status is *Testing*, Google expires its tokens after 7 days, and the next
@@ -186,6 +199,7 @@ uv run mailcellar backup                  # every account, incremental
 uv run mailcellar backup personal         # one account
 uv run mailcellar count                   # compare Gmail with the backups
 uv run mailcellar backup personal --full  # list every message instead of using history
+uv run mailcellar backup --unattended     # for scheduled runs: never opens a browser
 uv run mailcellar backup personal --sync  # also move mail permanently deleted from Gmail
                                           # (not offloaded mail) into <data root>/_pruned/
 uv run mailcellar meta                    # fill meta.sqlite for older mail
