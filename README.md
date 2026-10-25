@@ -286,11 +286,20 @@ before = "2022-01-01"    # or a number of years ago, e.g. "5"
 ```bash
 uv run mailcellar offload plan                    # all accounts → <data root>/offload/offload-plan.csv
 uv run mailcellar offload plan personal --top 30 --csv ~/reports/offload
+uv run mailcellar offload plan --review           # also a review page per rule
 ```
 
 `plan` changes nothing. It prints what each rule would offload (by year and
 sender) and what its protections keep. To keep particular messages, add a
 user label in Gmail and run a backup.
+
+For a rule that selects thousands of messages, `--review` also writes one
+HTML page per rule to `<data root>/offload/review/` (open it in a browser):
+the summary tables, a random sample of what the rule would offload and of
+what each protection keeps, the largest messages, the threads with the most
+messages in the offload, and attachment types by size. It shows senders
+and subjects, never message bodies, and is for you alone: keep it on your
+machine. The same plan shows the same sample.
 
 ```bash
 uv run mailcellar offload apply                       # dry run: Gmail and backup checks
@@ -315,6 +324,12 @@ Each trash run writes a manifest,
 offloaded, with its `.eml` path, date, sender, subject and rule. Every plan
 is also kept in `offload/plans/`, and the apply log names the plan each run
 used. To put offloaded mail back, see [Restoring mail](#restoring-mail).
+
+`report storage` shows, per batch, how much Gmail has freed: the messages
+whose Trash has been emptied (as the last `backup` or `count` found) and
+their size, what is still in Trash and when Gmail will empty it, and what
+was restored since. Gmail's own storage figure isn't available through its
+API, so the sizes are its per-message estimates.
 
 ## Restoring mail
 
@@ -498,7 +513,7 @@ again.
 ## Reports
 
 ```bash
-uv run mailcellar report storage                 # what takes up space, every account
+uv run mailcellar report storage                 # what takes up space; space freed per offload batch
 uv run mailcellar report storage personal --csv ~/reports/storage
 uv run mailcellar report bulk                    # mailing lists and bulk senders; unsubscribe candidates
 uv run mailcellar report volume                  # received, sent and forwarded mail over time

@@ -10,7 +10,7 @@ import sqlite3
 from dataclasses import dataclass
 
 from mailcellar.dedup.rules import STAR_LABELS
-from mailcellar.report.output import Table, human_size
+from mailcellar.report.output import Table, day, human_size
 
 
 @dataclass(frozen=True)
@@ -316,6 +316,77 @@ def candidates(con, opts: Options) -> Table:
     )
 
 
+TRASH_DAYS = 30  # Gmail empties its Trash this long after a message is moved there
+DAY_MS = 86_400_000
+
+
+def batch_rows(raw: list[tuple]) -> list[tuple]:
+    """
+    The offload-batches table from its query's rows: (account, batch, rules,
+    messages, restored, emptied, freed bytes, in Trash, in-Trash bytes, first
+    trashed ms, last trashed ms). Pure.
+    """
+    rows = []
+    for account, batch, rules, n, restored, emptied, freed, waiting, held, _first, last in raw:
+        empties_by = day(last + TRASH_DAYS * DAY_MS) if waiting else ""
+        rows.append(
+            (
+                account,
+                batch,
+                ", ".join(sorted(set((rules or "").split("\x1f")) - {""})),
+                n,
+                restored,
+                emptied,
+                freed or 0,
+                waiting,
+                held or 0,
+                empties_by,
+            )
+        )
+    return rows
+
+
+def offload_batches(con) -> Table:
+    """What each offload batch took out of Gmail, and how much of it Gmail has let go."""
+    raw = con.execute("""
+        SELECT o.account, o.batch, group_concat(o.rule, char(31)), count(*),
+               sum(o.restored_ms IS NOT NULL),
+               sum(o.restored_ms IS NULL AND o.gone_ms IS NOT NULL),
+               sum(CASE WHEN o.restored_ms IS NULL AND o.gone_ms IS NOT NULL
+                        THEN m.size_estimate END),
+               sum(o.restored_ms IS NULL AND o.gone_ms IS NULL),
+               sum(CASE WHEN o.restored_ms IS NULL AND o.gone_ms IS NULL
+                        THEN m.size_estimate END),
+               min(o.trashed_ms), max(o.trashed_ms)
+        FROM all_offloaded o LEFT JOIN all_messages m USING (account, gmail_id)
+        GROUP BY o.account, o.batch ORDER BY min(o.trashed_ms), o.account, o.batch""").fetchall()
+    return Table(
+        "offload-batches",
+        "Offload batches: space freed in Gmail",
+        [
+            ("Account", "text"),
+            ("Batch", "text"),
+            ("Rules", "text"),
+            ("Offloaded", "int"),
+            ("Restored", "int"),
+            ("Trash emptied", "int"),
+            ("Freed", "size"),
+            ("Still in Trash", "int"),
+            ("Not yet freed", "size"),
+            ("Trash empties by", "text"),
+        ],
+        batch_rows(raw),
+        notes=[
+            "Gmail frees an offloaded message's space only when its Trash is emptied, "
+            f"{TRASH_DAYS} days after the move (or sooner, by hand). Trash emptied: messages "
+            "the last backup or count found gone from Gmail; run one for current figures. "
+            "Restored messages are back in Gmail and count in neither size. Sizes are Gmail's "
+            "estimates; Gmail's own storage figure isn't available through its API."
+        ],
+        limit=False,
+    )
+
+
 def extension(filename: str | None) -> str:
     """Lower-case file extension, '(none)' without one."""
     name = (filename or "").rsplit("/", 1)[-1]
@@ -329,6 +400,7 @@ def build(con: sqlite3.Connection, opts: Options) -> list[Table]:
     _summary(con)
     return [
         totals(con),
+        offload_batches(con),
         by_year(con),
         by_label(con),
         by_sender(con),

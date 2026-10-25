@@ -12,7 +12,7 @@ from the backup's index.
 import sqlite3
 import time
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from mailcellar.offload.rules import DEFAULT_PROTECT, PROTECTIONS, Rule, fold
 from mailcellar.report import bulk
@@ -55,6 +55,7 @@ class Message:
     labels: list[str]  # names, sorted
     user_labels: set[str]  # lower case
     flags: dict[str, bool]  # protection and exclusion name → applies
+    thread_id: str = ""  # '' when unknown (gone from Gmail)
 
 
 def prepare(con: sqlite3.Connection, accounts: list[str]) -> None:
@@ -73,7 +74,7 @@ def prepare(con: sqlite3.Connection, accounts: list[str]) -> None:
         DROP TABLE IF EXISTS temp.pm;
         CREATE TEMP TABLE pm AS
         SELECT bm.account, bm.gmail_id, bm.internal_date, bm.size, bm.sender, bm.list_id,
-               m.subject, m.forwarded_from, coalesce(i.filename, '') AS filename,
+               bm.thread_id, m.subject, m.forwarded_from, coalesce(i.filename, '') AS filename,
                (bm.sent OR m.sender_addr IN own) AS sent,
                coalesce(l.starred, 0) AS starred,
                (st.thread_id IS NOT NULL) AS thread,
@@ -196,15 +197,15 @@ def in_scope(con, rule: Rule, accounts: list[str], folders: dict[str, str]) -> l
     out = []
     for row in con.execute(
         f"""SELECT account, gmail_id, internal_date, size, sender, subject, filename,
-                   {excepted}, {", ".join(flags)}
+                   thread_id, {excepted}, {", ".join(flags)}
             FROM pm WHERE {where} ORDER BY internal_date, account, gmail_id""",
         except_params + params,
     ):
-        account, gid, ms, size, sender, subject, filename = row[:7]
+        account, gid, ms, size, sender, subject, filename, thread_id = row[:8]
         names = labels.get((account, gid), [])
         user = {n.lower() for n, kind in names if kind == "user"}
-        values = dict(zip(flags, (bool(v) for v in row[8:]), strict=True))
-        values["except"] = bool(row[7])
+        values = dict(zip(flags, (bool(v) for v in row[9:]), strict=True))
+        values["except"] = bool(row[8])
         values["labels"] = bool(user - rule.labels)
         out.append(
             Message(
@@ -218,6 +219,7 @@ def in_scope(con, rule: Rule, accounts: list[str], folders: dict[str, str]) -> l
                 sorted(n for n, _k in names),
                 user,
                 values,
+                thread_id or "",
             )
         )
     return out
@@ -232,6 +234,8 @@ class RuleResult:
     excluded: Counter  # exclusion → messages
     kept_total: int = 0
     scope_total: int = 0
+    # protection (or "except") → the messages it keeps, oldest first, for the review report
+    kept_messages: dict[str, list[Message]] = field(default_factory=dict)
 
 
 def build_plan(
@@ -259,6 +263,7 @@ def build_plan(
                 for p in protections:
                     r.kept[p] += 1
                     r.kept_size[p] += m.size
+                    r.kept_messages.setdefault(p, []).append(m)
                 continue
             taken.add(key)
             r.selected.append(m)

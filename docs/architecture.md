@@ -107,10 +107,10 @@ mailcellar` and `python -m mailcellar` both work.
 | `dedup/rules.py`, `dedup/plan.py` | Keep / remove / review decisions; the plan CSV |
 | `dedup/apply.py` | Live checks against Gmail, then label or trash; the audit log. Shared with offload. `apply_plan()` reads Gmail's state, `check_row()`/`checked()` decide, and `act()` carries out one account's rows; each returns new frozen `Result`s (the plan rows are never changed) |
 | `dedup/report.py`, `dedup/paths.py` | Text reports; default output locations |
-| `offload/` | `rules.py` (TOML rules), `plan.py` (selection, plan CSV, summary), `apply.py` (backup checks, the offload record, batch manifests on top of dedup's label → trash loop), `cli.py` |
+| `offload/` | `rules.py` (TOML rules), `plan.py` (selection, plan CSV, summary; the messages each protection keeps), `review.py` (`plan --review`: a local HTML page per rule from the plan's results; samples, largest messages, busiest threads and the page itself are pure), `apply.py` (backup checks, the offload record, batch manifests on top of dedup's label → trash loop), `cli.py` |
 | `restore/` | `sources.py` and `mbox.py` (`--from-pruned`, `--from-mbox`, `--from-folder`: candidates from a pruned batch, an mbox file or another gyb folder), `apply.py` (which offloaded messages, narrowed by date, label and sender; backup checks; each message's way back: untrash, already in Gmail, found by Message-ID, or import; indexing a new ID in the backup), `cli.py` (the command, and the selection options `export` shares), `export.py` (`export`: the same selection copied out read-only as an mbox file or a zip of `.eml` files with an index; the mbox entry, label header and index row are pure) |
 | `search/` | `index.py` (each message's sender, recipients, subject and readable body into the index, incrementally: `document()` and `changes()` are pure), `query.py` (the query language translated to FTS5 by `fts_query()`; `keep()` for the offload filters and `render()` for a result are pure; `find()` reads), `db.py` (`search.sqlite` schema and migrations), `cli.py` (the command) |
-| `report/` | Reports over all accounts' sidecars, attached read-only (`db.py`): `storage`, `bulk`, `volume`, `threads`, `labels`, `correspondents`, `health`; `senders.py` for one backup; `output.py` formats tables |
+| `report/` | Reports over all accounts' sidecars, attached read-only (`db.py`): `storage` (with each offload batch's space freed, from `offloaded.gone_ms`), `bulk`, `volume`, `threads`, `labels`, `correspondents`, `health`; `senders.py` for one backup; `output.py` formats tables |
 | `run.sh` (repo root) | `./run.sh <account> [backup\|count\|meta] [options]`: runs `mailcellar` |
 
 ## Files on disk
@@ -137,6 +137,7 @@ mailcellar` and `python -m mailcellar` both work.
     plans/<utc time>.csv     every plan made, named by its planned time
     offload-apply-log.csv    one row per plan row per apply run, with the plan's time
     batches/<batch>/offloaded.csv  manifest of each trash batch: plan row + batch + trashed
+    review/<rule>.html       offload plan --review: a page per rule (senders, subjects)
   restore/
     restore-log.csv          one row per message per restore run (dry run or --yes)
   search/
