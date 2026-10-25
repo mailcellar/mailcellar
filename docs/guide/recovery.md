@@ -156,7 +156,7 @@ data root, and why you should.
 `mailcellar export` is one way to keep such a copy: it writes a selection
 (for example `--offloaded`) as an mbox file or a zip of `.eml` files, without
 touching the backup. It is a copy of your mail, so store it as carefully as
-the data root. See [Exporting mail](../../README.md#exporting-mail).
+the data root. See [Exporting mail](exporting.md).
 
 ## A leaked token or `client_secrets.json`
 

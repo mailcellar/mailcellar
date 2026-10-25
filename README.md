@@ -42,6 +42,8 @@ How it fits together: [docs/architecture.md](docs/architecture.md).
   backup instead of starting again.
 - [Offloading old mail safely](docs/guide/offloading.md): a worked example, from
   writing a rule to restoring.
+- [Exporting mail](docs/guide/exporting.md): copy mail out as an mbox or a zip, for a
+  mail client or for someone else.
 - [Recovering when something goes wrong](docs/guide/recovery.md): an expired token,
   a long gap between backups, an interrupted run, a lost data root.
 - [Troubleshooting and FAQ](docs/guide/troubleshooting.md): slow runs, `count` results,
@@ -428,7 +430,8 @@ missing from the backup is left out and reported, and the exit status is 1:
 `mailcellar verify` shows what is missing.
 
 An export is a copy of your mail, outside the backup: keep it, and delete it,
-with the same care.
+with the same care. The [Exporting mail](docs/guide/exporting.md) guide has
+worked selections and what to do with the result.
 
 ## Reports
 

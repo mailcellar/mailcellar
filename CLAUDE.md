@@ -17,7 +17,7 @@ uv run ruff format && uv run ruff check   # format, then lint; both must pass
 uv run mailcellar config               # where the config and data are; each account's state
 uv run mailcellar <backup|count|meta|verify> [ACCOUNT ...] [options]   # all accounts by default
 uv run mailcellar auth [ACCOUNT ...] [--scope readonly|modify] [--renew]   # `dedup auth` still works
-uv run mailcellar schedule <install|uninstall|status>   # the unattended backup job
+uv run mailcellar schedule <install|remove|status>   # the unattended backup job
 uv run mailcellar dedup <index|match|plan|apply> [options]
 uv run mailcellar offload <plan|apply> [options]
 uv run mailcellar restore ACCOUNT <--batch|--rule|--id|--offloaded|--all> [--to ACCOUNT] [--yes]
@@ -41,7 +41,7 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
 - Ask before anything that changes Gmail, the backups, or access:
   `dedup apply --label/--trash`, `offload apply --label/--trash`,
   `restore --yes`, `backup --sync`, `auth --scope modify` (also as
-  `dedup auth`), `schedule install/uninstall`, and
+  `dedup auth`), `schedule install/remove`, and
   moving or deleting the data root or config folder. Fine without asking:
   - dry runs, `config`, `count`, `verify`, `schedule status`, the reports;
   - `export`, read-only, with `--to` in the scratchpad (it copies mail);
