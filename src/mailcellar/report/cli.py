@@ -248,4 +248,4 @@ def main(argv=None, prog: str | None = None) -> None:
     try:
         args.func(args)
     except AnalyticsError as exc:
-        sys.exit(f"ERROR: {exc}")
+        sys.exit(f"error: {exc}")

@@ -50,7 +50,7 @@ def read_plan(path: Path) -> list[dict]:
         rows = list(csv.DictReader(fh))
     missing = set(PLAN_COLUMNS) - set(rows[0] if rows else PLAN_COLUMNS)
     if missing:
-        sys.exit(f"ERROR: {path} is not an offload plan (missing {sorted(missing)}).")
+        sys.exit(f"error: {path} is not an offload plan (missing {sorted(missing)}).")
     return rows
 
 

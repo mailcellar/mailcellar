@@ -38,7 +38,7 @@ def resolve_account(con: sqlite3.Connection, keep: str) -> str:
     hits = [a for a in accounts if keep.lower() in a.lower()]
     if len(hits) != 1:
         sys.exit(
-            f"ERROR: --keep {keep!r} matches {len(hits)} of the indexed "
+            f"error: --keep {keep!r} matches {len(hits)} of the indexed "
             f"accounts ({', '.join(sorted(accounts))}); give the full address."
         )
     return hits[0]

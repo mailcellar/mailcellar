@@ -110,7 +110,7 @@ def read_removals(plan_path: Path) -> list[dict]:
         rows = list(csv.DictReader(fh))
     missing = set(PLAN_COLUMNS) - set(rows[0] if rows else PLAN_COLUMNS)
     if missing:
-        sys.exit(f"ERROR: {plan_path} is not a plan file (missing {sorted(missing)}).")
+        sys.exit(f"error: {plan_path} is not a plan file (missing {sorted(missing)}).")
     return [r for r in rows if r["action"] == "remove"]
 
 

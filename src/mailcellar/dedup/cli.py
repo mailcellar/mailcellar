@@ -33,13 +33,13 @@ def cmd_index(args) -> None:
     # folders mailcellar backup --sync makes, which have no msg-db.sqlite).
     folders = [Path(f) for f in args.folders] or find_backups()
     if not folders:
-        sys.exit(f"ERROR: no backup folders given or found in {data_root()}.")
+        sys.exit(f"error: no backup folders given or found in {data_root()}.")
 
     backups = []
     for folder in folders:
         backup_dir = folder.expanduser().resolve()
         if not (backup_dir / "msg-db.sqlite").is_file():
-            sys.exit(f"ERROR: '{backup_dir}' is not a GYB backup (no msg-db.sqlite).")
+            sys.exit(f"error: '{backup_dir}' is not a GYB backup (no msg-db.sqlite).")
         backups.append(backup_dir)
 
     con = open_db(Path(args.db))
@@ -77,7 +77,7 @@ def cmd_index(args) -> None:
 def cmd_match(args) -> None:
     db_path = Path(args.db)
     if not db_path.is_file():
-        sys.exit(f"ERROR: {db_path} not found. Run 'index' first.")
+        sys.exit(f"error: {db_path} not found. Run 'index' first.")
     con = open_db(db_path)
     try:
         match(con)
@@ -91,10 +91,10 @@ def cmd_match(args) -> None:
 def cmd_plan(args) -> None:
     db_path = Path(args.db)
     if not db_path.is_file():
-        sys.exit(f"ERROR: {db_path} not found. Run 'index' first.")
+        sys.exit(f"error: {db_path} not found. Run 'index' first.")
     if args.scope != "within" and not args.keep:
         sys.exit(
-            f"ERROR: --keep is required with --scope {args.scope} "
+            f"error: --keep is required with --scope {args.scope} "
             "(it decides which copy of a cross-account duplicate stays)."
         )
     con = open_db(db_path)
@@ -123,7 +123,7 @@ def cmd_apply(args) -> None:
         sys.exit("Nothing to do: the plan has no 'remove' rows.")
     problem = unusable_label(rows, dedup_label)
     if problem:
-        sys.exit(f"ERROR: can't use {dedup_label!r} as the apply label: {problem}.")
+        sys.exit(f"error: can't use {dedup_label!r} as the apply label: {problem}.")
 
     from mailcellar import gmailapi
 
@@ -141,7 +141,7 @@ def cmd_apply(args) -> None:
     try:
         log = apply_plan(rows, mode, gmail_for, confirm, dedup_label)
     except gmailapi.GmailError as exc:
-        sys.exit(f"ERROR: {exc}")
+        sys.exit(f"error: {exc}")
     # The log's mode column records which label a label or trash run used.
     logged_mode = mode if mode == "dry-run" else f"{mode} ({dedup_label})"
     report_apply(log, logged_mode)
@@ -160,7 +160,7 @@ def cmd_auth(args) -> None:
             known
         )
     except gmailapi.GmailError as exc:
-        sys.exit(f"ERROR: {exc}")
+        sys.exit(f"error: {exc}")
 
     failed = 0
     for account in accounts:

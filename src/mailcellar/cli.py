@@ -79,7 +79,7 @@ def _senders(argv: list[str]) -> int:
     try:
         (folder,) = resolve_folders([argv[0]])
     except AnalyticsError as exc:
-        sys.exit(f"ERROR: {exc}")
+        sys.exit(f"error: {exc}")
     senders.main(["--folder", str(folder), *argv[1:]], prog="mailcellar report senders")
     return 0
 

@@ -132,7 +132,7 @@ def cmd_apply(args) -> None:
         [r for r in rows if (r["account"], r["gmail_id"]) not in labelled], label
     )
     if problem:
-        sys.exit(f"ERROR: can't use {label!r} as the offload label: {problem}.")
+        sys.exit(f"error: can't use {label!r} as the offload label: {problem}.")
 
     accounts = sorted({r["account"] for r in rows})
     folders = {a: backup_folder(a) for a in accounts}
@@ -142,7 +142,7 @@ def cmd_apply(args) -> None:
     if mode == "trash":
         if stale:
             sys.exit(
-                "ERROR: run a backup of each account above before trashing, so the backup "
+                "error: run a backup of each account above before trashing, so the backup "
                 "is known to be complete."
             )
         print(
@@ -174,7 +174,7 @@ def cmd_apply(args) -> None:
             rows, mode, gmail_for, confirm, label, local_check=checks, on_trashed=record
         )
     except gmailapi.GmailError as exc:
-        sys.exit(f"ERROR: {exc}")
+        sys.exit(f"error: {exc}")
     recovered = recover_trashed(log, mode, label, checks, record)
     if recovered:
         print(f"Recorded {recovered:,} messages an earlier run trashed without recording.")
@@ -264,4 +264,4 @@ def main(argv=None, prog: str | None = None) -> None:
     try:
         args.func(args)
     except (AnalyticsError, RuleError) as exc:
-        sys.exit(f"ERROR: {exc}")
+        sys.exit(f"error: {exc}")
