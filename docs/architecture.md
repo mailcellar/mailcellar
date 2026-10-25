@@ -108,7 +108,7 @@ mailcellar` and `python -m mailcellar` both work.
 | `dedup/apply.py` | Live checks against Gmail, then label or trash; the audit log. Shared with offload. `apply_plan()` reads Gmail's state, `check_row()`/`checked()` decide, and `act()` carries out one account's rows; each returns new frozen `Result`s (the plan rows are never changed) |
 | `dedup/report.py`, `dedup/paths.py` | Text reports; default output locations |
 | `offload/` | `rules.py` (TOML rules), `plan.py` (selection, plan CSV, summary), `apply.py` (backup checks, the offload record, batch manifests on top of dedup's label → trash loop), `cli.py` |
-| `restore/` | `apply.py` (which offloaded messages, narrowed by date, label and sender; backup checks; each message's way back: untrash, already in Gmail, found by Message-ID, or import; indexing a new ID in the backup), `cli.py` (the command, and the selection options `export` shares), `export.py` (`export`: the same selection copied out read-only as an mbox file or a zip of `.eml` files with an index; the mbox entry, label header and index row are pure) |
+| `restore/` | `sources.py` and `mbox.py` (`--from-pruned`, `--from-mbox`, `--from-folder`: candidates from a pruned batch, an mbox file or another gyb folder), `apply.py` (which offloaded messages, narrowed by date, label and sender; backup checks; each message's way back: untrash, already in Gmail, found by Message-ID, or import; indexing a new ID in the backup), `cli.py` (the command, and the selection options `export` shares), `export.py` (`export`: the same selection copied out read-only as an mbox file or a zip of `.eml` files with an index; the mbox entry, label header and index row are pure) |
 | `search/` | `index.py` (each message's sender, recipients, subject and readable body into the index, incrementally: `document()` and `changes()` are pure), `query.py` (the query language translated to FTS5 by `fts_query()`; `keep()` for the offload filters and `render()` for a result are pure; `find()` reads), `db.py` (`search.sqlite` schema and migrations), `cli.py` (the command) |
 | `report/` | Reports over all accounts' sidecars, attached read-only (`db.py`): `storage`, `bulk`, `volume`, `threads`, `labels`, `correspondents`, `health`; `senders.py` for one backup; `output.py` formats tables |
 | `run.sh` (repo root) | `./run.sh <account> [backup\|count\|meta] [options]`: runs `mailcellar` |
@@ -237,6 +237,18 @@ of an imported message stays in the backup: `sidecar.kept_ids()` protects
 it from `--sync`, and `superseded_ids()` keeps it out of reports and
 dedup. With `--to`, restored rows carry the target account and leave the
 source's offload record alone.
+
+**Other sources** (`restore/sources.py`, `restore/mbox.py`): `--from-pruned`,
+`--from-mbox` and `--from-folder` build the same `Candidate`s from a pruned
+batch's `pruned.csv`, an mbox file (a candidate's `span` is where its entry
+is; `read_raw()` reads it back) or another gyb folder, parsed once for the
+sender, date and content hash. `plan()` and `apply()` are unchanged apart
+from that: every message takes the other-account way back (`found` by
+Message-ID and content, or `import`), and `apply()` with no backup folder
+records and indexes nothing. The mbox reader splits at `From ` lines at the
+start of the file or after a blank line, undoes mboxrd escaping, drops the
+headers Takeout adds, and maps Takeout's label names to Gmail's IDs; all of
+that is pure.
 
 ## Safety model
 

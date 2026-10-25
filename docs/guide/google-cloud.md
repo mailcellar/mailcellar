@@ -14,8 +14,17 @@ result you need is stated in each step.
 You need:
 
 - a Google account to own the project. It does not have to be a mailbox you
-  back up.
+  back up, but it can be: with only a personal `@gmail.com` account, that
+  one account owns the project, is its test user and is the mailbox backed
+  up.
 - the address of each Gmail or Google Workspace account to back up.
+
+An account enrolled in Google's
+[Advanced Protection Program](https://support.google.com/accounts/answer/7539956)
+can't use mailcellar: it lets only Google's apps and apps Google has
+verified reach the account, and a client you make yourself is never
+verified, in Testing or in production. Back up such an account only after
+leaving the programme, or not at all.
 
 ## 1. Create a Google Cloud project
 
@@ -172,4 +181,5 @@ them and remove mailcellar at
 | Asked to approve again after a week | Testing status (step 3). Publish the app, or accept it. |
 | "Stored ... token ... was rejected" | Revoked, or expired as above. Approve again; nothing else to do. |
 | "Google did not grant gmail.readonly" | The Gmail box was not ticked (step 6). |
+| Consent refused for an account in Advanced Protection | The programme admits only verified apps; see *You need* above. |
 | Workspace account blocked by an admin | Your administrator controls which apps may reach mail. Ask them to allow the client, or use a project in your own organisation. |
