@@ -3,6 +3,7 @@
 import base64
 import csv
 import sqlite3
+from dataclasses import replace
 from email.parser import BytesHeaderParser
 from pathlib import Path
 
@@ -541,3 +542,179 @@ def test_empty_content_never_counts_as_the_same():
 def test_values_are_frozen():
     with pytest.raises(AttributeError):
         cand().source_id = "other"
+
+
+# ── the backup copy can't be used ────────────────────────────────────────────
+
+
+def the_candidate(env, gid="t1"):
+    (c,) = restore.candidates(env.folder, ids=(gid,))
+    return c
+
+
+@pytest.mark.parametrize(
+    ("change", "problem"),
+    [
+        ({"path": None}, "no .eml in the backup"),
+        ({"parser_version": ""}, "not in the sidecar; run mailcellar meta"),
+        ({"parser_version": "0"}, "sidecar row is stale; run mailcellar meta"),
+        ({"content_hash": "not-the-hash"}, "backup copy differs from the sidecar"),
+    ],
+)
+def test_an_unusable_backup_copy_is_named(env, change, problem):
+    assert restore.check_backup(replace(the_candidate(env), **change)) == (problem, None)
+
+
+def test_a_backup_copy_that_cannot_be_read_is_named(env):
+    c = replace(the_candidate(env), path=env.folder)  # a folder, not a file
+    problem, copy = restore.check_backup(c)
+    assert problem.startswith("backup copy doesn't parse: ") and copy is None
+
+
+def test_a_usable_backup_copy_gives_its_size_and_message_id(env):
+    problem, copy = restore.check_backup(the_candidate(env))
+    assert problem == "" and copy.message_id == "<t1@x>"
+    assert copy.size == the_candidate(env).path.stat().st_size
+
+
+def test_unusable_copies_are_skipped_in_a_run_and_nothing_is_changed(env):
+    next(env.folder.rglob("g1.eml")).unlink()
+    con = sidecar.open_meta(env.folder)
+    con.execute("UPDATE messages SET parser_version = '0' WHERE gmail_id = 'g2'")
+    con.commit()
+    con.close()
+    assert run("--id", "g1", "--id", "g2", "--yes") == 1
+    assert log()["g1"] == ("skipped", "no .eml in the backup")
+    assert log()["g2"] == ("skipped", "sidecar row is stale; run mailcellar meta")
+    assert restored_rows(env.folder) == {} and env.imported == 0
+
+
+def test_an_old_sidecar_schema_asks_for_meta(env):
+    sql = sqlite3.connect(env.folder / "meta.sqlite")
+    sql.execute("UPDATE meta SET value = '8' WHERE name = 'schema_version'")
+    sql.commit()
+    sql.close()
+    with pytest.raises(sidecar.MetaError, match="run mailcellar meta to migrate it"):
+        restore.candidates(env.folder)
+
+
+# ── narrowing the selection ──────────────────────────────────────────────────
+
+
+def ids_of(cands):
+    return [c.source_id for c in cands]
+
+
+def test_selection_narrows_by_batch_rule_and_id(env):
+    everyone = ["t1", "g1", "g2", "o1", "c1"]
+    assert sorted(ids_of(restore.candidates(env.folder))) == sorted(everyone)  # all offloaded
+    assert sorted(ids_of(restore.candidates(env.folder, batches=(BATCH,)))) == sorted(everyone)
+    assert restore.candidates(env.folder, batches=("2000-01-01-000000",)) == []
+    assert sorted(ids_of(restore.candidates(env.folder, rules=("old work",)))) == sorted(everyone)
+    assert restore.candidates(env.folder, rules=("another rule",)) == []
+    assert ids_of(restore.candidates(env.folder, ids=("g1", "nope"))) == ["g1"]
+    # each narrowing applies together with the others
+    assert restore.candidates(env.folder, batches=(BATCH,), rules=("another rule",)) == []
+    assert ids_of(restore.candidates(env.folder, batches=(BATCH,), ids=("g1",))) == ["g1"]
+    assert restore.candidates(env.folder, rules=("old work",), ids=("k1",)) == []  # not offloaded
+
+
+def test_selecting_everything_adds_mail_that_was_never_offloaded(env):
+    assert "k1" in ids_of(restore.candidates(env.folder, everything=True))
+    assert ids_of(restore.candidates(env.folder, everything=True, ids=("k1",))) == ["k1"]
+    assert restore.candidates(env.folder, ids=("k1",)) == []  # not without everything
+    k1 = restore.candidates(env.folder, everything=True, ids=("k1",))[0]
+    assert (k1.offloaded, k1.batch, k1.rule) == (False, "", "")
+
+
+def test_the_oldest_messages_come_first(env):
+    got = restore.candidates(env.folder, everything=True)
+    assert [(c.internal_date, c.source_id) for c in got] == sorted(
+        (c.internal_date, c.source_id) for c in got
+    )
+
+
+def test_a_rule_and_a_limit_narrow_a_run(env):
+    assert run("--rule", "old work", "--limit", "2") == 1  # c1, the oldest by ID, is skipped
+    assert sorted(log()) == ["c1", "g1"]  # a dry run of just the two oldest
+    with pytest.raises(SystemExit, match="Nothing to do"):
+        run("--rule", "another rule")
+
+
+# ── a restore that goes wrong part of the way ────────────────────────────────
+
+
+def test_an_untrash_that_fails_is_reported_and_not_recorded(env):
+    real = env.untrash
+    env.untrash = lambda ids: [f"{i}: HttpError 500" for i in ids] if "t1" in ids else real(ids)
+    assert run("--id", "t1", "--id", "o1", "--yes") == 1
+    assert log()["t1"] == ("failed", "t1: HttpError 500")
+    assert log()["o1"][0] == "recorded"  # a failure doesn't stop the others
+    assert "t1" in env.trashed
+    assert set(restored_rows(env.folder)) == {"o1"}
+    done = [c for c in env.calls if c[0] == "label"][-1]
+    assert done[1] == ["o1"]  # only what was restored is relabelled
+    con = sidecar.open_meta(env.folder)
+    assert "t1" in sidecar.offloaded_ids(con)  # still offloaded: it can be tried again
+    con.close()
+    env.untrash = real
+    assert run("--id", "t1", "--yes") == 0
+    assert "t1" not in env.trashed and restored_rows(env.folder)["t1"] == ("t1", "untrashed")
+
+
+def test_an_import_that_fails_is_reported_and_not_indexed(env):
+    real = env.import_messages
+
+    def fail_g1(messages, on_imported):
+        messages.pop("g1")
+        return [*real(messages, on_imported), "g1: HttpError 500"]
+
+    env.import_messages = fail_g1
+    assert run("--id", "g1", "--id", "g2", "--yes") == 1
+    assert log()["g1"] == ("failed", "g1: HttpError 500")
+    assert log()["g2"][0] == "imported"
+    assert set(restored_rows(env.folder)) == {"g2"}
+    indexed = {bm.gmail_id for bm in gyb.iter_backup(env.folder)}
+    assert "n1" in indexed and env.imported == 1  # g2's copy only
+    con = sidecar.open_meta(env.folder)
+    assert "g1" in sidecar.offloaded_ids(con)  # still offloaded
+    con.close()
+
+
+def test_when_every_import_fails_nothing_is_indexed(env):
+    before = {bm.gmail_id for bm in gyb.iter_backup(env.folder)}
+    env.import_messages = lambda messages, on_imported: [f"{k}: HttpError 500" for k in messages]
+    assert run("--id", "g1", "--id", "g2", "--yes") == 1
+    assert {log()[g][0] for g in ("g1", "g2")} == {"failed"}
+    assert restored_rows(env.folder) == {}
+    assert {bm.gmail_id for bm in gyb.iter_backup(env.folder)} == before
+
+
+def test_a_backup_copy_changed_after_the_dry_run_is_not_uploaded(env):
+    cands = restore.candidates(env.folder, ids=("g1",))
+    decisions = restore.plan(env, cands)
+    assert [d.way for d in decisions] == ["import"]
+    eml = cands[0].path
+    eml.write_bytes(eml.read_bytes().replace(b"Hello there", b"Changed since"))
+    results = restore.apply(env, env.folder, decisions, "run", "restored/today")
+    assert [(r.outcome, r.detail) for r in results] == [
+        ("skipped", "backup copy differs from the sidecar")
+    ]
+    assert env.imported == 0 and restored_rows(env.folder) == {}
+
+
+def test_a_new_id_gmail_cannot_describe_is_recorded_but_not_indexed(env):
+    env.message_details = lambda ids, failures=None: {i: None for i in ids}
+    assert run("--id", "g1", "--yes") == 0
+    new_id = restored_rows(env.folder)["g1"][0]
+    assert new_id == "n1"
+    assert new_id not in {bm.gmail_id for bm in gyb.iter_backup(env.folder)}
+    assert new_id not in sidecar.current_fields(env.folder)  # the next backup fetches it
+
+
+def test_progress_is_reported_while_checking_many_copies(env, monkeypatch):
+    monkeypatch.setattr(restore, "PROGRESS_EVERY", 2)
+    messages = []
+    restore.plan(env, restore.candidates(env.folder), progress=messages.append)
+    assert "Checking backup copies: 2 of 5" in messages
+    assert "Checking backup copies: 4 of 5" in messages

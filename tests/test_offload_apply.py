@@ -366,3 +366,146 @@ def test_apply_log_names_the_plan_and_old_logs_are_upgraded(env):
     assert list(log[0]) == offload_apply.APPLY_LOG_COLUMNS
     assert (log[0]["gmail_id"], log[0]["planned"]) == ("w9", "")  # kept, planned unknown
     assert {r["planned"] for r in log[1:]} == {"2000-01-01 00:00:00"}
+
+
+# ── backup checks and their failure paths ────────────────────────────────────
+
+
+def test_a_message_missing_from_the_sidecar_is_skipped_with_the_reason(env):
+    con = sidecar.open_meta(env.folder)
+    con.execute("DELETE FROM messages WHERE gmail_id = 'w0'")
+    con.commit()
+    con.close()
+    assert last(apply(), 5)["w0"] == ("skipped", "not in the sidecar; run mailcellar meta")
+    row = {"account": A, "gmail_id": "w0", "path": ""}
+    assert backup_checks(env)(row) == "not in the sidecar; run mailcellar meta"
+
+
+def test_an_unparseable_backup_copy_is_skipped_with_the_reason(env, monkeypatch):
+    real = offload_apply.parse_eml
+
+    def parse(path):
+        if path.name == "w1.eml":
+            raise ValueError("bad bytes")
+        return real(path)
+
+    monkeypatch.setattr(offload_apply, "parse_eml", parse)
+    got = last(apply(), 5)
+    assert got["w1"] == ("skipped", "backup copy doesn't parse: bad bytes")
+    assert got["w0"][0] == "would label or trash"  # the others are still checked
+
+
+def test_an_account_whose_backup_was_not_chosen_is_refused():
+    checks = offload_apply.BackupChecks({})
+    assert checks({"account": A, "gmail_id": "w0", "path": ""}) == "account's backup not chosen"
+
+
+def test_an_account_with_no_backup_run_recorded_is_stale(env):
+    assert offload_apply.stale_backups({A: env.folder}, [A], 0) == {}
+    con = sidecar.open_meta(env.folder)
+    con.execute("DELETE FROM runs")
+    con.commit()
+    con.close()
+    assert offload_apply.stale_backups({A: env.folder}, [A], 0) == {A: "no backup run recorded"}
+
+
+def test_trashing_is_refused_when_no_backup_run_is_recorded(env, capsys):
+    con = sidecar.open_meta(env.folder)
+    con.execute("DELETE FROM runs")
+    con.commit()
+    con.close()
+    with pytest.raises(SystemExit, match="run a backup of each account"):
+        apply("--trash", "--yes")
+    assert "no backup run recorded" in capsys.readouterr().err
+    assert env.live.messages["w0"] == {"work"}  # nothing was trashed
+
+
+def test_a_file_that_is_not_an_offload_plan_is_refused(tmp_path):
+    path = tmp_path / "plan.csv"
+    path.write_text("account,gmail_id\na@x.com,w0\n")
+    with pytest.raises(SystemExit, match=r"is not an offload plan \(missing \["):
+        offload_apply.read_plan(path)
+
+
+def test_last_backup_is_the_newest_successful_run_of_any_account(env, tmp_path):
+    other = tmp_path / "data" / "b@y.com"
+    commands.backup(FakeGmail({"b1": message("b1")}), "b@y.com", other)
+    folders = {A: env.folder, "b@y.com": other}
+    newest = offload_apply.last_backup_ms(folders, ["b@y.com", A])  # the older one comes second
+    assert newest == offload_apply.last_backup_ms({"b@y.com": other}, ["b@y.com"])
+    assert newest >= offload_apply.last_backup_ms({A: env.folder}, [A])
+    con = sidecar.open_meta(other)
+    con.execute("DELETE FROM runs")
+    con.commit()
+    con.close()
+    assert offload_apply.last_backup_ms(folders, ["b@y.com"]) is None  # no successful run
+
+
+def test_recording_nothing_writes_no_manifest(env, tmp_path):
+    record = offload_apply.recorder({A: env.folder}, "batch", tmp_path / "manifest.csv")
+    record(A, [])
+    assert not (tmp_path / "manifest.csv").exists() and offloaded(env.folder) == {}
+
+
+def test_a_label_run_leaves_messages_trashed_before_a_crash_alone(env):
+    path = next(env.folder.rglob("w0.eml"))
+    entry = {
+        "live": {"TRASH", OFFLOAD_LABEL},
+        "row": {"account": A, "gmail_id": "w0", "path": str(path)},
+        "outcome": "x",
+        "detail": "",
+    }
+    recorded = []
+    label = OFFLOAD_LABEL
+    assert (
+        offload_apply.recover_trashed(
+            [entry], "label", label, lambda row: "", lambda a, rows: recorded.append(rows)
+        )
+        == 0
+    )
+    assert recorded == [] and (entry["outcome"], entry["detail"]) == ("x", "")
+
+
+# ── the second-copy report ───────────────────────────────────────────────────
+
+
+def test_tmutil_that_cannot_run_answers_with_a_failure(monkeypatch):
+    def fail(*args, **kwargs):
+        raise OSError("tmutil not found")
+
+    monkeypatch.setattr(offload_apply.subprocess, "run", fail)
+    assert offload_apply._tmutil("latestbackup") == (1, "tmutil not found")
+
+    def slow(*args, **kwargs):
+        raise offload_apply.subprocess.TimeoutExpired("tmutil", 20)
+
+    monkeypatch.setattr(offload_apply.subprocess, "run", slow)
+    code, why = offload_apply._tmutil("latestbackup")
+    assert code == 1 and "timed out" in why
+
+
+def test_tmutil_output_and_status_are_passed_on(monkeypatch):
+    done = offload_apply.subprocess.CompletedProcess(["tmutil"], 0, stdout="out\n", stderr="err\n")
+    monkeypatch.setattr(offload_apply.subprocess, "run", lambda *a, **k: done)
+    assert offload_apply._tmutil("latestbackup") == (0, "out\nerr")
+
+
+def test_second_copy_report_when_time_machine_answers_oddly(monkeypatch, tmp_path):
+    monkeypatch.setattr(offload_apply.sys, "platform", "darwin")
+    monkeypatch.setattr(offload_apply.shutil, "which", lambda name: "/usr/bin/tmutil")
+    answers = {
+        "destinationinfo": (0, "Name          : backup"),
+        "isexcluded": (0, "something unexpected\nsecond line"),
+        "latestbackup": (0, "/Volumes/backup/2026-10-26-101500.previous"),
+    }
+    monkeypatch.setattr(offload_apply, "_tmutil", lambda *a: answers[a[0]])
+    lines = offload_apply.second_copy_report(tmp_path, 1_792_800_000_000)  # 2026-10-24
+    assert "is unknown (something unexpected)" in lines[1]
+    assert "2026-10-26 10:15" in lines[2]
+    assert len(lines) == 3  # the backup is newer than the last Gmail backup: no warning
+
+    answers["latestbackup"] = (0, "no date in this output")
+    assert (
+        "Latest Time Machine backup: unknown (no date in this output)"
+        in (offload_apply.second_copy_report(tmp_path, None)[-1])
+    )
