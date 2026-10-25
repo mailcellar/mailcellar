@@ -122,7 +122,10 @@ lost them. Do not confirm that. Read what
 `backup` and `count` say, and compare against the batch manifests if you
 kept them, before using `--sync`.
 
-**Only some files are damaged.**
+**Only some files are damaged.** `mailcellar verify` lists them: files that
+are missing, do not parse or no longer match their recorded content hash,
+and offloaded mail missing from the index (`--offloaded` checks just that
+mail, which has no other source). It changes nothing.
 
 - A missing or unreadable `.eml` file: `backup` downloads it again while
   the message is in Gmail; the backup counts a message as present only if

@@ -8,6 +8,7 @@ backup keeps it, put it back when it's needed, and report on what's there.
 mailcellar backup  [ACCOUNT ...]   incremental backups in gyb's format
 mailcellar count   [ACCOUNT ...]   compare Gmail with the backup
 mailcellar meta    [ACCOUNT ...]   fill the per-message sidecar for older mail
+mailcellar verify  [ACCOUNT ...]   check that the backup's files are still intact
 mailcellar dedup   …               find duplicates and remove them from Gmail, in stages
 mailcellar offload …               take old mail out of Gmail, keeping it in the backup
 mailcellar restore ACCOUNT …       put backed-up mail back into Gmail
@@ -175,6 +176,7 @@ uv run mailcellar backup personal --full  # list every message instead of using 
 uv run mailcellar backup personal --sync  # also move mail permanently deleted from Gmail
                                           # (not offloaded mail) into <data root>/_pruned/
 uv run mailcellar meta                    # fill meta.sqlite for older mail
+uv run mailcellar verify                  # are the backup's files still intact?
 ```
 
 **Exit status** (for scripts and schedulers): 0 when everything worked.
@@ -182,9 +184,32 @@ Otherwise 1, in any of these cases:
 - an account failed (with several accounts, the others still run);
 - downloads failed (the next run fetches them), or `--sync` stopped at its
   guard;
-- `count` found mail missing from the backup.
+- `count` found mail missing from the backup;
+- `verify` found a problem.
 
 `restore` exits 1 when any message was skipped or failed.
+
+**Checking the backup.** Once mail is offloaded and Gmail has emptied its
+Trash, the backup holds the only copy, so `verify` looks for damage that
+would otherwise go unnoticed: a failing disk, a sync tool rewriting files,
+an accidental delete. It needs no Gmail access and changes nothing (both
+databases are opened read-only).
+
+```bash
+uv run mailcellar verify                  # every backup, every message
+uv run mailcellar verify work --offloaded # only offloaded mail: the copies with no other source
+uv run mailcellar verify --sample 500     # 500 random messages: quick enough for a routine check
+```
+
+For each message it checks that the `.eml` exists and parses, and that its
+content hash matches the one `meta.sqlite` recorded. It also checks that
+`msg-db.sqlite` and `meta.sqlite` agree on which messages exist, and, with
+`--offloaded`, that every offloaded message is in the backup. Problems are
+listed (`--top N` sets how many) and the exit status is 1 if there are any.
+A message with no current `meta.sqlite` row has nothing to compare with: it
+is counted as unchecked, with a warning, and `mailcellar meta` fills it in.
+A full run parses every message, so it takes a while on a large backup;
+progress goes to stderr.
 
 Backups live in `<data root>/<email>/`, in the format of
 [gyb](https://github.com/GAM-team/got-your-back), so other tools can read

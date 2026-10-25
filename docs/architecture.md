@@ -3,7 +3,8 @@
 One command, `mailcellar`, over one Python package, `src/mailcellar/`:
 
 - **`mailcellar backup | count | meta`** keeps a local backup of each Gmail
-  account, in Got-Your-Back's (gyb) on-disk format.
+  account, in Got-Your-Back's (gyb) on-disk format; **`verify`** checks,
+  read-only, that its files are still intact.
 - **`mailcellar dedup`** finds duplicate messages within and across the
   backed-up accounts, decides which copies to remove, and removes them
   from Gmail — in stages, with checks, never permanently.
@@ -55,6 +56,7 @@ mailcellar` and `python -m mailcellar` both work.
 | `message.py` | Message parsing: `parse_message()`, `content_hash()`, `header_key()`, `extract_address()`, `PARSER_VERSION` |
 | `backup/commands.py` | `backup` (history-based or full listing), `count`, `meta` (sidecar backfill), `sync`; the runs log |
 | `backup/gyb.py` | gyb's format: writes `msg-db.sqlite` and `<y>/<m>/<d>/<id>.eml`, reads them back (`iter_backup`, `backup_account`), `prune` for `--sync` |
+| `backup/verify.py` | `verify`: for each backup, every indexed message's `.eml` exists, parses and matches the content hash in `meta.sqlite`; the two databases agree on which messages exist (`--offloaded`, `--sample`). Both are opened read-only; the decisions (`judge`, `select`, `disagreements`) are pure |
 | `backup/sidecar.py` | The per-account sidecar `meta.sqlite`: schema, migrations, runs, the offload record |
 | `dedup/cli.py` | argparse and one `cmd_*` per subcommand (`index`, `match`, `plan`, `apply`, `auth`) |
 | `dedup/db.py` | `dedup.sqlite` schema and migrations |
