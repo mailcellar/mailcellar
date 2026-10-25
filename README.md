@@ -24,8 +24,9 @@ It runs on your own computer with your own Google Cloud project: there is no
 service in between, and your mail goes nowhere but between Gmail and your
 disk. Setting up the project takes about ten minutes
 ([guide](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/google-cloud.md)).
-mailcellar is young (alpha), runs on macOS and Linux, and needs Python 3.14,
-which uv installs for you.
+mailcellar is in beta: it is used on real mailboxes, and its backups are in
+gyb's fixed format, but commands and options may still change before 1.0.
+It runs on macOS and Linux and needs Python 3.14, which uv installs for you.
 
 ```
 mailcellar backup  [ACCOUNT ...]   incremental backups in gyb's format
