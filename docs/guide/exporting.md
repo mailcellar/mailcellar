@@ -5,7 +5,7 @@ file you can open elsewhere. Use it to read old mail in a desktop mail client,
 to hand mail to an accountant or a lawyer, or to keep a second copy of
 offloaded mail. It changes nothing in Gmail or the backup, and needs no Gmail
 sign-in. The README has the reference
-([Exporting mail](../../README.md#exporting-mail)).
+([Exporting mail](https://github.com/mailcellar/mailcellar#exporting-mail)).
 
 ## Which format
 

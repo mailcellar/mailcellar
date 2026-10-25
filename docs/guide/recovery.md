@@ -146,7 +146,7 @@ mail, which has no other source). It changes nothing.
   folder per run; `mailcellar restore ACCOUNT --from-pruned BATCH` puts it
   back into Gmail. A Google Takeout export, or another gyb folder, can be
   restored the same way with `--from-mbox` or `--from-folder` (see
-  [Restoring mail](../../README.md#restoring-mail)).
+  [Restoring mail](https://github.com/mailcellar/mailcellar#restoring-mail)).
 - Plans and logs are only working files. Make a new plan with `dedup plan`
   or `offload plan`.
 
@@ -167,5 +167,5 @@ the data root. See [Exporting mail](exporting.md).
 
 Revoke access, delete the token files and, if the client's secrets leaked
 too, delete the OAuth client and make a new one. The steps are in
-[SECURITY.md](../../SECURITY.md#if-a-token-may-have-leaked), together with
+[SECURITY.md](https://github.com/mailcellar/mailcellar/blob/main/SECURITY.md#if-a-token-may-have-leaked), together with
 how to report a vulnerability. Nothing in the backup needs changing.

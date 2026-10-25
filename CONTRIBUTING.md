@@ -94,6 +94,21 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
   the model. It records how the change was made, and doesn't change who
   "the mailcellar authors" in NOTICE are.
 
+## The documentation site
+
+[`.github/workflows/docs.yml`](.github/workflows/docs.yml) builds
+<https://mailcellar.github.io/mailcellar/> from `docs/` and
+[`mkdocs.yml`](mkdocs.yml): pull requests that touch them build it in strict
+mode (a broken link fails), and pushes to `main` deploy it. A new guide goes in
+`docs/guide/` and in `mkdocs.yml`'s `nav`. Links from a guide to the README use
+its GitHub address, so they work on GitHub and on the site. To preview:
+
+```bash
+uvx --from mkdocs==1.6.1 --with mkdocs-material==9.7.7 mkdocs serve
+```
+
+Once, a maintainer sets Settings → Pages → Source to *GitHub Actions*.
+
 ## Releasing
 
 Pushing a tag `vX.Y.Z` releases that version:

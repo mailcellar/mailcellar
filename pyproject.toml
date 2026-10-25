@@ -26,7 +26,7 @@ dependencies = [
 
 [project.urls]
 Repository = "https://github.com/mailcellar/mailcellar"
-Documentation = "https://github.com/mailcellar/mailcellar/tree/main/docs/guide"
+Documentation = "https://mailcellar.github.io/mailcellar/"
 Issues = "https://github.com/mailcellar/mailcellar/issues"
 Changelog = "https://github.com/mailcellar/mailcellar/releases"
 
