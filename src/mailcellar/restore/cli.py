@@ -33,30 +33,17 @@ from mailcellar.restore.apply import (
 logger = logging.getLogger(__name__)
 
 
-def restore_dir() -> Path:
-    """restore/ in the data root (paths.data_root())."""
-    return data_root() / "restore"
-
-
-def main(argv=None, prog: str | None = None) -> int:
-    log = restore_dir() / "restore-log.csv"
-    p = argparse.ArgumentParser(
-        prog=prog or "mailcellar restore",
-        description="Put backed-up mail back into Gmail: offloaded messages, or a whole "
-        "backup, into its own account or another one. A dry run unless --yes: it checks "
-        "the backup and Gmail and says what it would do.",
-    )
-    p.add_argument("account", help="The backup: address, config folder name or unique part")
+def add_selection_arguments(
+    p: argparse.ArgumentParser,
+    all_help: str = "Every message in the backup; those still in Gmail are left alone",
+) -> None:
+    """The options that say which backed-up messages: shared by restore and export."""
     which = p.add_argument_group("which messages (one or more)")
     which.add_argument("--batch", action="append", default=[], help="An offload batch (repeatable)")
     which.add_argument("--rule", action="append", default=[], help="An offload rule (repeatable)")
     which.add_argument("--id", action="append", default=[], help="A Gmail ID (repeatable)")
     which.add_argument("--offloaded", action="store_true", help="Every offloaded message")
-    which.add_argument(
-        "--all",
-        action="store_true",
-        help="Every message in the backup; those still in Gmail are left alone",
-    )
+    which.add_argument("--all", action="store_true", help=all_help)
     narrow = p.add_argument_group(
         "narrow the selection (combine with any of the above; all must hold)"
     )
@@ -75,8 +62,7 @@ def main(argv=None, prog: str | None = None) -> int:
         action="append",
         default=[],
         metavar="NAME",
-        help="Only mail with this user label, ignoring case (repeatable: any of them). "
-        "Not --label, which names the label restored mail gets",
+        help="Only mail with this user label, ignoring case (repeatable: any of them)",
     )
     narrow.add_argument(
         "--sender",
@@ -86,6 +72,58 @@ def main(argv=None, prog: str | None = None) -> int:
         help="Only mail from this From address, or any address at @domain (repeatable: "
         "any of them)",
     )
+
+
+def selection(p: argparse.ArgumentParser, args) -> Narrowing:
+    """
+    Check a selection given with add_selection_arguments() and return its
+    narrowing; an error ends the command through the parser.
+    """
+    if not (args.batch or args.rule or args.id or args.offloaded or args.all):
+        p.error("say which messages: --batch, --rule, --id, --offloaded or --all")
+    if args.all and (args.batch or args.rule or args.offloaded):
+        p.error(
+            "--all takes every message; use --id, --before, --after, --has-label or "
+            "--sender to narrow it"
+        )
+
+    def date(option: str, value: str | None) -> int | None:
+        try:
+            return parse_before(value)
+        except AnalyticsError:
+            p.error(f"{option} {value!r}: give a date (YYYY-MM-DD) or a number of years")
+
+    narrowing = Narrowing(
+        date("--before", args.before),
+        date("--after", args.after),
+        tuple(args.has_label),
+        tuple(args.sender),
+    )
+    if (
+        narrowing.before_ms is not None
+        and narrowing.after_ms is not None
+        and narrowing.after_ms >= narrowing.before_ms
+    ):
+        p.error("--after must be earlier than --before")
+    return narrowing
+
+
+def restore_dir() -> Path:
+    """restore/ in the data root (paths.data_root())."""
+    return data_root() / "restore"
+
+
+def main(argv=None, prog: str | None = None) -> int:
+    log = restore_dir() / "restore-log.csv"
+    p = argparse.ArgumentParser(
+        prog=prog or "mailcellar restore",
+        description="Put backed-up mail back into Gmail: offloaded messages, or a whole "
+        "backup, into its own account or another one. A dry run unless --yes: it checks "
+        "the backup and Gmail and says what it would do. (--has-label narrows by a label "
+        "the mail has; --label names the label restored mail gets.)",
+    )
+    p.add_argument("account", help="The backup: address, config folder name or unique part")
+    add_selection_arguments(p)
     p.add_argument(
         "--to",
         default=None,
@@ -119,32 +157,7 @@ def main(argv=None, prog: str | None = None) -> int:
     )
     p.add_argument("--log", default=str(log), help=f"Restore log, appended to (default: {log})")
     args = p.parse_args(argv)
-    if not (args.batch or args.rule or args.id or args.offloaded or args.all):
-        p.error("say which messages: --batch, --rule, --id, --offloaded or --all")
-    if args.all and (args.batch or args.rule or args.offloaded):
-        p.error(
-            "--all takes every message; use --id, --before, --after, --has-label or "
-            "--sender to narrow it"
-        )
-
-    def date(option: str, value: str | None) -> int | None:
-        try:
-            return parse_before(value)
-        except AnalyticsError:
-            p.error(f"{option} {value!r}: give a date (YYYY-MM-DD) or a number of years")
-
-    narrowing = Narrowing(
-        date("--before", args.before),
-        date("--after", args.after),
-        tuple(args.has_label),
-        tuple(args.sender),
-    )
-    if (
-        narrowing.before_ms is not None
-        and narrowing.after_ms is not None
-        and narrowing.after_ms >= narrowing.before_ms
-    ):
-        p.error("--after must be earlier than --before")
+    narrowing = selection(p, args)
 
     from mailcellar import gmailapi
 

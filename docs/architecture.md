@@ -14,6 +14,9 @@ One command, `mailcellar`, over one Python package, `src/mailcellar/`:
 - **`mailcellar restore`** puts mail back: offloaded mail out of Gmail's
   Trash within 30 days, otherwise uploaded from the backup; a whole
   backup, into its own account or another one.
+- **`mailcellar export`** copies a selection of the backup out, read-only,
+  as an mbox file for a mail client or a zip of the `.eml` files with a CSV
+  index.
 - **`mailcellar report`** (storage, bulk mail, volume, threads, labels,
   correspondents, backup health, senders) reports on the backups from the
   per-message sidecars.
@@ -68,7 +71,7 @@ mailcellar` and `python -m mailcellar` both work.
 | `dedup/apply.py` | Live checks against Gmail, then label or trash; the audit log. Shared with offload. `apply_plan()` reads Gmail's state, `check_row()`/`checked()` decide, and `act()` carries out one account's rows; each returns new frozen `Result`s (the plan rows are never changed) |
 | `dedup/report.py`, `dedup/paths.py` | Text reports; default output locations |
 | `offload/` | `rules.py` (TOML rules), `plan.py` (selection, plan CSV, summary), `apply.py` (backup checks, the offload record, batch manifests on top of dedup's label → trash loop), `cli.py` |
-| `restore/` | `apply.py` (which offloaded messages, backup checks, each message's way back: untrash, already in Gmail, found by Message-ID, or import; indexing a new ID in the backup), `cli.py` |
+| `restore/` | `apply.py` (which offloaded messages, narrowed by date, label and sender; backup checks; each message's way back: untrash, already in Gmail, found by Message-ID, or import; indexing a new ID in the backup), `cli.py` (the command, and the selection options `export` shares), `export.py` (`export`: the same selection copied out read-only as an mbox file or a zip of `.eml` files with an index; the mbox entry, label header and index row are pure) |
 | `report/` | Reports over all accounts' sidecars, attached read-only (`db.py`): `storage`, `bulk`, `volume`, `threads`, `labels`, `correspondents`, `health`; `senders.py` for one backup; `output.py` formats tables |
 | `run.sh` (repo root) | `./run.sh <account> [backup\|count\|meta] [options]`: runs `mailcellar` |
 
