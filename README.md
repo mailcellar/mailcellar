@@ -33,6 +33,8 @@ How it fits together: [docs/architecture.md](docs/architecture.md).
   OAuth client mailcellar signs in with, and the first consent screen.
 - [Migrating from gyb](docs/guide/from-gyb.md): continue an existing Got Your Back
   backup instead of starting again.
+- [Offloading old mail safely](docs/guide/offloading.md): a worked example, from
+  writing a rule to restoring.
 
 ## Quick start
 
