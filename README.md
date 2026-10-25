@@ -331,6 +331,27 @@ Batch names are the folders in `<data root>/offload/batches/`. `--limit`
 takes the oldest messages first, and repeated runs carry on where the
 last one stopped.
 
+**Narrowing a selection.** Any of the selections above can be narrowed, so
+"last year's mail from one sender" needs no ID lookup first:
+
+```bash
+uv run mailcellar restore personal --all --after 2025-01-01 --before 2026-01-01 --sender @example.com
+uv run mailcellar restore personal --offloaded --has-label projects --sender alex@example.org
+```
+
+- `--before DATE` keeps mail older than the date, `--after DATE` mail from
+  that date on. A date is `YYYY-MM-DD` (UTC) or a number of years ago.
+- `--has-label NAME` keeps mail with that user label, by name, ignoring case
+  (system labels such as `INBOX` don't count). It is not `--label`, which
+  names the label that restored mail gets.
+- `--sender` keeps mail from an address, or from any address at a `@domain`,
+  ignoring case; it goes by the From address, so a relayed message counts as
+  from its relay. `--has-label` and `--sender` can be repeated: mail matching
+  any one of the values stays.
+
+Everything given has to hold at once, and none of them is a selection by
+itself: name `--all`, `--offloaded`, `--batch`, `--rule` or `--id` too.
+
 **How each message comes back** (the first that applies):
 - **still in Gmail's Trash** (within 30 days of the offload): moved out,
   keeping its ID, labels and thread;

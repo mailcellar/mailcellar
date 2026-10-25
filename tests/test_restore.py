@@ -718,3 +718,219 @@ def test_progress_is_reported_while_checking_many_copies(env, monkeypatch):
     restore.plan(env, restore.candidates(env.folder), progress=messages.append)
     assert "Checking backup copies: 2 of 5" in messages
     assert "Checking backup copies: 4 of 5" in messages
+
+
+# ── narrowing by date, label and sender ──────────────────────────────────────
+
+DAY = 86_400_000
+T0 = 1_700_006_400_000  # 2023-11-15 00:00 UTC
+
+
+def narrowed(**kwargs):
+    return restore.Narrowing(**kwargs)
+
+
+def mine(**changes):
+    return replace(cand(), **changes)
+
+
+def test_an_empty_narrowing_keeps_everything_and_is_false():
+    assert not narrowed() and restore.matches(mine(), narrowed())
+    assert narrowed(before_ms=0) and narrowed(labels=("x",)) and narrowed(senders=("a@b.c",))
+
+
+def test_dates_are_before_exclusive_and_after_inclusive():
+    on = mine(internal_date=T0)
+    assert restore.matches(on, narrowed(after_ms=T0))  # from this moment on
+    assert not restore.matches(on, narrowed(before_ms=T0))  # older than it, not equal
+    assert restore.matches(on, narrowed(before_ms=T0 + 1, after_ms=T0))
+    assert not restore.matches(on, narrowed(after_ms=T0 + 1))
+    assert not restore.matches(on, narrowed(before_ms=T0, after_ms=T0 - DAY))
+
+
+def test_labels_match_user_labels_by_name_ignoring_case_and_any_one_will_do():
+    c = mine(labels=("Work", "INBOX", "CATEGORY_PROMOTIONS", "projects/2026"))
+    assert restore.matches(c, narrowed(labels=("work",)))
+    assert restore.matches(c, narrowed(labels=("WORK",)))
+    assert restore.matches(c, narrowed(labels=("nope", "Projects/2026")))
+    assert not restore.matches(c, narrowed(labels=("nope",)))
+    assert not restore.matches(c, narrowed(labels=("inbox",)))  # a system label isn't a user label
+    assert not restore.matches(c, narrowed(labels=("category_promotions",)))
+    assert not restore.matches(mine(labels=()), narrowed(labels=("work",)))
+
+
+def test_senders_match_an_address_or_every_address_at_a_domain():
+    c = mine(sender="bob@example.org")
+    assert restore.matches(c, narrowed(senders=("bob@example.org",)))
+    assert restore.matches(c, narrowed(senders=("BOB@Example.ORG",)))
+    assert restore.matches(c, narrowed(senders=("@example.org",)))
+    assert restore.matches(c, narrowed(senders=("nobody@example.com", "@example.org")))
+    assert not restore.matches(c, narrowed(senders=("ob@example.org",)))  # not a suffix match
+    assert not restore.matches(c, narrowed(senders=("@mail.example.org",)))
+    assert not restore.matches(
+        mine(sender="bob@mail.example.org"), narrowed(senders=("@example.org",))
+    )
+    assert not restore.matches(
+        mine(sender=""), narrowed(senders=("@example.org",))
+    )  # no sidecar row
+
+
+def test_every_condition_must_hold():
+    c = mine(internal_date=T0, labels=("work",), sender="bob@example.org")
+    both = narrowed(after_ms=T0, labels=("work",), senders=("@example.org",))
+    assert restore.matches(c, both)
+    for other in (
+        replace(both, before_ms=T0),
+        replace(both, labels=("home",)),
+        replace(both, senders=("@example.com",)),
+    ):
+        assert not restore.matches(c, other)
+
+
+@pytest.fixture
+def varied(env):
+    """The fixture's messages, given different dates and senders in the sidecar."""
+    rows = {
+        "t1": (T0, "alice@example.com"),
+        "g1": (T0 + 10 * DAY, "bob@example.org"),
+        "g2": (T0 + 20 * DAY, "Bob@Example.org"),
+        "o1": (T0 + 30 * DAY, "carol@mail.example.org"),
+        "c1": (T0 + 40 * DAY, "alice@example.com"),
+        "k1": (T0 + 50 * DAY, "alice@example.com"),
+    }
+    con = sqlite3.connect(env.folder / "meta.sqlite")
+    for gid, (date, sender) in rows.items():
+        con.execute(
+            "UPDATE messages SET internal_date = ?, sender_addr = ? WHERE gmail_id = ?",
+            (date, sender, gid),
+        )
+    con.commit()
+    con.close()
+    return env
+
+
+def pick(env, **narrow):
+    everything = narrow.pop("everything", True)
+    got = restore.candidates(env.folder, everything=everything, narrow=restore.Narrowing(**narrow))
+    return ids_of(got)
+
+
+def test_candidates_narrow_by_sender(varied):
+    assert sorted(pick(varied, senders=("alice@example.com",))) == ["c1", "k1", "t1"]
+    assert sorted(pick(varied, senders=("@example.org",))) == ["g1", "g2"]  # not carol's subdomain
+    assert pick(varied, senders=("@mail.example.org",)) == ["o1"]
+    assert sorted(pick(varied, senders=("carol@mail.example.org", "bob@example.org"))) == [
+        "g1",
+        "g2",
+        "o1",
+    ]
+
+
+def test_candidates_narrow_by_date_oldest_first(varied):
+    assert pick(varied, before_ms=T0 + 15 * DAY) == ["t1", "g1"]
+    assert pick(varied, after_ms=T0 + 15 * DAY) == ["g2", "o1", "c1", "k1"]
+    assert pick(varied, after_ms=T0 + 10 * DAY, before_ms=T0 + 30 * DAY) == ["g1", "g2"]
+    assert pick(varied, after_ms=T0 + 60 * DAY) == []
+
+
+def test_candidates_narrow_by_label(varied):
+    assert pick(varied, labels=("WORK",)) == ["t1", "g1", "g2", "o1", "c1", "k1"]
+    assert pick(varied, labels=(OFFLOAD_LABEL,)) == ["g2"]  # a user label, by name
+    assert pick(varied, labels=("inbox",)) == []  # g2 has INBOX, a system label
+
+
+def test_narrowing_combines_with_every_selection(varied):
+    alice = ("alice@example.com",)
+    assert sorted(pick(varied, senders=alice)) == ["c1", "k1", "t1"]  # --all
+    got = restore.candidates(
+        varied.folder, batches=(BATCH,), narrow=restore.Narrowing(senders=alice)
+    )
+    assert sorted(ids_of(got)) == ["c1", "t1"]  # k1 was never offloaded
+    got = restore.candidates(
+        varied.folder, ids=("t1", "g1"), everything=True, narrow=restore.Narrowing(senders=alice)
+    )
+    assert ids_of(got) == ["t1"]
+    got = restore.candidates(
+        varied.folder,
+        rules=("old work",),
+        narrow=restore.Narrowing(senders=alice, after_ms=T0 + DAY),
+    )
+    assert ids_of(got) == ["c1"]
+
+
+def cli_ids():
+    return set(log())
+
+
+def fresh(*args):
+    """run(), but with an empty restore log first, so cli_ids() is this run's messages."""
+    Path("log.csv").unlink(missing_ok=True)
+    return run(*args)
+
+
+def test_the_command_narrows_an_offload_by_sender(varied):
+    assert fresh("--offloaded", "--sender", "bob@example.org") == 0
+    assert cli_ids() == {"g1", "g2"}
+
+
+def test_the_command_narrows_everything_by_date(varied):
+    assert fresh("--all", "--after", "2023-12-05", "--before", "2023-12-25") == 0
+    assert cli_ids() == {"g2", "o1"}  # 12-05 is included, 12-25 is not
+    assert fresh("--all", "--before", "2023-11-25") == 0
+    assert "t1" in cli_ids() and "g1" not in cli_ids()
+
+
+def test_has_label_is_not_the_label_restored_mail_gets(varied):
+    assert fresh("--offloaded", "--has-label", OFFLOAD_LABEL, "--label", "restored/x") == 0
+    assert cli_ids() == {"g2"}
+    with pytest.raises(SystemExit, match="Nothing to do"):
+        fresh("--offloaded", "--has-label", "nope")
+
+
+def test_the_command_takes_repeated_senders_and_labels(varied):
+    assert fresh("--all", "--sender", "bob@example.org", "--sender", "@mail.example.org") == 0
+    assert cli_ids() == {"g1", "g2", "o1"}
+    assert fresh("--all", "--has-label", "nope", "--has-label", OFFLOAD_LABEL) == 0
+    assert cli_ids() == {"g2"}
+
+
+def test_the_limit_applies_after_narrowing_and_takes_the_oldest(varied):
+    assert fresh("--all", "--sender", "alice@example.com", "--limit", "2") == 1  # c1 is skipped
+    assert cli_ids() == {"t1", "c1"}
+
+
+def test_nothing_matching_is_nothing_to_do(varied):
+    with pytest.raises(SystemExit, match="Nothing to do"):
+        run("--all", "--sender", "nobody@example.net")
+
+
+def test_narrowing_alone_is_not_a_selection(varied, capsys):
+    with pytest.raises(SystemExit) as stopped:
+        run("--before", "2023-12-05")
+    assert stopped.value.code == 2
+    assert "say which messages" in capsys.readouterr().err
+
+
+def test_all_can_be_narrowed_but_not_combined_with_other_selections(varied, capsys):
+    with pytest.raises(SystemExit):
+        run("--all", "--batch", BATCH)
+    assert "--before, --after, --has-label or --sender" in capsys.readouterr().err
+
+
+def test_bad_dates_name_the_option(varied, capsys):
+    for option in ("--before", "--after"):
+        with pytest.raises(SystemExit) as stopped:
+            run("--all", option, "soon")
+        assert stopped.value.code == 2
+        assert f"{option} 'soon': give a date" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        run("--all", "--after", "2024-01-01", "--before", "2023-01-01")
+    assert "--after must be earlier than --before" in capsys.readouterr().err
+
+
+def test_help_names_the_narrowing_options(capsys):
+    with pytest.raises(SystemExit):
+        run("--help")
+    out = capsys.readouterr().out
+    for option in ("--before", "--after", "--has-label", "--sender"):
+        assert option in out
