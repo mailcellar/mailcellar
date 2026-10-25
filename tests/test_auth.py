@@ -1,4 +1,6 @@
 import json
+import logging
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -63,12 +65,21 @@ def test_find_config_folder(config):
         gmailapi.find_config_folder(config, "nobody@example.com")
 
 
+class Calls(list):
+    renewals: list
+
+    def __init__(self):
+        super().__init__()
+        self.renewals = []
+
+
 @pytest.fixture
 def fake_auth(monkeypatch):
-    calls = []
+    calls = Calls()
 
-    def load_credentials(folder, account, scope):
+    def load_credentials(folder, account, scope, renew=False):
         calls.append((folder.name, account, scope))
+        calls.renewals.append(renew)
         if account == "bad@example.com":
             raise gmailapi.GmailError("scope not granted")
         return object()
@@ -108,7 +119,7 @@ def test_auth_reports_failure_and_continues(config, fake_auth, capsys):
     assert out.count("OK") == 2
 
 
-def test_rejected_refresh_token_falls_back_to_consent(tmp_path, monkeypatch):
+def test_rejected_refresh_token_falls_back_to_consent(tmp_path, monkeypatch, capsys):
     """A refresh token Google rejects (e.g. 7-day Testing expiry) re-runs consent."""
     from google.auth.exceptions import RefreshError
     from google.oauth2 import credentials as gcreds
@@ -150,7 +161,12 @@ def test_rejected_refresh_token_falls_back_to_consent(tmp_path, monkeypatch):
 
     creds = gmailapi.load_credentials(tmp_path, "a@example.com", "modify")
     assert isinstance(creds, Fresh)
-    assert json.loads(gmailapi.token_file(tmp_path, "modify").read_text()) == {"token": "new"}
+    stored = json.loads(gmailapi.token_file(tmp_path, "modify").read_text())
+    assert stored.pop("authorised_at").startswith(datetime.now(UTC).strftime("%Y-%m-%d"))
+    assert stored == {"token": "new"}
+    out = capsys.readouterr().out
+    assert "was rejected (invalid_grant); authorising again" in out
+    assert "mailcellar auth a@example.com --scope modify --renew" in out
 
 
 def test_readonly_request_reuses_modify_token(tmp_path, monkeypatch):
@@ -199,3 +215,223 @@ def test_ungranted_scope_is_an_error(tmp_path, monkeypatch):
     with pytest.raises(gmailapi.GmailError, match="did not grant gmail.modify"):
         gmailapi.load_credentials(tmp_path, "a@example.com", "modify")
     assert not gmailapi.token_file(tmp_path, "modify").exists()
+
+
+# ── token age, renewing, and the auth command ────────────────────────────────
+
+NOW = datetime(2026, 10, 25, 12, 0, tzinfo=UTC)
+
+
+def test_aging_notice_names_the_command_and_admits_it_cannot_see_the_status():
+    ago = lambda days: NOW - timedelta(days=days)  # noqa: E731
+    notice = gmailapi.aging_notice("a@example.com", "readonly", ago(6), NOW, 5)
+    assert "authorised 6 days ago" in notice and "Testing status" in notice
+    assert "can't see the status" in notice
+    assert "mailcellar auth a@example.com --scope readonly --renew" in notice
+    assert gmailapi.aging_notice("a@example.com", "readonly", ago(5), NOW, 5) != ""  # at the limit
+    assert gmailapi.aging_notice("a@example.com", "readonly", ago(4.9), NOW, 5) == ""
+    assert gmailapi.aging_notice("a@example.com", "readonly", ago(60), NOW, 0) == ""  # turned off
+    assert gmailapi.aging_notice("a@example.com", "readonly", None, NOW, 5) == ""  # unknown age
+
+
+def test_token_authorised_at_reads_the_recorded_time_or_none(tmp_path):
+    path = gmailapi.token_file(tmp_path, "modify")
+    assert gmailapi.token_authorised_at(tmp_path, "modify") is None  # no token
+    path.write_text('{"token": "t"}')
+    assert gmailapi.token_authorised_at(tmp_path, "modify") is None  # from before it was recorded
+    path.write_text("not json")
+    assert gmailapi.token_authorised_at(tmp_path, "modify") is None
+    path.write_text(json.dumps({"authorised_at": NOW.isoformat()}))
+    assert gmailapi.token_authorised_at(tmp_path, "modify") == NOW
+    assert gmailapi.token_age_days(NOW - timedelta(hours=36), NOW) == pytest.approx(1.5)
+
+
+class Token:
+    """Credentials that are valid, serialise to a token, and count calls."""
+
+    expired, valid, refresh_token = False, True, "r"
+
+    def has_scopes(self, scopes):
+        return True
+
+    def to_json(self):
+        return json.dumps({"token": "t"})
+
+
+@pytest.fixture
+def consent(monkeypatch):
+    """Cached tokens are valid; a new consent flow gives a new Token and is counted."""
+    from google.oauth2 import credentials as gcreds
+    from google_auth_oauthlib import flow as gflow
+
+    flows = []
+
+    class Flow:
+        def run_local_server(self, **kwargs):
+            flows.append(kwargs["login_hint"])
+            return Token()
+
+    monkeypatch.setattr(
+        gcreds.Credentials,
+        "from_authorized_user_file",
+        classmethod(lambda cls, path, scopes: Token()),
+    )
+    monkeypatch.setattr(
+        gflow.InstalledAppFlow,
+        "from_client_secrets_file",
+        classmethod(lambda cls, path, scopes: Flow()),
+    )
+    return flows
+
+
+@pytest.fixture
+def account_folder(config):
+    return config / "work"
+
+
+def write_token(folder, scope="readonly", days_ago=None):
+    data = {"token": "t"}
+    if days_ago is not None:
+        data["authorised_at"] = (datetime.now(UTC) - timedelta(days=days_ago)).isoformat()
+    gmailapi.token_file(folder, scope).write_text(json.dumps(data))
+
+
+def test_a_new_consent_records_when_it_was_given(account_folder, consent):
+    gmailapi.load_credentials(account_folder, "alex@example.org", "readonly")
+    assert consent == ["alex@example.org"]
+    age = gmailapi.token_authorised_at(account_folder, "readonly")
+    assert abs(gmailapi.token_age_days(age, datetime.now(UTC))) < 0.01
+
+
+def test_using_a_cached_token_keeps_the_original_consent_time(account_folder, consent):
+    write_token(account_folder, days_ago=2)
+    before = gmailapi.token_authorised_at(account_folder, "readonly")
+    gmailapi.load_credentials(account_folder, "alex@example.org", "readonly")
+    assert consent == []  # no new consent
+    assert gmailapi.token_authorised_at(account_folder, "readonly") == before
+    mode = gmailapi.token_file(account_folder, "readonly").stat().st_mode & 0o777
+    assert mode == 0o600
+
+
+def test_a_token_from_before_the_time_was_recorded_stays_unknown(account_folder, consent, caplog):
+    write_token(account_folder)  # no authorised_at
+    gmailapi.load_credentials(account_folder, "alex@example.org", "readonly")
+    assert gmailapi.token_authorised_at(account_folder, "readonly") is None
+    assert "authorised" not in caplog.text  # nothing to warn about without an age
+
+
+def test_an_ageing_token_is_reported_with_the_command_to_renew_it(account_folder, consent, caplog):
+    write_token(account_folder, days_ago=6)
+    with caplog.at_level(logging.WARNING, logger="mailcellar"):
+        gmailapi.load_credentials(account_folder, "alex@example.org", "readonly")
+    assert "authorised 6 days ago" in caplog.text
+    assert "mailcellar auth alex@example.org --scope readonly --renew" in caplog.text
+
+
+def test_a_recent_token_is_not_reported(account_folder, consent, caplog):
+    write_token(account_folder, days_ago=1)
+    with caplog.at_level(logging.WARNING, logger="mailcellar"):
+        gmailapi.load_credentials(account_folder, "alex@example.org", "readonly")
+    assert caplog.text == ""
+
+
+def test_the_warning_can_be_turned_off_or_moved_in_settings(account_folder, consent, caplog):
+    write_token(account_folder, days_ago=6)
+    settings = account_folder.parent / "settings.toml"
+    settings.write_text("token_warn_days = 0\n")
+    with caplog.at_level(logging.WARNING, logger="mailcellar"):
+        gmailapi.load_credentials(account_folder, "alex@example.org", "readonly")
+    assert caplog.text == ""
+    settings.write_text("token_warn_days = 6\n")
+    with caplog.at_level(logging.WARNING, logger="mailcellar"):
+        gmailapi.load_credentials(account_folder, "alex@example.org", "readonly")
+    assert "authorised 6 days ago" in caplog.text
+    settings.write_text("token_warn_days = 7\n")
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="mailcellar"):
+        gmailapi.load_credentials(account_folder, "alex@example.org", "readonly")
+    assert caplog.text == ""
+
+
+def test_a_bad_warning_setting_is_reported_and_the_default_used(account_folder, consent, caplog):
+    write_token(account_folder, days_ago=6)
+    (account_folder.parent / "settings.toml").write_text('token_warn_days = "soon"\n')
+    with caplog.at_level(logging.WARNING, logger="mailcellar"):
+        gmailapi.load_credentials(account_folder, "alex@example.org", "readonly")
+    assert "token_warn_days must be a number of days" in caplog.text
+    assert "authorised 6 days ago" in caplog.text  # the default of 5 days applies
+
+
+def test_renew_asks_for_consent_although_the_token_works(account_folder, consent):
+    write_token(account_folder, days_ago=6)
+    gmailapi.load_credentials(account_folder, "alex@example.org", "readonly", renew=True)
+    assert consent == ["alex@example.org"]
+    age = gmailapi.token_authorised_at(account_folder, "readonly")
+    assert abs(gmailapi.token_age_days(age, datetime.now(UTC))) < 0.01  # the 7 days start again
+
+
+def test_the_setting_is_validated(tmp_path, monkeypatch):
+    from mailcellar import paths
+
+    assert paths.token_warn_days(tmp_path) == paths.TOKEN_WARN_DAYS  # no settings file
+    settings = tmp_path / "settings.toml"
+    for text, expected in (("", 5), ("token_warn_days = 0", 0), ("token_warn_days = 3", 3)):
+        settings.write_text(text + "\n")
+        assert paths.token_warn_days(tmp_path) == expected
+    for bad in ("-1", "true", '"x"', "2.5"):
+        settings.write_text(f"token_warn_days = {bad}\n")
+        with pytest.raises(ValueError, match="token_warn_days must be"):
+            paths.token_warn_days(tmp_path)
+    # the data-root reader accepts the new key beside data_dir, and still rejects others
+    monkeypatch.setenv(paths.CONFIG_ENV, str(tmp_path))
+    monkeypatch.delenv(paths.DATA_ENV, raising=False)
+    settings.write_text('data_dir = "x"\ntoken_warn_days = 3\n')
+    assert paths.data_setting() == ("x", str(settings))
+    settings.write_text("other = 1\n")
+    with pytest.raises(ValueError, match="unknown settings"):
+        paths.data_setting()
+
+
+def test_auth_prints_when_consent_was_given(config, monkeypatch, capsys):
+    write_token(config / "work", days_ago=3)
+    write_token(config / "personal")
+    monkeypatch.setattr(gmailapi, "load_credentials", lambda *a, **k: object())
+    monkeypatch.setattr(gmailapi, "GmailAccount", lambda account, creds: None)
+    dedup.main(["auth", "--scope", "readonly", "--config", str(config)])
+    out = capsys.readouterr().out
+    work = next(line for line in out.splitlines() if "alex@example.org" in line)
+    assert "authorised" in work and "(3 days ago)" in work
+    personal = next(line for line in out.splitlines() if "alex@example.com" in line)
+    assert "authorised before mailcellar recorded when" in personal
+
+
+def test_auth_passes_renew_on(config, fake_auth):
+    dedup.main(["auth", "work", "--scope", "readonly", "--renew", "--config", str(config)])
+    assert fake_auth.renewals == [True]
+    dedup.main(["auth", "work", "--scope", "readonly", "--config", str(config)])
+    assert fake_auth.renewals == [True, False]
+
+
+def test_mailcellar_auth_is_the_command_and_dedup_auth_an_alias(config, fake_auth, capsys):
+    from mailcellar import cli
+
+    assert cli.main(["auth", "work", "--scope", "readonly", "--config", str(config)]) == 0
+    captured = capsys.readouterr()
+    assert "gmail.readonly OK" in captured.out and "is now" not in captured.err
+    assert fake_auth == [("work", "alex@example.org", "readonly")]
+
+    assert cli.main(["dedup", "auth", "work", "--scope", "modify", "--config", str(config)]) == 0
+    captured = capsys.readouterr()
+    assert "gmail.modify OK" in captured.out  # the old name still works
+    assert "'mailcellar dedup auth' is now 'mailcellar auth'" in captured.err
+    assert fake_auth[-1] == ("work", "alex@example.org", "modify")
+
+
+def test_mailcellar_auth_help_names_itself(capsys):
+    from mailcellar import cli
+
+    with pytest.raises(SystemExit):
+        cli.main(["auth", "--help"])
+    out = capsys.readouterr().out
+    assert out.startswith("usage: mailcellar auth ") and "--renew" in out
+    assert "mailcellar auth" in cli.__doc__

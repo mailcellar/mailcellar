@@ -5,7 +5,10 @@ Accounts: <config>/accounts.toml maps each config folder name to an
 address. Auth: an installed-app OAuth flow with the account's own OAuth
 client (<config>/<name>/client_secrets.json); tokens are stored next to it
 as dedup-token-<scope>.json, readonly or modify, and a modify token also
-serves reads. Every account checks it reached the mailbox it expects.
+serves reads. The token file also records when consent was last given
+(authorised_at): with the consent screen in Testing status Google expires
+the token 7 days after that, so ageing tokens are reported before a run
+fails. Every account checks it reached the mailbox it expects.
 
 GmailAccount batches requests, shrinking batches when Gmail answers 429
 and retrying rate limits, server errors and timeouts with backoff. Label
@@ -16,11 +19,15 @@ the labels gyb records in msg-db.sqlite.
 
 import base64
 import io
+import json
 import logging
 import random
 import time
 from collections import Counter, deque
+from datetime import UTC, datetime
 from pathlib import Path
+
+from mailcellar.paths import TOKEN_WARN_DAYS, token_warn_days
 
 SCOPES = {
     "readonly": "https://www.googleapis.com/auth/gmail.readonly",
@@ -132,11 +139,61 @@ def effective_scope(config_folder: Path, scope: str) -> str:
     return scope
 
 
-def load_credentials(config_folder: Path, account: str, scope: str):
+TOKEN_FIELD = "authorised_at"  # in the token file: when consent was last given, UTC
+TOKEN_LIFE_DAYS = 7  # a Testing-status token's life, from consent
+
+
+def token_authorised_at(config_folder: Path, scope: str) -> datetime | None:
+    """
+    When consent was last given for the account's token of this scope, or
+    None: no token, or one from before mailcellar recorded the time. Reads only.
+    """
+    try:
+        return datetime.fromisoformat(
+            json.loads(token_file(config_folder, scope).read_text())[TOKEN_FIELD]
+        )
+    except OSError, ValueError, KeyError, TypeError:
+        return None
+
+
+def token_age_days(authorised_at: datetime, now: datetime) -> float:
+    return (now - authorised_at).total_seconds() / 86400
+
+
+def renew_command(account: str, scope: str) -> str:
+    return f"mailcellar auth {account} --scope {scope} --renew"
+
+
+def aging_notice(
+    account: str, scope: str, authorised_at: datetime | None, now: datetime, warn_days: int
+) -> str:
+    """
+    A warning that the token is getting old, or "". Pure. mailcellar can't
+    tell whether the Google Cloud consent screen is in Testing status (where
+    the token expires after 7 days), so this goes by the time since consent
+    and says so; warn_days = 0 turns it off.
+    """
+    if not warn_days or authorised_at is None:
+        return ""
+    age = token_age_days(authorised_at, now)
+    if age < warn_days:
+        return ""
+    return (
+        f"{account}: the {scope} token was authorised {int(age)} days ago. If the Google "
+        f"Cloud consent screen is in Testing status, Google expires it {TOKEN_LIFE_DAYS} "
+        f"days after that (mailcellar can't see the status). Renew it now with: "
+        f"{renew_command(account, scope)}"
+    )
+
+
+def load_credentials(config_folder: Path, account: str, scope: str, renew: bool = False):
     """
     Cached or freshly authorised credentials for `account` with `scope`.
     A token Google no longer accepts (revoked, or expired after 7 days in a
-    "Testing" Cloud project) falls through to a new consent flow.
+    "Testing" Cloud project) falls through to a new consent flow; so does
+    renew=True, which replaces a token that still works with a new one,
+    starting Google's 7 days afresh. A token that is getting old is
+    reported (see aging_notice).
     """
     from google.auth.exceptions import RefreshError
     from google.auth.transport.requests import Request
@@ -146,8 +203,9 @@ def load_credentials(config_folder: Path, account: str, scope: str):
     scope = effective_scope(config_folder, scope)
     scope_url = SCOPES[scope]
     token_path = token_file(config_folder, scope)
+    previous = token_authorised_at(config_folder, scope)
     creds = None
-    if token_path.is_file():
+    if token_path.is_file() and not renew:
         creds = Credentials.from_authorized_user_file(str(token_path), [scope_url])
         if creds.expired and creds.refresh_token:
             try:
@@ -155,9 +213,11 @@ def load_credentials(config_folder: Path, account: str, scope: str):
             except RefreshError as exc:
                 print(
                     f"Stored {scope} token for {account} was rejected ({exc}); authorising again."
+                    f" To do it ahead of an unattended run: {renew_command(account, scope)}"
                 )
                 creds = None
-    if not creds or not creds.valid:
+    consented = not creds or not creds.valid
+    if consented:
         print(
             f"Authorising {account} for gmail.{scope} — sign in as {account} "
             "in the browser and tick the Gmail permission."
@@ -172,8 +232,22 @@ def load_credentials(config_folder: Path, account: str, scope: str):
             "screen, tick the Gmail permission. Delete "
             f"{token_path.name} and retry."
         )
-    token_path.write_text(creds.to_json())
+    now = datetime.now(UTC)
+    authorised_at = now if consented else previous
+    data = json.loads(creds.to_json())
+    if authorised_at is not None:
+        data[TOKEN_FIELD] = authorised_at.isoformat()
+    token_path.write_text(json.dumps(data))
     token_path.chmod(0o600)
+    if not consented:
+        try:
+            warn_days = token_warn_days(config_folder.parent)
+        except ValueError as exc:
+            logger.warning(str(exc))
+            warn_days = TOKEN_WARN_DAYS
+        notice = aging_notice(account, scope, authorised_at, now, warn_days)
+        if notice:
+            logger.warning(notice)
     return creds
 
 

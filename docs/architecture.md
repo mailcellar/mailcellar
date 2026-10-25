@@ -58,7 +58,7 @@ mailcellar` and `python -m mailcellar` both work.
 | `backup/gyb.py` | gyb's format: writes `msg-db.sqlite` and `<y>/<m>/<d>/<id>.eml`, reads them back (`iter_backup`, `backup_account`), `prune` for `--sync` |
 | `backup/verify.py` | `verify`: for each backup, every indexed message's `.eml` exists, parses and matches the content hash in `meta.sqlite`; the two databases agree on which messages exist (`--offloaded`, `--sample`). Both are opened read-only; the decisions (`judge`, `select`, `disagreements`) are pure |
 | `backup/sidecar.py` | The per-account sidecar `meta.sqlite`: schema, migrations, runs, the offload record |
-| `dedup/cli.py` | argparse and one `cmd_*` per subcommand (`index`, `match`, `plan`, `apply`, `auth`) |
+| `dedup/cli.py` | argparse and one `cmd_*` per subcommand (`index`, `match`, `plan`, `apply`, `auth`); `mailcellar auth` is its `auth`, since authorisation serves every command, and `dedup auth` stays as an alias |
 | `dedup/db.py` | `dedup.sqlite` schema and migrations |
 | `dedup/index.py` | Catalogue backups into `dedup.sqlite`, from the sidecars where possible |
 | `dedup/match.py` | Group copies of the same message |
@@ -78,8 +78,8 @@ mailcellar` and `python -m mailcellar` both work.
                              gitignored); paths.config_root()
   accounts.toml              folder name → address (work = "alex@example.org")
   <name>/client_secrets.json the account's OAuth client (Desktop app)
-  <name>/dedup-token-readonly.json, dedup-token-modify.json
-  settings.toml              data_dir: the data root (optional)
+  <name>/dedup-token-readonly.json, dedup-token-modify.json   # + authorised_at: when consent was last given
+  settings.toml              data_dir: the data root; token_warn_days (optional)
 <data root>/                 everything derived from mail: $MAILCELLAR_DATA, else
                              data_dir in <config>/settings.toml, else ./data (gitignored);
                              paths.data_root()

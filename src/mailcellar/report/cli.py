@@ -137,6 +137,23 @@ def cmd_correspondents(args) -> None:
         emit(args, "Correspondents report", "correspondents", accounts, tables)
 
 
+def token_rows(accounts: list[str]) -> list[tuple[str, str, object]]:
+    """(account, scope, when consent was given or None) for each configured token of `accounts`."""
+    from mailcellar import gmailapi
+
+    try:
+        configured = gmailapi.config_accounts(config_root())
+    except gmailapi.GmailError:
+        return []  # no accounts.toml: nothing to report
+    return [
+        (account, scope, gmailapi.token_authorised_at(configured[account], scope))
+        for account in accounts
+        if account in configured
+        for scope in gmailapi.SCOPES
+        if gmailapi.token_file(configured[account], scope).is_file()
+    ]
+
+
 def cmd_health(args) -> None:
     # No completeness warnings: the report's state section shows them.
     folders = resolve_folders(args.accounts)
@@ -145,7 +162,8 @@ def cmd_health(args) -> None:
     con, accounts = open_sidecars(folders)
     opts = health.Options(window_days=args.window_days)
     with closing(con):
-        emit(args, "Backup health report", "health", accounts, health.build(con, folders, opts))
+        tables = health.build(con, folders, opts, token_rows(accounts))
+        emit(args, "Backup health report", "health", accounts, tables)
 
 
 def add_common(parser) -> None:

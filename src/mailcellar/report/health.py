@@ -16,6 +16,7 @@ point is older than that lists every message instead (~30 s rather than
 import sqlite3
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from mailcellar.backup.gyb import backup_account
@@ -242,11 +243,45 @@ def pruned(folders: list[Path]) -> Table:
     )
 
 
-def build(con: sqlite3.Connection, folders: list[Path], opts: Options) -> list[Table]:
+def tokens(rows: list[tuple[str, str, datetime | None]], now: int) -> Table:
+    """Each account's tokens and when consent was last given: (account, scope, authorised_at)."""
+    shown = []
+    for account, scope, authorised in rows:
+        age = (now - authorised.timestamp() * 1000) / DAY_MS if authorised else None
+        shown.append(
+            (account, scope, day(int(authorised.timestamp() * 1000)) if authorised else "", age)
+        )
+    return Table(
+        "tokens",
+        "Tokens",
+        [
+            ("Account", "text"),
+            ("Access", "text"),
+            ("Authorised (UTC)", "text"),
+            ("Days since", "num"),
+        ],
+        shown,
+        notes=[
+            "With the Google Cloud consent screen in Testing status, a token expires 7 days "
+            "after consent; mailcellar can't see that status, so this is the time since "
+            "consent, blank for a token from before it was recorded. Renew: "
+            "mailcellar auth ACCOUNT --scope S --renew."
+        ],
+        limit=False,
+    )
+
+
+def build(
+    con: sqlite3.Connection,
+    folders: list[Path],
+    opts: Options,
+    token_rows: list[tuple[str, str, datetime | None]] = (),
+) -> list[Table]:
     now = opts.now_ms if opts.now_ms is not None else int(time.time() * 1000)
     accounts = [backup_account(f) for f in folders]
     return [
         state(con, folders, opts, now),
+        *([tokens(list(token_rows), now)] if token_rows else []),
         runs(con),
         gaps(con, accounts, opts, now),
         by_month(con),

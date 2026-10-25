@@ -185,3 +185,44 @@ def test_pruned_batches_and_cli(report, capsys, tmp_path):
     cli.main(["health", "--csv", "reports"])
     assert capsys.readouterr().out.startswith(f"Backup health report — {A}, {B}")
     assert len(list((tmp_path / "reports").glob("health-*.csv"))) == 5
+
+
+# ── tokens ───────────────────────────────────────────────────────────────────
+
+
+def test_tokens_table_shows_when_consent_was_given(report):
+    from datetime import UTC, datetime
+
+    consent = datetime(2026, 10, 20, 12, 0, tzinfo=UTC)  # 3.5 days before NOW
+    rows = [(A, "readonly", consent), (A, "modify", None)]
+    folders = cli.resolve_folders([])
+    con, _accounts = open_sidecars(folders)
+    with closing(con):
+        built = health.build(con, folders, health.Options(now_ms=NOW), rows)
+    table = {t.name: t for t in built}["tokens"]
+    assert table.rows[0][:3] == (A, "readonly", "2026-10-20")
+    assert table.rows[0][3] == pytest.approx(3.5)
+    assert table.rows[1] == (A, "modify", "", None)  # from before it was recorded
+    assert "Testing status" in table.notes[0] and "--renew" in table.notes[0]
+
+
+def test_there_is_no_tokens_table_without_tokens(report):
+    assert "tokens" not in report()
+
+
+def test_token_rows_lists_each_configured_token(tmp_path, monkeypatch):
+    import json
+    from datetime import UTC, datetime
+
+    from mailcellar import gmailapi
+
+    monkeypatch.chdir(tmp_path)
+    assert cli.token_rows([A]) == []  # no accounts.toml: nothing to report
+    config = tmp_path / "config"
+    (config / "aa").mkdir(parents=True)
+    (config / "accounts.toml").write_text(f'aa = "{A}"\nbb = "{B}"\n')
+    consent = datetime(2026, 10, 20, tzinfo=UTC)
+    gmailapi.token_file(config / "aa", "modify").write_text(
+        json.dumps({"authorised_at": consent.isoformat()})
+    )
+    assert cli.token_rows([A, B, "c@z.com"]) == [(A, "modify", consent)]  # only what exists

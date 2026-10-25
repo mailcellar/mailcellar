@@ -1,6 +1,7 @@
 """
 Command line for mailcellar dedup: argparse and one cmd_* per subcommand
-(index, match, plan, apply, auth).
+(index, match, plan, apply, auth). `mailcellar auth` is the same code under
+its own name, since it serves every command; `dedup auth` stays as an alias.
 """
 
 import argparse
@@ -150,7 +151,9 @@ def cmd_apply(args) -> None:
 
 
 def cmd_auth(args) -> None:
-    """Obtain or refresh apply's Gmail token for each account, changing nothing."""
+    """Obtain or renew the Gmail token for each account, changing nothing in the mailbox."""
+    from datetime import UTC, datetime
+
     from mailcellar import gmailapi
 
     config_root = Path(args.config)
@@ -166,16 +169,23 @@ def cmd_auth(args) -> None:
     for account in accounts:
         folder = known[account]
         try:
-            creds = gmailapi.load_credentials(folder, account, args.scope)
+            creds = gmailapi.load_credentials(folder, account, args.scope, renew=args.renew)
             gmailapi.GmailAccount(account, creds)  # confirms the mailbox identity
         except gmailapi.GmailError as exc:
             print(f"  {account}: FAILED — {exc}")
             failed += 1
             continue
         used = gmailapi.effective_scope(folder, args.scope)
+        authorised = gmailapi.token_authorised_at(folder, used)
         print(
             f"  {account}: gmail.{args.scope} OK"
             + (f" (via gmail.{used})" if used != args.scope else "")
+            + (
+                f", authorised {authorised:%Y-%m-%d}"
+                f" ({gmailapi.token_age_days(authorised, datetime.now(UTC)):.0f} days ago)"
+                if authorised
+                else ", authorised before mailcellar recorded when"
+            )
             + f" → {gmailapi.token_file(folder, used)}"
         )
     if failed:
@@ -278,7 +288,8 @@ def main(argv=None, prog: str | None = None) -> None:
     p_apply.set_defaults(func=cmd_apply)
 
     p_auth = sub.add_parser(
-        "auth", help="Authorise apply's Gmail access for accounts; changes nothing"
+        "auth",
+        help="Authorise Gmail access for accounts, or renew it; changes nothing in the mailbox",
     )
     p_auth.add_argument(
         "accounts",
@@ -291,8 +302,14 @@ def main(argv=None, prog: str | None = None) -> None:
         "--scope",
         required=True,
         choices=["readonly", "modify"],
-        help="readonly for dry runs and keepers; modify for the "
-        "account apply --label/--trash cleans",
+        help="readonly for backups, counts and reports; modify for the account "
+        "apply --label/--trash or restore --yes changes",
+    )
+    p_auth.add_argument(
+        "--renew",
+        action="store_true",
+        help="Ask for consent again even if the token still works, starting Google's "
+        "7 days afresh (the Testing-status expiry); use it before a token runs out",
     )
     p_auth.add_argument(
         "--config",
@@ -303,4 +320,8 @@ def main(argv=None, prog: str | None = None) -> None:
     p_auth.set_defaults(func=cmd_auth)
 
     args = p.parse_args(argv)
+    if args.command == "auth" and (prog or "mailcellar dedup").endswith("dedup"):
+        logger.warning(
+            "'mailcellar dedup auth' is now 'mailcellar auth'; the old name still works."
+        )
     args.func(args)

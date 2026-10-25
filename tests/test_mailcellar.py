@@ -87,6 +87,22 @@ def test_config_shows_paths_and_accounts_but_no_secrets(setup, capsys):
     assert "$MAILCELLAR_CONFIG" in out  # the test fixture sets it
 
 
+def test_config_shows_how_long_ago_each_token_was_authorised(setup, capsys):
+    from datetime import UTC, datetime, timedelta
+
+    tmp_path, _connect = setup
+    token = tmp_path / "config" / "aa" / "dedup-token-readonly.json"
+    ago = (datetime.now(UTC) - timedelta(days=3)).isoformat()
+    token.write_text(f'{{"token": "SECRET-TOKEN", "authorised_at": "{ago}"}}')
+    assert cli.main(["config"]) == 0
+    out = capsys.readouterr().out
+    row = next(line for line in out.splitlines() if line.split()[:1] == [A])
+    assert "readonly (3 days)" in row  # recorded: its age
+    assert "modify (age unknown)" in row  # from before consent was recorded
+    assert "SECRET-TOKEN" not in out
+    assert "since consent was given" in out and "--renew" in out
+
+
 def test_config_without_accounts_file(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     assert cli.main(["config"]) == 0
