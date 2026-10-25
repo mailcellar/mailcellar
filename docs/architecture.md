@@ -17,6 +17,9 @@ One command, `mailcellar`, over one Python package, `src/mailcellar/`:
 - **`mailcellar export`** copies a selection of the backup out, read-only,
   as an mbox file for a mail client or a zip of the `.eml` files with a CSV
   index.
+- **`mailcellar search`** finds mail in the backups, offloaded mail included,
+  by words in the sender, recipients, subject and body, from a full-text
+  index in the data root.
 - **`mailcellar report`** (storage, bulk mail, volume, threads, labels,
   correspondents, backup health, senders) reports on the backups from the
   per-message sidecars.
@@ -62,9 +65,9 @@ their own plan file. Only the three steps at the bottom change Gmail, and only
 when run for real (`--label`/`--trash`, or `--yes`), with the broader
 `gmail.modify` permission. Their dry runs still read Gmail, to check each
 message, but change nothing. Each takes its instructions from a plan or a
-selection you can see first. The `apply` steps record what they did in a log and in `meta.sqlite`, and
-`restore` also indexes the messages it uploads in the backup of the account
-they went into.
+selection you can see first. The `apply` steps record what they did in a
+log and in `meta.sqlite`, and `restore` also indexes the messages it uploads
+in the backup of the account they went into.
 
 Who touches what:
 
@@ -74,6 +77,7 @@ Who touches what:
 | `count` | Gmail, the backup | nothing (a line in `runs`) | read-only |
 | `meta` | the `.eml` files; Gmail, for label and thread details | `meta.sqlite` | read-only |
 | `verify`, `export`, `report` | the backup | `export`: the file you name; the others, nothing | none |
+| `search` | the backups | `search.sqlite` | none |
 | `dedup index` | the backups | `dedup.sqlite` | none |
 | `dedup match`, `plan` | `dedup.sqlite` | `dedup.sqlite` (groups); `dedup-plan.csv` | none |
 | `offload plan` | the backup, `rules.toml` | `offload-plan.csv`, `plans/` | none |
@@ -105,6 +109,7 @@ mailcellar` and `python -m mailcellar` both work.
 | `dedup/report.py`, `dedup/paths.py` | Text reports; default output locations |
 | `offload/` | `rules.py` (TOML rules), `plan.py` (selection, plan CSV, summary), `apply.py` (backup checks, the offload record, batch manifests on top of dedup's label → trash loop), `cli.py` |
 | `restore/` | `apply.py` (which offloaded messages, narrowed by date, label and sender; backup checks; each message's way back: untrash, already in Gmail, found by Message-ID, or import; indexing a new ID in the backup), `cli.py` (the command, and the selection options `export` shares), `export.py` (`export`: the same selection copied out read-only as an mbox file or a zip of `.eml` files with an index; the mbox entry, label header and index row are pure) |
+| `search/` | `index.py` (each message's sender, recipients, subject and readable body into the index, incrementally: `document()` and `changes()` are pure), `query.py` (the query language translated to FTS5 by `fts_query()`; `keep()` for the offload filters and `render()` for a result are pure; `find()` reads), `db.py` (`search.sqlite` schema and migrations), `cli.py` (the command) |
 | `report/` | Reports over all accounts' sidecars, attached read-only (`db.py`): `storage`, `bulk`, `volume`, `threads`, `labels`, `correspondents`, `health`; `senders.py` for one backup; `output.py` formats tables |
 | `run.sh` (repo root) | `./run.sh <account> [backup\|count\|meta] [options]`: runs `mailcellar` |
 
@@ -134,6 +139,8 @@ mailcellar` and `python -m mailcellar` both work.
     batches/<batch>/offloaded.csv  manifest of each trash batch: plan row + batch + trashed
   restore/
     restore-log.csv          one row per message per restore run (dry run or --yes)
+  search/
+    search.sqlite            full-text index (schema v1); rebuilt if deleted
   dedup/
     dedup.sqlite             dedup index (schema v5)
     dedup-plan.csv           output of plan, input of apply
@@ -146,6 +153,7 @@ mailcellar` and `python -m mailcellar` both work.
 |---|---|---|---|
 | `msg-db.sqlite` | `backup/gyb.py` | gyb's exact schema: `messages`, `uids`, `labels` (names), `settings` | fixed (gyb `db_version` 6) — never extended |
 | `meta.sqlite` | `backup/sidecar.py` | per message: parsed fields (incl. sender name, Reply-To, content hash, header key, list headers, In-Reply-To), thread ID, UTC date, size, `parser_version`; attachments (name, type, size, hash) and recipients; label IDs; label catalogue; `history_id`; a `runs` log of every backup, count and sync; `offloaded`, mail removed from Gmail on purpose; `restored`, mail put back and its ID now | `SCHEMA_VERSION` + `MIGRATIONS`; rows go stale by `parser_version` |
+| `search.sqlite` | `search/db.py` | per message: account, Gmail ID, path, size, date, sender, subject, `text_version`; an FTS5 index of sender, recipients, subject and body that stores no text (`contentless_delete`, SQLite 3.43+) | `SCHEMA_VERSION` + `MIGRATIONS`; `index.TEXT_VERSION` forces a re-read, independent of `PARSER_VERSION` |
 | `dedup.sqlite` | `dedup/db.py` | all accounts' messages (paths relative to `backups.folder`), labels, match groups | `SCHEMA_VERSION` + `MIGRATIONS`; `meta.parser_version` forces a re-parse |
 
 The gyb format is kept exactly (verified byte-for-byte against gyb
