@@ -1,0 +1,19 @@
+# The old in-repo data root and config folder (top level only)
+/data/
+/config/
+__pycache__/
+
+# Build output (uv installs the project for the mailcellar command)
+*.egg-info/
+build/
+dist/
+
+# macOS folder metadata
+.DS_Store
+
+# Internal notes, kept local
+docs/internal/
+
+# Coverage data (uv run pytest --cov)
+.coverage
+htmlcov/

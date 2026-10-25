@@ -1,0 +1,819 @@
+"""
+backup, count and meta: incremental Gmail backups in gyb's format (see
+gyb.py), one folder per account, <data root>/<email>/. A gyb folder moved
+there is continued as it is.
+
+  backup  Download every message not yet in the backup. After the first
+          run it reads Gmail's history since the last run (kept about 4
+          weeks) instead of listing every message: new mail is downloaded
+          and the labels of changed messages are updated. It lists
+          everything when there is no history to start from, the history
+          has expired, or with --full, --search or --refresh-labels
+          (which re-syncs the labels of every backed-up message).
+          With --sync, it then moves messages permanently gone from Gmail
+          (not even in Trash or Spam) out of the backup, into
+          <data root>/_pruned/<email>/<timestamp>/ with a pruned.csv
+          manifest. It asks first unless --yes, and stops if more than 10%
+          would go, unless --force. Offloaded messages always stay.
+  count   Compare Gmail with the backup: what is missing locally, and what
+          the backup holds that Gmail no longer has, offloaded mail apart.
+          Changes nothing.
+  meta    Fill meta.sqlite for messages backed up before it existed or
+          parsed by an older parser: parse their .eml files, then ask Gmail
+          for thread IDs, label IDs and sizes (not with --offline). Also
+          migrates the sidecar to the current schema. backup keeps it
+          current for new mail.
+
+Each takes every account in <config>/accounts.toml, or the ones named: a
+full address, a config folder name or a unique part of an address. Only
+read access to Gmail is needed.
+
+Usage
+  mailcellar backup
+  mailcellar backup work --full
+  mailcellar backup personal --refresh-labels
+  mailcellar backup personal --search "after:2026/10/01"
+  mailcellar backup personal --sync
+  mailcellar count
+  mailcellar meta personal
+
+Exit status is 1 if an account failed, any message could not be fetched,
+a sync stopped at its guard (backup), or the backup is missing messages
+(count).
+"""
+
+import argparse
+import base64
+import logging
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+from mailcellar import gmailapi
+from mailcellar.backup import gyb, sidecar
+from mailcellar.message import PARSER_VERSION, parse_eml, parse_message
+from mailcellar.paths import backup_folder, config_root, pruned_folder
+
+logger = logging.getLogger(__name__)
+
+COMMIT_EVERY = 100
+# --sync stops without --force if more than this share of the backup would go.
+SYNC_MAX_FRACTION = 0.10
+
+
+def now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def connect(args) -> tuple[str, Path, gmailapi.GmailAccount]:
+    config_root = Path(args.config)
+    account, config_folder = gmailapi.resolve_account(config_root, args.account)
+    creds = gmailapi.load_credentials(config_folder, account, "readonly")
+    folder = Path(args.folder) if args.folder else backup_folder(account)
+    return account, folder, gmailapi.GmailAccount(account, creds)
+
+
+_progress_open = False
+
+
+def progress(message: str) -> None:
+    """Overwrite the current progress line on stderr (not with -q)."""
+    global _progress_open
+    if not logger.isEnabledFor(logging.INFO):
+        return
+    print(f"\r{message:<70}", end="", file=sys.stderr, flush=True)
+    _progress_open = True
+
+
+def end_progress() -> None:
+    """Finish the progress line, so the next output starts on its own line."""
+    global _progress_open
+    if _progress_open:
+        print(file=sys.stderr, flush=True)
+        _progress_open = False
+
+
+# ── backup ───────────────────────────────────────────────────────────────────
+
+
+def write_meta(mcon, response: dict, raw: bytes | None = None) -> bool:
+    """
+    Record one downloaded message in meta.sqlite. Returns False (with a
+    warning) if it can't be parsed; index then parses the .eml itself.
+    """
+    gid = response["id"]
+    try:
+        fields = parse_message(
+            raw if raw is not None else base64.urlsafe_b64decode(response["raw"])
+        )
+    except Exception as exc:
+        end_progress()
+        logger.warning(f"Cannot parse {gid} for meta.sqlite: {exc}")
+        return False
+    size = response.get("sizeEstimate")
+    sidecar.upsert_message(
+        mcon,
+        gid,
+        thread_id=response.get("threadId", ""),
+        internal_date=int(response["internalDate"]),
+        size_estimate=int(size) if size is not None else None,
+        fields=fields,
+        label_ids=response.get("labelIds", []),
+    )
+    return True
+
+
+SKIP_LABELS = {"SPAM", "TRASH"}  # excluded from backups, as messages.list does
+
+
+def apply_labels(con, mcon, gmail, gmail_id: str, label_ids) -> bool:
+    """Set a backed-up message's labels in both databases. True if gyb's changed."""
+    changed = gyb.replace_labels(con, gmail_id, sorted(gmail.label_names(label_ids)))
+    sidecar.set_message_labels(mcon, gmail_id, label_ids)
+    return changed
+
+
+def history_plan(
+    gmail, con, mcon, have: set[str], indexed: set[str], start: str, stats: dict
+) -> tuple[list, str]:
+    """
+    History-based run: (IDs to download, historyId to store afterwards).
+    Works from each touched message's current state, so it can be repeated.
+    Updates labels of backed-up messages as it goes. Indexed messages whose
+    .eml has gone missing locally are looked up too, so they are re-fetched
+    as a full run would. Raises HistoryExpired.
+    """
+    touched, deleted, new_history_id = gmail.history_changes(start)
+    # Offloaded messages are expected to go once Gmail empties its Trash.
+    offloaded = sidecar.kept_ids(mcon)
+    gone = deleted & have
+    lookup = sorted((touched - deleted) | (indexed - have))
+    todo = []
+    for gid, d in gmail.message_details(lookup).items():
+        if d is None:  # deleted since the history was read
+            if gid in have:
+                gone.add(gid)
+            continue
+        label_ids = d.get("labelIds", [])
+        if gid in have:
+            stats["labels_changed"] += apply_labels(con, mcon, gmail, gid, label_ids)
+        elif SKIP_LABELS & set(label_ids) or gyb.is_chat(label_ids):
+            stats["skipped"] += 1
+        else:
+            todo.append(gid)
+    sidecar.mark_gone(mcon, gone & offloaded, now_ms())
+    stats["deleted_backed_up"] = len(gone - offloaded)
+    print(
+        f"History since last run: {len(touched):,} messages changed"
+        + (f", {len(indexed - have):,} missing locally" if indexed - have else "")
+        + f"; {len(todo):,} to download, {stats['labels_changed']:,} label updates"
+        + (f", {stats['skipped']:,} in Spam/Trash/Chat skipped" if stats["skipped"] else "")
+    )
+    return todo, new_history_id
+
+
+def backup(
+    gmail,
+    account: str,
+    folder: Path,
+    query: str | None = None,
+    refresh_labels: bool = False,
+    full: bool = False,
+) -> dict:
+    """
+    Bring `folder` up to date with the account. Returns counts. New messages
+    go into msg-db.sqlite (gyb format) and meta.sqlite (parsed fields).
+
+    Uses Gmail's history since the last run when meta.sqlite has a
+    history_id; otherwise (first run, history expired, --search,
+    --refresh-labels or full=True) lists every message. Stores the next
+    history_id only after a run without download failures. Records the run
+    in meta.sqlite's runs table, also when it fails.
+    """
+    con = gyb.open_backup(folder, account)
+    mcon = sidecar.open_meta(folder)
+    started = now_ms()
+    # Why every message is listed, when asked for; "" means history if possible.
+    if query:
+        reason = "search"
+    elif refresh_labels:
+        reason = "refresh-labels"
+    elif full:
+        reason = "full"
+    else:
+        reason = ""
+    stats = {
+        "mode": "full",
+        "reason": reason,
+        "listed": 0,
+        "downloaded": 0,
+        "chats": 0,
+        "failed": [],
+        "labels_changed": 0,
+        "skipped": 0,
+        "deleted_backed_up": 0,
+    }
+    try:
+        _backup(gmail, con, mcon, folder, query, refresh_labels, stats)
+    except Exception:
+        _record_backup(con, mcon, started, stats, "error")
+        raise
+    else:
+        _record_backup(con, mcon, started, stats, "failures" if stats["failed"] else "ok")
+        return stats
+    finally:
+        con.close()
+        mcon.close()
+
+
+def _record_backup(con, mcon, started: int, stats: dict, status: str) -> None:
+    sidecar.record_run(
+        mcon,
+        "backup",
+        started,
+        now_ms(),
+        status,
+        mode=stats["mode"],
+        reason=stats["reason"],
+        listed=stats["listed"] if stats["mode"] == "full" else None,
+        downloaded=stats["downloaded"],
+        failed=len(stats["failed"]),
+        labels_changed=stats["labels_changed"],
+        skipped=stats["skipped"] + stats["chats"],
+        deleted_in_gmail=stats["deleted_backed_up"],
+        messages=con.execute("SELECT count(*) FROM uids").fetchone()[0],
+    )
+
+
+def _backup(gmail, con, mcon, folder: Path, query, refresh_labels: bool, stats: dict) -> None:
+    """The body of backup(): updates stats as it goes."""
+    sidecar.replace_label_catalogue(mcon, gmail.label_catalogue())
+    print(f"Using backup folder {folder}")
+    have = gyb.backed_up_ids(con, folder)
+
+    start = None
+    if not stats["reason"]:
+        start = sidecar.get_state(mcon, "history_id")
+        if not start:
+            stats["reason"] = "no-history"
+    todo = None
+    if start:
+        try:
+            indexed = {u for (u,) in con.execute("SELECT uid FROM uids")}
+            todo, next_history_id = history_plan(gmail, con, mcon, have, indexed, start, stats)
+            stats["mode"] = "history"
+            con.commit()
+            mcon.commit()
+        except gmailapi.HistoryExpired:
+            stats["reason"] = "expired"
+            print(
+                "Gmail no longer has history back to the last run; listing every message instead."
+            )
+    if todo is None:
+        # Taken before listing, so mail arriving meanwhile is in the next run.
+        next_history_id = None if query else gmail.current_history_id()
+        ids = gmail.list_message_ids(query)
+        stats["listed"] = len(ids)
+        todo = [i for i in ids if i not in have]
+        print(
+            f"Gmail has {len(ids):,} messages"
+            + (f" matching {query!r}" if query else "")
+            + f"; {len(ids) - len(todo):,} already backed up; "
+            f"{len(todo):,} to download"
+        )
+
+    def on_message(response):
+        label_ids = response.get("labelIds", [])
+        if gyb.is_chat(label_ids):
+            stats["chats"] += 1
+            return
+        gyb.write_message(con, folder, response, gmail.label_names(label_ids))
+        write_meta(mcon, response)
+        stats["downloaded"] += 1
+        if stats["downloaded"] % COMMIT_EVERY == 0:
+            con.commit()
+            mcon.commit()
+            progress(f"downloaded {stats['downloaded']:,} of {len(todo):,}")
+
+    if todo:
+        stats["failed"] = gmail.get_raw(todo, on_message)
+        con.commit()
+        mcon.commit()
+        progress(f"downloaded {stats['downloaded']:,} of {len(todo):,}")
+        end_progress()
+
+    if refresh_labels:
+        existing = sorted(have)
+        print(f"Refreshing labels of {len(existing):,} messages …")
+        for gid, details in gmail.message_details(existing).items():
+            if details is not None:
+                stats["labels_changed"] += apply_labels(
+                    con, mcon, gmail, gid, details.get("labelIds", [])
+                )
+        con.commit()
+
+    if next_history_id and not stats["failed"]:
+        sidecar.set_state(mcon, "history_id", next_history_id)
+    mcon.commit()
+
+
+class SyncAborted(Exception):
+    pass
+
+
+def gone_from_server(gmail, con, offloaded: set[str]) -> tuple[list[str], int, list[str]]:
+    """
+    (Gmail IDs in the backup's index that Gmail no longer has, index size,
+    offloaded IDs among the gone), all excluding offloaded messages but the last.
+    Trash and Spam count as present, so only permanently deleted mail is gone.
+    """
+    indexed = {uid for (uid,) in con.execute("SELECT uid FROM uids")}
+    on_server = set(gmail.list_message_ids(include_spam_trash=True))
+    if indexed and not on_server:
+        raise SyncAborted("Gmail returned no messages at all; refusing to prune")
+    gone = indexed - on_server
+    return sorted(gone - offloaded), len(indexed - offloaded), sorted(gone & offloaded)
+
+
+def sync(
+    gmail,
+    account: str,
+    folder: Path,
+    confirm,
+    force: bool = False,
+    max_fraction: float = SYNC_MAX_FRACTION,
+) -> dict:
+    """
+    Move messages permanently gone from Gmail out of the backup, into
+    <data root>/_pruned/<email>/<timestamp>/. Offloaded messages stay. Returns
+    {"pruned": n, "dest": path or None}. Records the run in meta.sqlite,
+    also when it is declined or aborted.
+    """
+    con = gyb.open_backup(folder, account)
+    mcon = sidecar.open_meta(folder)
+    started = now_ms()
+    status = "error"
+    result = {"pruned": 0, "dest": None}
+    offloaded = sidecar.kept_ids(mcon)
+    mcon.close()
+    try:
+        result, status = _sync(con, gmail, folder, offloaded, confirm, force, max_fraction)
+        return result
+    except SyncAborted:
+        status = "aborted"
+        raise
+    finally:
+        try:
+            mcon = sidecar.open_meta(folder)
+            try:
+                sidecar.record_run(
+                    mcon,
+                    "sync",
+                    started,
+                    now_ms(),
+                    status,
+                    pruned=result["pruned"],
+                    messages=con.execute("SELECT count(*) FROM uids").fetchone()[0],
+                    offloaded=len(offloaded),
+                )
+            finally:
+                mcon.close()
+        finally:
+            con.close()
+
+
+def _sync(
+    con, gmail, folder: Path, offloaded: set[str], confirm, force: bool, max_fraction: float
+) -> tuple[dict, str]:
+    """The body of sync(): (result, run status)."""
+    gone, total, gone_offloaded = gone_from_server(gmail, con, offloaded)
+    if gone_offloaded:
+        mcon = sidecar.open_meta(folder)
+        try:
+            sidecar.mark_gone(mcon, gone_offloaded, now_ms())
+            mcon.commit()
+        finally:
+            mcon.close()
+    if offloaded:
+        print(f"Sync: keeping {len(offloaded):,} offloaded messages.")
+    if not gone:
+        print("Sync: nothing in the backup is gone from Gmail.")
+        return {"pruned": 0, "dest": None}, "ok"
+
+    if len(gone) > max_fraction * total and not force:
+        raise SyncAborted(
+            f"{len(gone):,} of {total:,} backed-up messages are gone from Gmail, "
+            f"more than {max_fraction:.0%}; re-run with --force if that is right"
+        )
+
+    placeholders = ",".join("?" * len(gone))
+    by_year = con.execute(
+        f"""SELECT substr(m.message_internaldate, 1, 4), count(*)
+            FROM uids u JOIN messages m USING (message_num)
+            WHERE u.uid IN ({placeholders}) GROUP BY 1 ORDER BY 1""",
+        gone,
+    ).fetchall()
+    print(f"Sync: {len(gone):,} messages in the backup are permanently gone from Gmail:")
+    print("  " + ", ".join(f"{year} {n:,}" for year, n in by_year))
+
+    dest = pruned_folder(folder) / datetime.now().strftime("%Y-%m-%d-%H%M%S")
+    if not confirm(f"Move them out of the backup to {dest}?"):
+        print("Sync: nothing pruned.")
+        return {"pruned": 0, "dest": None}, "declined"
+    manifest = gyb.prune(con, folder, gone, dest)
+    mcon = sidecar.open_meta(folder)
+    try:
+        sidecar.delete_messages(mcon, (m["gmail_id"] for m in manifest))
+        mcon.commit()
+    finally:
+        mcon.close()
+    print(f"Sync: moved {len(manifest):,} messages to {dest}")
+    return {"pruned": len(manifest), "dest": dest}, "ok"
+
+
+def cmd_backup(args) -> int:
+    if args.sync and args.search:
+        sys.exit(
+            "ERROR: --sync can't be combined with --search: messages outside "
+            "the search would look deleted."
+        )
+    account, folder, gmail = connect(args)
+    stats = backup(gmail, account, folder, args.search, args.refresh_labels, args.full)
+    print(
+        f"Downloaded {stats['downloaded']:,} messages"
+        + (f", skipped {stats['chats']:,} chats" if stats["chats"] else "")
+        + (
+            f", updated labels on {stats['labels_changed']:,}"
+            if args.refresh_labels or stats["mode"] == "history"
+            else ""
+        )
+    )
+    if stats["deleted_backed_up"] and not args.sync:
+        print(
+            f"{stats['deleted_backed_up']:,} backed-up messages were permanently deleted "
+            "from Gmail; 'backup --sync' would move them out of the backup."
+        )
+    if stats["failed"]:
+        logger.warning(
+            f"{len(stats['failed']):,} messages could not be fetched, e.g. "
+            f"{stats['failed'][0]}. Re-run backup to retry them."
+            + (" Sync skipped." if args.sync else "")
+        )
+        return 1
+
+    if args.sync:
+
+        def confirm(prompt):
+            return args.yes or input(f"{prompt} [y/N] ").strip().lower() == "y"
+
+        try:
+            sync(gmail, account, folder, confirm, force=args.force)
+        except SyncAborted as exc:
+            logger.error(f"Sync aborted: {exc}")
+            return 1
+    return 0
+
+
+# ── meta backfill ────────────────────────────────────────────────────────────
+
+DETAILS_CHUNK = 1000
+
+
+def local_to_ms(sqlite_internaldate: str) -> int:
+    """gyb's local-time message_internaldate → ms since epoch (UTC)."""
+    return int(datetime.fromisoformat(sqlite_internaldate).timestamp() * 1000)
+
+
+def backfill(gmail, account: str, folder: Path) -> dict:
+    """
+    Bring meta.sqlite in line with the backup. Parses every backed-up
+    message that is missing or was parsed by an older parser; then, unless
+    gmail is None, fetches Gmail-only details for rows that lack them
+    (messages gone from Gmail keep thread_id '' and no labels).
+    """
+    if not (folder / gyb.DB_NAME).is_file():
+        raise gyb.FormatError(f"{folder} has no {gyb.DB_NAME}")
+    con = gyb.open_backup(folder, account)
+    try:
+        mcon = sidecar.open_meta(folder)
+    except BaseException:
+        con.close()
+        raise
+    stats = {
+        "backed_up": 0,
+        "current": 0,
+        "added": 0,
+        "reparsed": 0,
+        "errors": 0,
+        "file_missing": 0,
+        "details": 0,
+        "gone_from_gmail": 0,
+        "detail_failures": [],
+    }
+    try:
+        backed_up = con.execute(
+            """SELECT u.uid, m.message_filename, m.message_internaldate
+               FROM uids u JOIN messages m USING (message_num)"""
+        ).fetchall()
+        known = dict(mcon.execute("SELECT gmail_id, parser_version FROM messages"))
+        stats["backed_up"] = len(backed_up)
+
+        for gid, rel, local_date in backed_up:
+            if known.get(gid) == PARSER_VERSION:
+                stats["current"] += 1
+                continue
+            path = folder / rel
+            if not path.is_file():
+                stats["file_missing"] += 1
+                continue
+            try:
+                fields = parse_eml(path)
+            except Exception as exc:
+                end_progress()
+                logger.warning(f"Cannot parse {path}: {exc}")
+                stats["errors"] += 1
+                continue
+            if gid in known:
+                sidecar.update_fields(mcon, gid, fields)
+                stats["reparsed"] += 1
+            else:
+                sidecar.upsert_message(
+                    mcon,
+                    gid,
+                    thread_id="",
+                    internal_date=local_to_ms(local_date),
+                    size_estimate=None,
+                    fields=fields,
+                )
+                stats["added"] += 1
+            done = stats["added"] + stats["reparsed"]
+            if done % COMMIT_EVERY == 0:
+                mcon.commit()
+                progress(f"parsed {done:,}")
+        mcon.commit()
+        end_progress()
+
+        if gmail is not None:
+            sidecar.replace_label_catalogue(mcon, gmail.label_catalogue())
+            need = [
+                g
+                for (g,) in mcon.execute(
+                    "SELECT gmail_id FROM messages WHERE thread_id = '' ORDER BY gmail_id"
+                )
+            ]
+            for start in range(0, len(need), DETAILS_CHUNK):
+                chunk = need[start : start + DETAILS_CHUNK]
+                for gid, d in gmail.message_details(chunk, stats["detail_failures"]).items():
+                    if d is None:
+                        stats["gone_from_gmail"] += 1
+                        continue
+                    size = d.get("sizeEstimate")
+                    sidecar.update_gmail_details(
+                        mcon,
+                        gid,
+                        thread_id=d.get("threadId", ""),
+                        internal_date=int(d["internalDate"]),
+                        size_estimate=int(size) if size is not None else None,
+                    )
+                    sidecar.set_message_labels(mcon, gid, d.get("labelIds", []))
+                    stats["details"] += 1
+                mcon.commit()
+                progress(
+                    f"fetched details for {min(start + DETAILS_CHUNK, len(need)):,} "
+                    f"of {len(need):,}"
+                )
+            end_progress()
+        mcon.commit()
+        return stats
+    finally:
+        con.close()
+        mcon.close()
+
+
+def cmd_meta(args) -> int:
+    config_root = Path(args.config)
+    account, config_folder = gmailapi.resolve_account(config_root, args.account)
+    folder = Path(args.folder) if args.folder else backup_folder(account)
+    gmail = None
+    if not args.offline:
+        creds = gmailapi.load_credentials(config_folder, account, "readonly")
+        gmail = gmailapi.GmailAccount(account, creds)
+    st = backfill(gmail, account, folder)
+    print(
+        f"{account}: {st['backed_up']:,} backed up; {st['current']:,} already in "
+        f"meta.sqlite; {st['added']:,} added, {st['reparsed']:,} re-parsed"
+        + (f"; {st['errors']:,} unparseable" if st["errors"] else "")
+        + (f"; {st['file_missing']:,} with no .eml" if st["file_missing"] else "")
+    )
+    if gmail is not None:
+        print(
+            f"Gmail details for {st['details']:,} messages"
+            + (f"; {st['gone_from_gmail']:,} no longer in Gmail" if st["gone_from_gmail"] else "")
+        )
+    failures = st["detail_failures"]
+    if failures:
+        logger.warning(
+            f"{len(failures):,} Gmail lookups failed, e.g. {failures[0]}. "
+            "Re-run meta to retry them."
+        )
+    return 1 if st["errors"] or failures else 0
+
+
+# ── count ────────────────────────────────────────────────────────────────────
+
+
+def count(gmail, account: str, folder: Path) -> dict:
+    """
+    Compare Gmail's message IDs with the backup. Read-only on Gmail and on
+    the backed-up mail; records the run in meta.sqlite if there is one.
+    """
+    started = now_ms()
+    if not (folder / gyb.DB_NAME).is_file():
+        raise gyb.FormatError(f"{folder} has no {gyb.DB_NAME}")
+    has_meta = sidecar.meta_path(folder).is_file()
+    offloaded, kept, restored = set(), set(), 0
+    if has_meta:
+        mcon = sidecar.open_meta(folder)
+        offloaded = sidecar.offloaded_ids(mcon)  # offloaded now
+        kept = sidecar.kept_ids(mcon)  # also those restored since
+        restored = mcon.execute("SELECT count(*) FROM restored WHERE target = ''").fetchone()[0]
+        mcon.close()
+    con = gyb.open_backup(folder, account)
+    try:
+        indexed = {uid for (uid,) in con.execute("SELECT uid FROM uids")}
+        backed_up = gyb.backed_up_ids(con, folder)
+        gone, _total, gone_kept = gone_from_server(gmail, con, kept)
+    finally:
+        con.close()
+
+    in_gmail = set(gmail.list_message_ids())
+    missing = sorted(in_gmail - backed_up)
+    # gyb never stores chats, so they always look missing; separate them out.
+    chats = set()
+    if missing:
+        for gid, labels in gmail.message_labels(missing).items():
+            if labels and gyb.is_chat(labels):
+                chats.add(gid)
+    result = {
+        "in_gmail": len(in_gmail),
+        "backed_up": len(backed_up),
+        "missing": [g for g in missing if g not in chats],
+        "chats": len(chats),
+        "only_in_backup": len(backed_up - in_gmail - kept),
+        "gone_from_server": len(gone),
+        "offloaded": len(offloaded & indexed),
+        "offloaded_in_gmail": len(offloaded & indexed) - len(offloaded & set(gone_kept)),
+        "restored": restored,
+        "file_missing": len(indexed - backed_up),
+    }
+    if has_meta:
+        mcon = sidecar.open_meta(folder)
+        try:
+            sidecar.mark_gone(mcon, gone_kept, now_ms())
+            sidecar.record_run(
+                mcon,
+                "count",
+                started,
+                now_ms(),
+                "missing" if result["missing"] else "ok",
+                in_gmail=result["in_gmail"],
+                missing=len(result["missing"]),
+                only_in_backup=result["only_in_backup"],
+                deleted_in_gmail=result["gone_from_server"],
+                messages=result["backed_up"],
+                offloaded=result["offloaded"],
+            )
+        finally:
+            mcon.close()
+    return result
+
+
+def cmd_count(args) -> int:
+    account, folder, gmail = connect(args)
+    try:
+        c = count(gmail, account, folder)
+    except SyncAborted as exc:
+        sys.exit(f"ERROR: {exc}")
+    lines = [
+        ("In Gmail (excl. spam/trash)", c["in_gmail"]),
+        ("In backup", c["backed_up"]),
+        ("Missing from backup", len(c["missing"])),
+        ("Chats (never backed up)", c["chats"]),
+        ("Only in backup (not in mailbox)", c["only_in_backup"]),
+        ("  of which permanently deleted", c["gone_from_server"]),
+        ("Offloaded (kept in backup)", c["offloaded"]),
+        ("  of which still in Gmail (Trash)", c["offloaded_in_gmail"]),
+        ("Restored to Gmail", c["restored"]),
+        ("Indexed but .eml missing", c["file_missing"]),
+    ]
+    print(account)
+    for label, n in lines:
+        if n or label in ("In Gmail (excl. spam/trash)", "In backup", "Missing from backup"):
+            print(f"  {label:<34} {n:>8,}")
+    if c["gone_from_server"]:
+        print(
+            f"\n'backup --sync' would move {c['gone_from_server']:,} permanently "
+            "deleted messages out of the backup."
+        )
+    if c["missing"]:
+        print(f"\nRun 'backup' to fetch the missing messages, e.g. {c['missing'][0]}.")
+        return 1
+    return 0
+
+
+# ── main ─────────────────────────────────────────────────────────────────────
+
+
+def main(argv=None, prog: str | None = None) -> int:
+    p = argparse.ArgumentParser(prog=prog, description="Incremental Gmail backup in gyb format.")
+    sub = p.add_subparsers(dest="command", required=True)
+
+    def add_common_args(sp):
+        sp.add_argument(
+            "accounts",
+            nargs="*",
+            metavar="ACCOUNT",
+            help="Accounts: address, config folder name, or unique part "
+            "(default: every account in accounts.toml)",
+        )
+        sp.add_argument(
+            "--folder",
+            default=None,
+            help="Backup folder (default: <data root>/<email>; the data root is "
+            "$MAILCELLAR_DATA, else data_dir in config/settings.toml, else ./data)",
+        )
+        sp.add_argument(
+            "--config",
+            default=str(config_root()),
+            help="Config folder: accounts.toml, settings.toml, one folder per account "
+            f"(default: {config_root()})",
+        )
+
+    p_backup = sub.add_parser("backup", help="Download messages not yet backed up")
+    add_common_args(p_backup)
+    p_backup.add_argument(
+        "--refresh-labels",
+        action="store_true",
+        help="Also re-sync labels of messages already backed up",
+    )
+    p_backup.add_argument(
+        "--search",
+        default=None,
+        metavar="QUERY",
+        help="Only consider messages matching this Gmail search",
+    )
+    p_backup.add_argument(
+        "--full",
+        action="store_true",
+        help="List every message instead of reading Gmail's history since the last run",
+    )
+    p_backup.add_argument(
+        "--sync",
+        action="store_true",
+        help="Then move messages permanently deleted from Gmail "
+        "out of the backup, into <data root>/_pruned/<email>/",
+    )
+    p_backup.add_argument(
+        "--yes", action="store_true", help="With --sync: don't ask before moving messages"
+    )
+    p_backup.add_argument(
+        "--force",
+        action="store_true",
+        help=f"With --sync: allow pruning more than {SYNC_MAX_FRACTION:.0%}% of the backup",
+    )
+    p_backup.set_defaults(func=cmd_backup)
+
+    p_count = sub.add_parser("count", help="Compare Gmail with the backup")
+    add_common_args(p_count)
+    p_count.set_defaults(func=cmd_count)
+
+    p_meta = sub.add_parser("meta", help="Fill meta.sqlite for messages already backed up")
+    add_common_args(p_meta)
+    p_meta.add_argument(
+        "--offline",
+        action="store_true",
+        help="Only parse .eml files; don't ask Gmail for thread IDs, labels and sizes",
+    )
+    p_meta.set_defaults(func=cmd_meta)
+
+    args = p.parse_args(argv)
+    try:
+        accounts = args.accounts or sorted(gmailapi.config_accounts(Path(args.config)))
+    except gmailapi.GmailError as exc:
+        sys.exit(f"ERROR: {exc}")
+    if args.folder and len(accounts) != 1:
+        sys.exit("ERROR: --folder needs exactly one account.")
+    status = 0
+    for account in accounts:
+        if len(accounts) > 1:
+            print(f"\n── {account} ──")
+        try:
+            status = max(status, args.func(argparse.Namespace(**vars(args), account=account)))
+        except (gmailapi.GmailError, gyb.FormatError, sidecar.MetaError) as exc:
+            end_progress()
+            if len(accounts) == 1:
+                sys.exit(f"ERROR: {exc}")
+            logger.error(f"{account}: {exc}")
+            status = 1  # the other accounts still run
+    return status

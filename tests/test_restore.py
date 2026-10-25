@@ -1,0 +1,543 @@
+"""mailcellar restore: backed-up mail back into Gmail."""
+
+import base64
+import csv
+import sqlite3
+from email.parser import BytesHeaderParser
+from pathlib import Path
+
+import pytest
+
+from mailcellar import cli as mailcellar
+from mailcellar import gmailapi
+from mailcellar.backup import commands, gyb, sidecar
+from mailcellar.dedup.db import open_db
+from mailcellar.dedup.index import index_backup
+from mailcellar.offload.apply import OFFLOAD_LABEL
+from mailcellar.report.db import open_sidecars
+from mailcellar.restore import apply as restore
+from test_backup import ACCOUNT, FakeGmail, FakeService, Req, raw_response
+from test_index import make_eml
+
+A, B = "a@x.com", "b@y.com"
+LABELS = {
+    "INBOX": "INBOX",
+    "TRASH": "TRASH",
+    "CHAT": "CHAT",
+    "YELLOW_STAR": "YELLOW_STAR",
+    "Label_1": "work",
+    "Label_2": OFFLOAD_LABEL,
+}
+BATCH = "2026-01-15-093000"
+
+
+def mid(raw_b64: str) -> str:
+    raw = base64.urlsafe_b64decode(raw_b64)
+    return " ".join(str(BytesHeaderParser().parsebytes(raw).get("Message-ID", "")).split())
+
+
+class Gmail(FakeGmail):
+    """FakeGmail plus the writes restore needs; matches imports by Message-ID like Gmail."""
+
+    def __init__(self, messages, account=A):
+        super().__init__(messages)
+        self.account = account
+        self.labels = dict(LABELS)
+        self.calls = []
+        self.imported = 0
+        self.crash_after_import = False
+
+    def label_names(self, label_ids):
+        return [self.labels[i] for i in label_ids if i in self.labels]
+
+    def label_catalogue(self):
+        return [
+            {"id": i, "name": n, "type": "system" if i == n else "user"}
+            for i, n in self.labels.items()
+        ]
+
+    def message_labels(self, ids):
+        return {
+            gid: set(self.label_names(self.messages[gid]["labelIds"]))
+            | ({"TRASH"} if gid in self.trashed else set())
+            if gid in self.messages
+            else None
+            for gid in ids
+        }
+
+    def find_message_id(self, message_id):
+        return [g for g, m in self.messages.items() if mid(m["raw"]) == message_id]
+
+    def list_message_ids(self, query=None, include_spam_trash=False):
+        self.listings = getattr(self, "listings", []) + [query]
+        if query == "in:trash":
+            return [g for g in self.messages if g in self.trashed]
+        return super().list_message_ids(query, include_spam_trash)
+
+    def find_message_ids(self, message_ids):
+        self.calls.append(("search", len(message_ids)))
+        return {k: self.find_message_id(m) for k, m in message_ids.items()}
+
+    def untrash(self, ids):
+        self.calls.append(("untrash", sorted(ids)))
+        self.trashed -= set(ids)
+        return []
+
+    def label_ids(self, names):
+        out = []
+        for name in names:
+            found = [i for i, n in self.labels.items() if n == name]
+            if not found:
+                self.labels[f"Label_{len(self.labels) + 1}"] = name
+                found = [f"Label_{len(self.labels)}"]
+            out.append(found[0])
+        return out
+
+    def add_label(self, ids, name):
+        self.calls.append(("label", sorted(ids), name))
+        (label_id,) = self.label_ids([name])
+        for gid in ids:
+            self.messages[gid]["labelIds"].append(label_id)
+
+    def remove_label(self, ids, name):
+        self.calls.append(("unlabel", sorted(ids), name))
+        for gid in ids:
+            self.messages[gid]["labelIds"] = [
+                i for i in self.messages[gid]["labelIds"] if self.labels.get(i) != name
+            ]
+
+    def import_messages(self, messages, on_imported):
+        failed = []
+        for key, (raw, label_ids) in messages.items():
+            b64 = base64.urlsafe_b64encode(raw).decode()
+            existing = self.find_message_id(mid(b64))
+            if existing:  # Gmail returns the message holding that Message-ID
+                new_id = existing[0]
+                self.trashed.discard(new_id)
+            else:
+                self.imported += 1
+                new_id = f"n{self.imported}"
+                self.messages[new_id] = raw_response(new_id, label_ids=label_ids, body=raw)
+            self.calls.append(("import", key, new_id, sorted(label_ids)))
+            if self.crash_after_import:
+                raise gmailapi.GmailError("connection lost")
+            on_imported(key, new_id)
+        return failed
+
+
+def message(gid, labels=("Label_1",), body=None):
+    return raw_response(gid, label_ids=list(labels), body=body or make_eml(msgid=f"<{gid}@x>"))
+
+
+@pytest.fixture
+def env(tmp_path, monkeypatch):
+    """
+    Six backed-up messages, five of them offloaded:
+      t1 still in Trash; g1, g2 permanently deleted; o1 moved out of Trash
+      by hand; c1 deleted, while another message (x1) has its Message-ID
+      with other content. k1 is ordinary mail.
+    """
+    monkeypatch.chdir(tmp_path)
+    msgs = {g: message(g) for g in ("t1", "g1", "o1", "c1", "k1")}
+    msgs["g2"] = message("g2", labels=("Label_1", "INBOX", "YELLOW_STAR", "Label_2"))
+    gmail = Gmail(msgs)
+    folder = tmp_path / "data" / A
+    commands.backup(gmail, A, folder)
+    con = sidecar.open_meta(folder)
+    sidecar.record_offloaded(con, ["t1", "g1", "g2", "o1", "c1"], BATCH, "old work", 1_000)
+    con.commit()
+    con.close()
+    gmail.trashed.add("t1")
+    for gid in ("g1", "g2", "c1"):
+        del gmail.messages[gid]
+    gmail.messages["x1"] = message("x1", body=make_eml(msgid="<c1@x>", body="something else"))
+
+    gmails = {A: gmail, B: Gmail({}, account=B)}
+    monkeypatch.setattr(
+        gmailapi,
+        "resolve_account",
+        lambda root, name: (B, Path("cfg-b")) if name in ("b", B) else (A, Path("cfg")),
+    )
+    monkeypatch.setattr(gmailapi, "load_credentials", lambda f, account, scope: scope)
+    scopes = []
+
+    def account(name, scope):
+        scopes.append(scope)
+        return gmails[name]
+
+    monkeypatch.setattr(gmailapi, "GmailAccount", account)
+    gmail.folder, gmail.scopes, gmail.other = folder, scopes, gmails[B]
+    return gmail
+
+
+def run(*args):
+    return mailcellar.main(["restore", A, "--config", "cfg", "--log", "log.csv", *args])
+
+
+def log():
+    with open("log.csv", newline="", encoding="utf-8") as fh:
+        return {r["source_id"]: (r["outcome"], r["detail"]) for r in csv.DictReader(fh)}
+
+
+def restored_rows(folder):
+    con = sqlite3.connect(folder / "meta.sqlite")
+    return {s: (n, how) for s, n, how in con.execute("SELECT source_id, new_id, how FROM restored")}
+
+
+def test_dry_run_says_what_it_would_do_and_changes_nothing(env, capsys):
+    assert run("--batch", BATCH) == 1  # c1 is skipped
+    got = log()
+    assert got["t1"][0] == "would untrash"
+    assert got["o1"][0] == "would record (already in Gmail)"
+    assert got["g1"][0] == got["g2"][0] == "would import"
+    assert got["c1"][0] == "skipped" and "other content (x1)" in got["c1"][1]
+    assert "k1" not in got
+    assert [c[0] for c in env.calls] == ["search"] and env.scopes == ["readonly"]
+    assert restored_rows(env.folder) == {}
+    captured = capsys.readouterr()
+    assert "Nothing in Gmail or the backup was changed" in captured.out
+    # Progress lines go to stderr, unless --quiet.
+    assert captured.err.startswith("[00:00] ")
+    assert "Checked 5 backup copies" in captured.err
+    assert "Searching Gmail for the Message-IDs" in captured.err
+    run("--batch", BATCH, "--quiet")
+    assert capsys.readouterr().err == ""
+
+
+def test_restore_untrashes_imports_and_records(env):
+    assert run("--batch", BATCH, "--yes", "--label", "restored/today") == 1  # c1 still skipped
+    assert env.scopes == ["modify"]
+    assert ("untrash", ["t1"]) in env.calls
+    assert "t1" not in env.trashed
+    rows = restored_rows(env.folder)
+    assert rows["t1"] == ("t1", "untrashed")
+    assert rows["o1"] == ("o1", "in gmail")
+    assert {rows["g1"][1], rows["g2"][1]} == {"imported"}
+    assert "c1" not in rows
+
+    # Labels: g2's superstar and offload labels are dropped.
+    imports = {c[1]: c[3] for c in env.calls if c[0] == "import"}
+    assert sorted(env.label_names(imports["g2"])) == ["INBOX", "work"]
+    assert "labels not restored" in log()["g2"][1]
+    done = sorted({rows[g][0] for g in ("t1", "o1", "g1", "g2")})
+    assert ("unlabel", done, OFFLOAD_LABEL) in env.calls
+    assert ("label", done, "restored/today") in env.calls
+
+    # Offloaded no more; the old IDs stay in the backup, kept from --sync.
+    con = sidecar.open_meta(env.folder)
+    assert sidecar.offloaded_ids(con) == {"c1"}
+    assert sidecar.kept_ids(con) == {"t1", "g1", "g2", "o1", "c1"}
+    con.close()
+
+
+def test_imported_message_is_indexed_in_the_backup_sharing_the_file(env):
+    run("--id", "g1", "--yes")
+    new_id = restored_rows(env.folder)["g1"][0]
+    paths = {bm.gmail_id: bm.path for bm in gyb.iter_backup(env.folder)}
+    assert paths["g1"].samefile(paths[new_id])
+    assert sidecar.current_fields(env.folder)[new_id]["message_id"] == "g1@x"
+
+    # The next backup doesn't download the restored message; count sees nothing missing.
+    before = len(env.fetched)
+    commands.backup(env, A, env.folder)
+    assert env.fetched[before:] == ["x1"]  # only the fixture's unrelated message
+    c = commands.count(env, A, env.folder)
+    assert c["missing"] == [] and c["restored"] == 1
+    assert c["only_in_backup"] == 0  # g1's old ID is kept, not "only in backup"
+
+    # Reports and dedup see the message once.
+    con, _accounts = open_sidecars([env.folder])
+    ids = {g for (g,) in con.execute("SELECT gmail_id FROM all_messages")}
+    assert new_id in ids and "g1" not in ids
+    dcon = open_db(Path("dedup.sqlite"))
+    index_backup(dcon, env.folder)
+    indexed = {g for (g,) in dcon.execute("SELECT gmail_id FROM messages")}
+    assert new_id in indexed and "g1" not in indexed
+    con.close()
+    dcon.close()
+
+
+def test_untrashed_message_counts_as_restored_and_is_done(env):
+    run("--id", "t1", "--yes")
+    c = commands.count(env, A, env.folder)
+    assert c["offloaded"] == 4 and c["restored"] == 1
+    assert c["offloaded_in_gmail"] == 1  # o1 (out of Trash by hand, still offloaded)
+    with pytest.raises(SystemExit, match="Nothing to do"):
+        run("--id", "t1", "--yes")
+
+
+def test_crash_after_import_is_found_next_time_not_uploaded_twice(env):
+    env.crash_after_import = True
+    with pytest.raises(SystemExit, match="connection lost"):
+        run("--id", "g1", "--yes")
+    assert restored_rows(env.folder) == {}
+    env.crash_after_import = False
+    run("--id", "g1", "--yes")
+    assert env.imported == 1
+    assert restored_rows(env.folder)["g1"] == ("n1", "found")
+
+
+def test_damaged_backup_copy_is_not_uploaded(env):
+    (path,) = [bm.path for bm in gyb.iter_backup(env.folder) if bm.gmail_id == "g1"]
+    path.write_bytes(path.read_bytes().replace(b"Hello there", b"Hello thera"))
+    assert run("--id", "g1", "--yes") == 1
+    assert log()["g1"] == ("skipped", "backup copy differs from the sidecar")
+    assert env.imported == 0
+
+
+def test_limit_takes_the_oldest_first(env, monkeypatch):
+    con = sidecar.open_meta(env.folder)
+    con.execute("UPDATE messages SET internal_date = 5 WHERE gmail_id = 'g2'")
+    con.commit()
+    con.close()
+    run("--offloaded", "--limit", "1")
+    assert list(log()) == ["g2"]
+
+
+def test_needs_a_selection():
+    with pytest.raises(SystemExit):
+        run()
+
+
+def test_offloading_again_clears_the_restore():
+    con = sqlite3.connect(":memory:")
+    con.executescript(sidecar._SCHEMA)
+    sidecar.record_offloaded(con, ["m1"], "b1", "r", 1)
+    sidecar.record_restored(con, "m1", "m1", "untrashed", "run", 2)
+    assert sidecar.offloaded_ids(con) == set()
+    sidecar.record_offloaded(con, ["m1"], "b2", "r", 3)
+    assert sidecar.offloaded_ids(con) == {"m1"}
+    assert con.execute("SELECT count(*) FROM restored").fetchone() == (0,)
+
+
+def test_v7_and_v8_sidecars_gain_the_restore_record_repeatably(tmp_path):
+    """v8 adds offloaded.restored_ms; v9 rebuilds v8's restored table with a target."""
+    folder = tmp_path / "data" / A
+    commands.backup(FakeGmail({"g1": raw_response("g1")}), A, folder)
+    con = sqlite3.connect(folder / "meta.sqlite")
+    con.executescript(
+        """ALTER TABLE offloaded DROP COLUMN restored_ms;
+           DROP TABLE restored;
+           CREATE TABLE restored (source_id TEXT PRIMARY KEY, new_id TEXT NOT NULL,
+               how TEXT NOT NULL, restored_ms INTEGER NOT NULL, run TEXT NOT NULL);
+           INSERT INTO restored VALUES ('g9', 'n9', 'imported', 5, 'r');
+           UPDATE meta SET value = '7' WHERE name = 'schema_version';"""
+    )
+    con.close()
+    for _ in range(2):
+        sidecar.open_meta(folder).close()
+        con = sqlite3.connect(folder / "meta.sqlite")
+        assert "restored_ms" in {r[1] for r in con.execute("PRAGMA table_info(offloaded)")}
+        assert con.execute("SELECT source_id, target, new_id FROM restored").fetchall() == [
+            ("g9", "", "n9")
+        ]
+        assert con.execute("SELECT value FROM meta WHERE name = 'schema_version'").fetchone() == (
+            "9",
+        )
+        con.close()
+
+
+def test_import_labels_keeps_what_import_accepts():
+    system = {"INBOX", "TRASH", "CHAT", "YELLOW_STAR", "CATEGORY_SOCIAL", "UNREAD"}
+    keep, dropped = restore.import_labels(
+        ["INBOX", "UNREAD", "CATEGORY_SOCIAL", "TRASH", "CHAT", "YELLOW_STAR", "TODO", "a/b"],
+        system,
+    )
+    assert keep == ["INBOX", "UNREAD", "CATEGORY_SOCIAL", "TODO", "a/b"]
+    assert dropped == ["TRASH", "CHAT", "YELLOW_STAR"]
+
+
+# ── gmailapi.import_messages ─────────────────────────────────────────────────
+
+
+class ImportService(FakeService):
+    def __init__(self):
+        super().__init__({})
+        self.imports = []
+
+    def import_(self, userId, body, media_body=None, **params):
+        n = len(self.imports)
+        self.imports.append((body, media_body is not None, params))
+        return Req(lambda: {"id": f"new{n}"})
+
+
+def test_import_messages_batches_small_and_uploads_large_alone():
+    service = ImportService()
+    gmail = gmailapi.GmailAccount(ACCOUNT, None, service=service, sleep=lambda s: None)
+    big = b"x" * (gmailapi.IMPORT_INLINE_LIMIT + 1)
+    got = {}
+    failed = gmail.import_messages(
+        {"s1": (b"small", ["INBOX"]), "s2": (big, [])}, lambda k, n: got.__setitem__(k, n)
+    )
+    assert failed == [] and set(got) == {"s1", "s2"}
+    (small_body, small_media, params), (big_body, big_media, _) = service.imports
+    assert base64.urlsafe_b64decode(small_body["raw"]) == b"small" and not small_media
+    assert "raw" not in big_body and big_media
+    assert params["internalDateSource"] == "dateHeader" and params["neverMarkSpam"] is True
+    assert service.batches == 1
+
+
+# ── whole backups, other accounts, labels ────────────────────────────────────
+
+
+def test_all_leaves_mail_still_in_gmail_alone(env, capsys, monkeypatch):
+    # Large selections read Gmail's state from two ID listings, not one lookup each.
+    lookups = env.message_labels
+    monkeypatch.setattr(restore, "LISTING_THRESHOLD", 0)
+    monkeypatch.setattr(env, "message_labels", lambda ids: pytest.fail("looked up one by one"))
+    run("--all")
+    assert "in:trash" in env.listings
+    got = log()
+    assert got["k1"][0] == "already in Gmail" and "x1" not in got  # x1 was never backed up
+    assert got["t1"][0] == "would untrash" and got["o1"][0] == "would record (already in Gmail)"
+    assert got["g1"][0] == "would import"
+    assert "Would upload 2 messages" in capsys.readouterr().out
+    monkeypatch.setattr(env, "message_labels", lookups)  # apply() looks up what it found
+    run("--all", "--yes")
+    assert [c for c in env.calls if c[0] == "import"] and "k1" not in restored_rows(env.folder)
+    labelled = {g for c in env.calls if c[0] == "label" for g in c[1]}
+    assert "k1" not in labelled
+
+
+def test_restore_into_another_account(env):
+    other = env.other
+    other.messages["b1"] = message("b1", body=make_eml(msgid="<g1@x>"))  # B already has g1
+    assert run("--offloaded", "--to", "b", "--yes", "--label-prefix", "old") == 0
+    imports = {c[1]: c for c in other.calls if c[0] == "import"}
+    assert set(imports) == {"t1", "g2", "o1", "c1"}  # IDs mean nothing in B; g1 was found
+    assert sorted(other.label_names(imports["g2"][3])) == ["INBOX", "old/work"]
+    assert env.calls == []  # A's Gmail untouched: no untrash, no label changes
+
+    # Recorded against B; A's offload record is unchanged.
+    con = sidecar.open_meta(env.folder)
+    assert sidecar.restored_ids(con, B) == {"t1", "g1", "g2", "o1", "c1"}
+    found = con.execute("SELECT new_id, how FROM restored WHERE source_id = 'g1'").fetchone()
+    assert found == ("b1", "found")
+    assert sidecar.restored_ids(con) == set()
+    assert sidecar.offloaded_ids(con) == {"t1", "g1", "g2", "o1", "c1"}
+    con.close()
+
+    # B's backup has the new IDs; its next backup downloads only b1, B's own mail.
+    b_folder = env.folder.parent / B
+    assert {bm.gmail_id for bm in gyb.iter_backup(b_folder)} == set(other.messages) - {"b1"}
+    before = len(other.fetched)  # restore read b1 to compare its content
+    commands.backup(other, B, b_folder)
+    assert other.fetched[before:] == ["b1"]
+    with pytest.raises(SystemExit, match="Nothing to do"):
+        run("--offloaded", "--to", "b")
+
+
+def test_strip_labels_restores_only_the_restored_label(env):
+    run("--id", "g2", "--yes", "--strip-labels", "--label", "restored/x")
+    (imp,) = [c for c in env.calls if c[0] == "import"]
+    assert imp[3] == []
+    new_id = restored_rows(env.folder)["g2"][0]
+    assert env.label_names(env.messages[new_id]["labelIds"]) == ["restored/x"]
+
+
+class SearchService(FakeService):
+    def __init__(self):
+        super().__init__({})
+        self.queries = []
+
+    def list(self, userId, **kwargs):
+        if "q" not in kwargs:
+            return super().list(userId, **kwargs)
+        self.queries.append(kwargs["q"])
+        found = {"rfc822msgid:<a@x>": [{"id": "m1"}]}.get(kwargs["q"], [])
+        return Req(lambda: {"messages": found} if found else {})
+
+
+def test_find_message_ids_searches_in_batches():
+    service = SearchService()
+    gmail = gmailapi.GmailAccount(ACCOUNT, None, service=service, sleep=lambda s: None)
+    got = gmail.find_message_ids({"s1": "<a@x>", "s2": "<b@x>"})
+    assert got == {"s1": ["m1"], "s2": []}
+    assert service.batches == 1 and len(service.queries) == 2
+
+
+def test_message_without_text_or_attachments_is_restorable(env):
+    con = sidecar.open_meta(env.folder)
+    con.execute("UPDATE messages SET content_hash = '' WHERE gmail_id = 'g1'")
+    con.commit()
+    con.close()
+    (path,) = [bm.path for bm in gyb.iter_backup(env.folder) if bm.gmail_id == "g1"]
+    path.write_bytes(make_eml(msgid="<g1@x>", body=""))
+    run("--id", "g1")
+    assert log()["g1"][0] == "would import"
+
+
+# ── decide(): the way back, from what was read ───────────────────────────────
+
+
+def cand(offloaded=True, content_hash="h1"):
+    return restore.Candidate(
+        "s1", "b", "r", Path("x.eml"), ("work",), 1, content_hash, "7", offloaded=offloaded
+    )
+
+
+COPY = restore.Copy(10, "<m@x>")  # a readable backup copy with a Message-ID
+
+
+def way(
+    c=None,
+    problem="",
+    copy=COPY,
+    labels=None,
+    same_account=True,
+    hits=(),
+    hashes=None,
+):
+    d = restore.decide(
+        c or cand(),
+        problem,
+        copy,
+        labels=labels,
+        same_account=same_account,
+        hits=list(hits),
+        hashes=hashes or {},
+    )
+    return d.way, d.new_id, d.detail
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        (
+            {"problem": "no .eml in the backup", "copy": None},
+            ("skipped", "", "no .eml in the backup"),
+        ),
+        ({"labels": {"TRASH"}}, ("untrash", "s1", "")),
+        ({"labels": {"INBOX"}}, ("in gmail", "s1", "already out of Trash")),
+        ({"labels": {"TRASH"}, "c": cand(offloaded=False)}, ("present", "", "in Gmail's Trash")),
+        ({"hits": ["n1"], "hashes": {"n1": "h1"}}, ("found", "n1", "Gmail has it as n1")),
+        (
+            {"hits": ["n1"], "hashes": {"n1": "other"}},
+            (
+                "skipped",
+                "",
+                "Gmail has its Message-ID "
+                "with other content (n1); an import would only match that message",
+            ),
+        ),
+        ({}, ("import", "", "")),
+        (
+            {"copy": restore.Copy(10, "")},
+            ("import", "", "no Message-ID: a crash during the import could leave a duplicate"),
+        ),
+        # into another account, its own ID's state doesn't count
+        ({"labels": {"TRASH"}, "same_account": False}, ("import", "", "")),
+    ],
+)
+def test_decide(kwargs, expected):
+    assert way(**kwargs) == expected
+
+
+def test_empty_content_never_counts_as_the_same():
+    w, _id, detail = way(cand(content_hash=""), hits=["n1"], hashes={"n1": ""})
+    assert w == "skipped" and "can't be compared" in detail
+
+
+def test_values_are_frozen():
+    with pytest.raises(AttributeError):
+        cand().source_id = "other"

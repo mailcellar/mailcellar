@@ -1,0 +1,66 @@
+[project]
+name = "mailcellar"
+version = "0.1.0"
+description = "Gmail backups in gyb's format, with deduplication, offloading old mail, restore and reports"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "The mailcellar authors" }]
+keywords = ["gmail", "backup", "archive", "email", "deduplication", "gyb"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Communications :: Email",
+    "Topic :: System :: Archiving :: Backup",
+]
+requires-python = ">=3.14"
+dependencies = [
+    "google-api-python-client>=2.201.0",
+    "google-auth-oauthlib>=1.5.0",
+]
+
+[project.urls]
+Repository = "https://github.com/mailcellar/mailcellar"
+Issues = "https://github.com/mailcellar/mailcellar/issues"
+
+[project.scripts]
+mailcellar = "mailcellar.cli:main"
+
+[build-system]
+requires = ["setuptools>=77"]  # 77: SPDX license expressions (PEP 639)
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# An SQLite connection left open fails the test that leaked it.
+filterwarnings = ["error::ResourceWarning", "error::pytest.PytestUnraisableExceptionWarning"]
+
+[tool.coverage.run]
+source = ["mailcellar"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]

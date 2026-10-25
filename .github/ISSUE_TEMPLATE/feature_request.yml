@@ -1,0 +1,21 @@
+name: Feature request
+description: Something mailcellar could do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Issues are public: describe your mailbox in general terms (counts,
+        kinds of mail), never with real addresses, subjects or content.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you're trying to do
+      description: The task, and why the current commands don't cover it.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you'd like
+      description: A command, option or report, and how it should behave. Anything that changes Gmail should say how it is staged (dry run first).

@@ -1,0 +1,46 @@
+"""Shared test setup."""
+
+import sqlite3
+import sys
+from pathlib import Path
+
+import pytest
+
+from mailcellar.cli import configure_logging
+from mailcellar.paths import CONFIG_ENV, DATA_ENV
+
+TESTS = Path(__file__).parent
+
+
+@pytest.fixture(autouse=True)
+def default_roots(monkeypatch):
+    """
+    Every test uses ./data and ./config under its working directory, whatever
+    the developer's $MAILCELLAR_DATA, $MAILCELLAR_CONFIG or
+    ~/.config/mailcellar say: a test must never reach real backups or tokens.
+    """
+    monkeypatch.setenv(DATA_ENV, "data")
+    monkeypatch.setenv(CONFIG_ENV, "config")
+    configure_logging()  # as `mailcellar` does; tests calling a command's main see its log
+
+
+@pytest.fixture(autouse=True)
+def close_test_connections(monkeypatch):
+    """
+    Close the SQLite connections a test opens itself (to inspect a database)
+    when it ends. Connections the code under test opens are left alone: it
+    must close them, and pyproject.toml makes a leaked one fail the test.
+    """
+    opened = []
+    connect = sqlite3.connect
+
+    def tracked(*args, **kwargs):
+        con = connect(*args, **kwargs)
+        if Path(sys._getframe(1).f_code.co_filename).parent == TESTS:
+            opened.append(con)
+        return con
+
+    monkeypatch.setattr(sqlite3, "connect", tracked)
+    yield
+    for con in opened:
+        con.close()

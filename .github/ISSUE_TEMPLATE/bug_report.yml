@@ -1,0 +1,55 @@
+name: Bug report
+description: Something mailcellar did wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Issues are public. Don't paste real mail or credentials:** no email
+        addresses, names, subjects, message content, attachment names, Gmail
+        message IDs from your account, tokens or `client_secrets.json`.
+        Replace them with placeholders (`alex@example.com`), and describe a
+        problem message by its structure, or build a synthetic one that
+        shows the same thing. Security problems go to SECURITY.md instead.
+  - type: textarea
+    id: command
+    attributes:
+      label: What you ran
+      description: The command and its options, with account names replaced.
+      render: shell
+      placeholder: mailcellar restore personal --batch 2026-01-15-093000
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: The output and error, with counts. Run again with -v for Gmail's retries.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`git rev-parse --short HEAD` in your checkout, or the release"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and Python
+      placeholder: macOS 27, Python 3.14.4 (uv)
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      options:
+        - label: I have removed addresses, names, subjects, message content and tokens from this report.
+          required: true

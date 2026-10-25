@@ -1,0 +1,210 @@
+# Architecture
+
+One command, `mailcellar`, over one Python package, `src/mailcellar/`:
+
+- **`mailcellar backup | count | meta`** keeps a local backup of each Gmail
+  account, in Got-Your-Back's (gyb) on-disk format.
+- **`mailcellar dedup`** finds duplicate messages within and across the
+  backed-up accounts, decides which copies to remove, and removes them
+  from Gmail — in stages, with checks, never permanently.
+- **`mailcellar offload`** takes old mail out of Gmail by rule, keeping it
+  in the backup, in the same stages.
+- **`mailcellar restore`** puts mail back: offloaded mail out of Gmail's
+  Trash within 30 days, otherwise uploaded from the backup; a whole
+  backup, into its own account or another one.
+- **`mailcellar report`** (storage, bulk mail, volume, threads, labels,
+  correspondents, backup health, senders) reports on the backups from the
+  per-message sidecars.
+
+This page describes the system as it is. The maintainers' design notes
+and real-data measurements are kept outside the repository.
+
+## Data flow
+
+```
+                      Gmail API (gmailapi.py)
+                       │                   ▲
+     backup / count / meta                 │  apply --label / --trash
+     (gmail.readonly)                      │  (gmail.modify)
+                       ▼                   │
+  <data>/<email>/ ── msg-db.sqlite + .eml   │
+                 └─ meta.sqlite ─────┐     │
+                                     ▼     │
+            mailcellar dedup index → <data>/dedup/dedup.sqlite
+                            match → groups (match_groups / match_members)
+                             plan → <data>/dedup/dedup-plan.csv
+                            apply → Gmail labels / Trash, dedup-apply-log.csv
+
+  mailcellar offload plan → <data>/offload/offload-plan.csv
+                    apply → Gmail labels / Trash; meta.sqlite offloaded
+  mailcellar restore      → Gmail: untrash, or messages.import from the .eml
+                            (gmail.modify); meta.sqlite restored; new IDs
+                            indexed in the backup of the account restored into
+```
+
+## Modules
+
+All under `src/mailcellar/`; installed by `uv sync` (editable), so `uv run
+mailcellar` and `python -m mailcellar` both work.
+
+| Module | Role |
+|---|---|
+| `cli.py` | The `mailcellar` command: dispatches `backup`, `count`, `meta` (every configured account by default), `dedup`, `offload`, `restore`, `report` (plus `senders`), and `config`, which shows paths and each account's state without printing secrets; sets up logging (stderr; `-v`/`-q` anywhere on the line) |
+| `paths.py` | Where things are: `config_root()`, `data_root()` and where each was set, `backup_folder()`, `find_backups()`, `pruned_folder()` |
+| `gmailapi.py` | Accounts (`<config>/accounts.toml`), OAuth tokens and scopes, `GmailAccount`: adaptive batching, retries with backoff, listing, history, labels, trash and untrash, batched Message-ID searches, `messages.import` |
+| `message.py` | Message parsing: `parse_message()`, `content_hash()`, `header_key()`, `extract_address()`, `PARSER_VERSION` |
+| `backup/commands.py` | `backup` (history-based or full listing), `count`, `meta` (sidecar backfill), `sync`; the runs log |
+| `backup/gyb.py` | gyb's format: writes `msg-db.sqlite` and `<y>/<m>/<d>/<id>.eml`, reads them back (`iter_backup`, `backup_account`), `prune` for `--sync` |
+| `backup/sidecar.py` | The per-account sidecar `meta.sqlite`: schema, migrations, runs, the offload record |
+| `dedup/cli.py` | argparse and one `cmd_*` per subcommand (`index`, `match`, `plan`, `apply`, `auth`) |
+| `dedup/db.py` | `dedup.sqlite` schema and migrations |
+| `dedup/index.py` | Catalogue backups into `dedup.sqlite`, from the sidecars where possible |
+| `dedup/match.py` | Group copies of the same message |
+| `dedup/rules.py`, `dedup/plan.py` | Keep / remove / review decisions; the plan CSV |
+| `dedup/apply.py` | Live checks against Gmail, then label or trash; the audit log. Shared with offload |
+| `dedup/report.py`, `dedup/paths.py` | Text reports; default output locations |
+| `offload/` | `rules.py` (TOML rules), `plan.py` (selection, plan CSV, summary), `apply.py` (backup checks, the offload record, batch manifests on top of dedup's label → trash loop), `cli.py` |
+| `restore/` | `apply.py` (which offloaded messages, backup checks, each message's way back: untrash, already in Gmail, found by Message-ID, or import; indexing a new ID in the backup), `cli.py` |
+| `report/` | Reports over all accounts' sidecars, attached read-only (`db.py`): `storage`, `bulk`, `volume`, `threads`, `labels`, `correspondents`, `health`; `senders.py` for one backup; `output.py` formats tables |
+| `run.sh` (repo root) | `./run.sh <account> [backup\|count\|meta] [options]`: runs `mailcellar` |
+
+## Files on disk
+
+```
+<config>/                    credentials, owner-only: $MAILCELLAR_CONFIG, else
+                             ~/.config/mailcellar, else ./config (the old place,
+                             gitignored); paths.config_root()
+  accounts.toml              folder name → address (work = "alex@example.org")
+  <name>/client_secrets.json the account's OAuth client (Desktop app)
+  <name>/dedup-token-readonly.json, dedup-token-modify.json
+  settings.toml              data_dir: the data root (optional)
+<data root>/                 everything derived from mail: $MAILCELLAR_DATA, else
+                             data_dir in <config>/settings.toml, else ./data (gitignored);
+                             paths.data_root()
+  <email>/
+    msg-db.sqlite            gyb index (db_version 6)
+    <year>/<month>/<day>/<gmail_id>.eml
+    meta.sqlite              sidecar (schema v9)
+  _pruned/<email>/<timestamp>/  messages moved out by backup --sync, + pruned.csv
+  offload/
+    rules.toml               offload rules (user-written)
+    offload-plan.csv         the latest offload plan, input of offload apply
+    plans/<utc time>.csv     every plan made, named by its planned time
+    offload-apply-log.csv    one row per plan row per apply run, with the plan's time
+    batches/<batch>/offloaded.csv  manifest of each trash batch: plan row + batch + trashed
+  restore/
+    restore-log.csv          one row per message per restore run (dry run or --yes)
+  dedup/
+    dedup.sqlite             dedup index (schema v5)
+    dedup-plan.csv           output of plan, input of apply
+    dedup-apply-log.csv      one row per planned removal per apply run; keep it
+```
+
+### Databases
+
+| Database | Owner | Contents | Versioning |
+|---|---|---|---|
+| `msg-db.sqlite` | `backup/gyb.py` | gyb's exact schema: `messages`, `uids`, `labels` (names), `settings` | fixed (gyb `db_version` 6) — never extended |
+| `meta.sqlite` | `backup/sidecar.py` | per message: parsed fields (incl. sender name, Reply-To, content hash, header key, list headers, In-Reply-To), thread ID, UTC date, size, `parser_version`; attachments (name, type, size, hash) and recipients; label IDs; label catalogue; `history_id`; a `runs` log of every backup, count and sync; `offloaded`, mail removed from Gmail on purpose; `restored`, mail put back and its ID now | `SCHEMA_VERSION` + `MIGRATIONS`; rows go stale by `parser_version` |
+| `dedup.sqlite` | `dedup/db.py` | all accounts' messages (paths relative to `backups.folder`), labels, match groups | `SCHEMA_VERSION` + `MIGRATIONS`; `meta.parser_version` forces a re-parse |
+
+The gyb format is kept exactly (verified byte-for-byte against gyb
+1.97), so gyb and anything else that reads it can still use the backups;
+`mailcellar restore` replaced gyb's restore (2026-10-25). Anything gyb has
+no room for goes in `meta.sqlite`.
+
+## Backup
+
+- **First run** (or `--full`, `--search`, `--refresh-labels`, or expired
+  history): list every message, download what's missing (`format=raw`),
+  and store the mailbox `historyId` taken before the listing.
+- **Later runs:** read Gmail's history since that ID (kept ~4 weeks), look
+  up the current state of each changed message, and download new mail,
+  update labels, and skip Spam/Trash/Chat — from current state, so a
+  repeated run is harmless. The new `historyId` is stored only after a run
+  with no failures.
+- **Parse once:** each downloaded message is parsed and written to
+  `meta.sqlite` in the same pass; `meta` backfills older mail.
+- **Never deletes**, except `backup --sync`: messages permanently gone from
+  Gmail (Trash and Spam count as present) are moved to
+  `data/_pruned/<email>/`, behind confirmation and a 10% guard. Messages
+  recorded in `offloaded` always stay, and count neither toward the guard
+  nor as deleted in `count` or a backup run.
+
+## Deduplication
+
+**Matching** (`dedup/match.py`): two copies are the same message when they
+have the same **content hash** — the visible text (HTML tags, URLs and
+addresses removed) plus every attachment's hash — **and** either the same
+**Message-ID** or the same **header key** (From, Date, Subject). Groups are
+connected components; each is `cross` (spans accounts) or `within`.
+Message-IDs reused for different content are reported, not grouped.
+The rule was chosen by checking candidates against real backups: sender,
+date and subject alone grouped different messages (two invoices, two
+tickets); a hash of the whole body missed re-sends that differ only in
+tracking links; and identical visible text is common across genuinely
+separate mail, so the content hash is never used on its own.
+
+**Planning** (`dedup/rules.py`), per group, `keep` / `remove` / `review`:
+- cross-account: `--keep <account>` keeps that account's copies, or
+  `--keep origin` removes only copies auto-forwarded from another account
+  (`X-Forwarded-For`), leaving independent deliveries alone;
+- within an account: keep one copy from the largest set with the same
+  labels; copies with other labels go to review;
+- safety rules on every removal: sent/draft copies, a keeper in
+  Trash/Spam, stars or user labels the keeper lacks → review.
+
+**Applying** (`dedup/apply.py`): dry run by default. `--label [NAME]` adds
+a review label in Gmail; `--trash [NAME]` moves labelled copies to Trash
+(recoverable for 30 days). Before touching a message it checks that the
+local backup copy exists, the message and its keeper are still in Gmail,
+the keeper isn't in Trash/Spam, and the message's labels haven't changed
+since the plan. Removing the label in Gmail vetoes a message.
+
+## Restore
+
+`restore/apply.py`, in two steps, passing frozen values (`Candidate` →
+`Decision` → `Result`):
+
+1. **`plan()`** (read-only) checks each backup copy (the `.eml` parses and
+   matches the sidecar's content hash), reads Gmail's state (one lookup
+   per message, or two ID listings above 1,000 messages) and searches for
+   matching Message-IDs. Then **`decide()`**, a pure function of what was
+   read, picks each message's way back: `untrash`, `in gmail`
+   (offloaded, already out of Trash), `present` (never offloaded, still
+   there), `found` (same Message-ID and content under another ID, from a
+   batched `rfc822msgid:` search), `import`, or `skipped` (unusable
+   backup copy, or the Message-ID held by other content).
+2. **`apply()`** (or, for the dry run, the pure `dry_run()`) returns a
+   `Result` per decision. It untrashes, then uploads with `messages.import` (Date
+   header as the internal date, spam classifier off) 200 messages at a
+   time. Each success is recorded in the source backup's `restored` table
+   at once, so a rerun carries on. Imported messages are indexed under
+   their new IDs with `gyb.add_copy()` (a hard link to the old `.eml`) in
+   the backup of the account restored into.
+
+Gmail matches an import to the message already holding its Message-ID, so
+a retried upload returns the same message rather than a copy. The old ID
+of an imported message stays in the backup: `sidecar.kept_ids()` protects
+it from `--sync`, and `superseded_ids()` keeps it out of reports and
+dedup. With `--to`, restored rows carry the target account and leave the
+source's offload record alone.
+
+## Safety model
+
+- Read-only by default: backups, `count`, `meta`, `index`, `match`,
+  `plan` and dry-run `apply` use `gmail.readonly` or no API at all.
+- `gmail.modify` is requested only for the account `apply --label/--trash`
+  or `restore --yes` changes; a modify token also serves read-only requests.
+- Nothing is ever permanently deleted from Gmail (no `batchDelete`), and
+  the backup keeps everything unless `--sync` is asked for. Restore only
+  adds, and skips what Gmail already has.
+- Every account call checks it reached the expected mailbox.
+
+## Testing
+
+`uv run pytest` — no network. Gmail is replaced by fakes:
+`FakeGmail` (account level, with history computed from mailbox snapshots)
+and `FakeService` (the googleapiclient surface, for batching and retries);
+`FakeBackup` builds gyb folders. Changes are also checked against real
+backups, read-only, before they are relied on.
