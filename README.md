@@ -35,6 +35,8 @@ How it fits together: [docs/architecture.md](docs/architecture.md).
   backup instead of starting again.
 - [Offloading old mail safely](docs/guide/offloading.md): a worked example, from
   writing a rule to restoring.
+- [Recovering when something goes wrong](docs/guide/recovery.md): an expired token,
+  a long gap between backups, an interrupted run, a lost data root.
 
 ## Quick start
 
