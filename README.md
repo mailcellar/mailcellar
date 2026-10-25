@@ -2,9 +2,30 @@
 
 [![CI](https://github.com/mailcellar/mailcellar/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mailcellar/mailcellar/actions/workflows/ci.yml?query=branch%3Amain)
 
-Local backups of Gmail accounts, kept as an archive: remove duplicate
-messages within and across accounts, move old mail out of Gmail while the
-backup keeps it, put it back when it's needed, and report on what's there.
+**Gmail storage full? Move old mail out of Gmail without losing it.**
+mailcellar keeps a local backup of your Gmail accounts. You can then take old
+mail out of Gmail by rule while the backup keeps it, and it stays searchable,
+exportable and restorable whenever you need it.
+
+- **Back up** every account incrementally, in
+  [Got Your Back](https://github.com/GAM-team/got-your-back)'s format; an
+  existing gyb backup carries on where it is.
+- **Offload** old mail by rule, in stages you check: plan, review, label,
+  look in Gmail, then trash. Nothing is ever permanently deleted from Gmail,
+  and the backup is checked for every message before it goes.
+- **Find and restore** it later: `mailcellar search` searches the backups,
+  offloaded mail included, and `mailcellar restore` puts mail back into
+  Gmail, into the same account or another.
+- **Deduplicate, export and report**: remove duplicate copies within and
+  across accounts, copy mail out as an mbox or a zip, and see what takes up
+  the space.
+
+It runs on your own computer with your own Google Cloud project: there is no
+service in between, and your mail goes nowhere but between Gmail and your
+disk. Setting up the project takes about ten minutes
+([guide](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/google-cloud.md)).
+mailcellar is young (alpha), runs on macOS and Linux, and needs Python 3.14,
+which uv installs for you.
 
 ```
 mailcellar backup  [ACCOUNT ...]   incremental backups in gyb's format
@@ -31,36 +52,36 @@ anywhere on the line to also see Gmail's retries and rate-limit waits (waits
 of 10 seconds or more show without it), or `-q` to see only warnings and
 errors.
 
-How it fits together: [docs/architecture.md](docs/architecture.md).
+How it fits together: [docs/architecture.md](https://github.com/mailcellar/mailcellar/blob/main/docs/architecture.md).
 
 ## Guides
 
-- [Setting up Google Cloud](docs/guide/google-cloud.md): the project and
+- [Setting up Google Cloud](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/google-cloud.md): the project and
   OAuth client mailcellar signs in with, and the first consent screen.
-- [Scheduled backups](docs/guide/scheduling.md): run backups regularly, unattended,
+- [Scheduled backups](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/scheduling.md): run backups regularly, unattended,
   and what happens when a token needs signing in.
-- [Migrating from gyb](docs/guide/from-gyb.md): continue an existing Got Your Back
+- [Migrating from gyb](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/from-gyb.md): continue an existing Got Your Back
   backup instead of starting again.
-- [Offloading old mail safely](docs/guide/offloading.md): a worked example, from
+- [Offloading old mail safely](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/offloading.md): a worked example, from
   writing a rule to restoring.
-- [Exporting mail](docs/guide/exporting.md): copy mail out as an mbox or a zip, for a
+- [Exporting mail](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/exporting.md): copy mail out as an mbox or a zip, for a
   mail client or for someone else.
-- [Recovering when something goes wrong](docs/guide/recovery.md): an expired token,
+- [Recovering when something goes wrong](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/recovery.md): an expired token,
   a long gap between backups, an interrupted run, a lost data root.
-- [Troubleshooting and FAQ](docs/guide/troubleshooting.md): slow runs, `count` results,
+- [Troubleshooting and FAQ](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/troubleshooting.md): slow runs, `count` results,
   chats, weekly sign-in, why not IMAP or Takeout.
 
 ## Quick start
 
-You need [uv](https://docs.astral.sh/uv/) (it provides Python 3.14, as set
-in `.python-version`) and a Google account.
+You need [uv](https://docs.astral.sh/uv/) (it provides Python 3.14) and a
+Google account.
 
 1. **Install.**
    ```bash
-   git clone https://github.com/mailcellar/mailcellar.git
-   cd mailcellar
-   uv sync                  # the dependencies, and the mailcellar command
+   uv tool install mailcellar    # from PyPI; puts the mailcellar command on your PATH
    ```
+   `pipx install mailcellar` works too, with Python 3.14. To run it from a
+   clone instead, see [Development](#development).
 2. **Create an OAuth client.** In the [Google Cloud
    console](https://console.cloud.google.com/), create a project, enable the
    **Gmail API**, set up the OAuth consent screen with yourself as a test
@@ -68,7 +89,7 @@ in `.python-version`) and a Google account.
    JSON. One client can serve several accounts: copy the same JSON into each
    account's folder. The step-by-step version, including *Testing* versus
    *In production* (Testing tokens expire after 7 days), is
-   [Setting up Google Cloud](docs/guide/google-cloud.md).
+   [Setting up Google Cloud](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/google-cloud.md).
 3. **Configure the account.** Save the JSON as
    `~/.config/mailcellar/<name>/client_secrets.json` and list the account
    in `~/.config/mailcellar/accounts.toml` (see
@@ -76,11 +97,17 @@ in `.python-version`) and a Google account.
    ```toml
    work = "alex@example.org"
    ```
+   Then choose where the backups go, in
+   `~/.config/mailcellar/settings.toml`; without it they go into `./data`
+   wherever you run the command:
+   ```toml
+   data_dir = "~/mailcellar"
+   ```
 4. **Check, then back up.**
    ```bash
-   uv run mailcellar config         # the config and data folders; the account's client and tokens
-   uv run mailcellar backup work    # opens a browser once for Google's consent screen
-   uv run mailcellar count work     # what Gmail has against what the backup has
+   mailcellar config         # the config and data folders; the account's client and tokens
+   mailcellar backup work    # opens a browser once for Google's consent screen
+   mailcellar count work     # what Gmail has against what the backup has
    ```
 
 The first backup lists every message and downloads it. For a large
@@ -94,14 +121,14 @@ whole mailbox again instead of reading the changes. A monthly or weekly
 scheduled job is enough, and mailcellar can set one up:
 
 ```bash
-uv run mailcellar schedule install     # macOS: a launchd agent, weekly; elsewhere: a cron line
-uv run mailcellar schedule status      # installed? each account's last backup and token
-uv run mailcellar schedule remove
+mailcellar schedule install     # macOS: a launchd agent, weekly; elsewhere: a cron line
+mailcellar schedule status      # installed? each account's last backup and token
+mailcellar schedule remove
 ```
 
 The job runs `backup --unattended`, which never opens a browser: a token that
 needs signing in fails that account's run, with the command to fix it, and is
-recorded for `report health`. See [Scheduled backups](docs/guide/scheduling.md).
+recorded for `report health`. See [Scheduled backups](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/scheduling.md).
 
 **Tokens and the consent screen.** If the consent screen's publishing
 status is *Testing*, Google expires its tokens after 7 days, and the next
@@ -109,7 +136,7 @@ backup asks you to sign in again. Either set the status to *In production*
 or renew access before it runs out:
 
 ```bash
-uv run mailcellar auth work --scope readonly --renew   # or --scope modify for apply and restore
+mailcellar auth work --scope readonly --renew   # or --scope modify for apply and restore
 ```
 
 `auth` asks for consent again (`--renew`), which starts the 7 days afresh;
@@ -201,15 +228,15 @@ seen by every tool.
 ## Backups
 
 ```bash
-uv run mailcellar backup                  # every account, incremental
-uv run mailcellar backup personal         # one account
-uv run mailcellar count                   # compare Gmail with the backups
-uv run mailcellar backup personal --full  # list every message instead of using history
-uv run mailcellar backup --unattended     # for scheduled runs: never opens a browser
-uv run mailcellar backup personal --sync  # also move mail permanently deleted from Gmail
+mailcellar backup                  # every account, incremental
+mailcellar backup personal         # one account
+mailcellar count                   # compare Gmail with the backups
+mailcellar backup personal --full  # list every message instead of using history
+mailcellar backup --unattended     # for scheduled runs: never opens a browser
+mailcellar backup personal --sync  # also move mail permanently deleted from Gmail
                                           # (not offloaded mail) into <data root>/_pruned/
-uv run mailcellar meta                    # fill meta.sqlite for older mail
-uv run mailcellar verify                  # are the backup's files still intact?
+mailcellar meta                    # fill meta.sqlite for older mail
+mailcellar verify                  # are the backup's files still intact?
 ```
 
 **Exit status** (for scripts and schedulers): 0 when everything worked.
@@ -229,9 +256,9 @@ an accidental delete. It needs no Gmail access and changes nothing (both
 databases are opened read-only).
 
 ```bash
-uv run mailcellar verify                  # every backup, every message
-uv run mailcellar verify work --offloaded # only offloaded mail: the copies with no other source
-uv run mailcellar verify --sample 500     # 500 random messages: quick enough for a routine check
+mailcellar verify                  # every backup, every message
+mailcellar verify work --offloaded # only offloaded mail: the copies with no other source
+mailcellar verify --sample 500     # 500 random messages: quick enough for a routine check
 ```
 
 For each message it checks that the `.eml` exists and parses, and that its
@@ -251,20 +278,20 @@ them too. [`mailcellar restore`](#restoring-mail) puts mail back into Gmail.
 ## Removing duplicates
 
 ```bash
-uv run mailcellar dedup index                     # catalogue the backups
-uv run mailcellar dedup match                     # report duplicate groups
-uv run mailcellar dedup plan --keep origin        # across accounts: drop forwarded copies
-uv run mailcellar dedup plan --scope within       # within each account
-uv run mailcellar dedup apply                     # dry run against live Gmail
-uv run mailcellar dedup apply --label --limit 5   # label 5 removals for review
-uv run mailcellar dedup apply --trash --limit 5   # move labelled ones to Trash
+mailcellar dedup index                     # catalogue the backups
+mailcellar dedup match                     # report duplicate groups
+mailcellar dedup plan --keep origin        # across accounts: drop forwarded copies
+mailcellar dedup plan --scope within       # within each account
+mailcellar dedup apply                     # dry run against live Gmail
+mailcellar dedup apply --label --limit 5   # label 5 removals for review
+mailcellar dedup apply --trash --limit 5   # move labelled ones to Trash
 ```
 
 Review the plan (`<data root>/dedup/dedup-plan.csv`) and the labelled
 messages in Gmail before trashing; removing the label vetoes a message.
 Each run is logged in `<data root>/dedup/dedup-apply-log.csv`. How
 copies are matched and which one is kept:
-[docs/architecture.md](docs/architecture.md#deduplication).
+[docs/architecture.md](https://github.com/mailcellar/mailcellar/blob/main/docs/architecture.md#deduplication).
 
 ## Offloading old mail
 
@@ -284,9 +311,9 @@ before = "2022-01-01"    # or a number of years ago, e.g. "5"
 ```
 
 ```bash
-uv run mailcellar offload plan                    # all accounts → <data root>/offload/offload-plan.csv
-uv run mailcellar offload plan personal --top 30 --csv ~/reports/offload
-uv run mailcellar offload plan --review           # also a review page per rule
+mailcellar offload plan                    # all accounts → <data root>/offload/offload-plan.csv
+mailcellar offload plan personal --top 30 --csv ~/reports/offload
+mailcellar offload plan --review           # also a review page per rule
 ```
 
 `plan` changes nothing. It prints what each rule would offload (by year and
@@ -302,10 +329,10 @@ and subjects, never message bodies, and is for you alone: keep it on your
 machine. The same plan shows the same sample.
 
 ```bash
-uv run mailcellar offload apply                       # dry run: Gmail and backup checks
-uv run mailcellar offload apply --label --limit 2000  # label the next 2,000 offload-candidate
-uv run mailcellar backup personal                     # trash needs a backup newer than the plan
-uv run mailcellar offload apply --trash --limit 2000  # trash the next 2,000 labelled ones
+mailcellar offload apply                       # dry run: Gmail and backup checks
+mailcellar offload apply --label --limit 2000  # label the next 2,000 offload-candidate
+mailcellar backup personal                     # trash needs a backup newer than the plan
+mailcellar offload apply --trash --limit 2000  # trash the next 2,000 labelled ones
 ```
 
 Repeated runs with `--limit` move on through the plan. Removing the label
@@ -339,13 +366,13 @@ whole backup, into its own account or another configured one. Without
 it would do.
 
 ```bash
-uv run mailcellar restore personal --batch 2026-01-15-093000   # dry run of one offload batch
-uv run mailcellar restore personal --batch 2026-01-15-093000 --yes
-uv run mailcellar restore personal --rule "old work mail" --limit 100 --yes
-uv run mailcellar restore personal --id 18c0ffee0000abcd --yes
-uv run mailcellar restore personal --offloaded                 # everything offloaded
-uv run mailcellar restore personal --all                       # the whole backup
-uv run mailcellar restore work --all --to personal --label-prefix work   # into another account
+mailcellar restore personal --batch 2026-01-15-093000   # dry run of one offload batch
+mailcellar restore personal --batch 2026-01-15-093000 --yes
+mailcellar restore personal --rule "old work mail" --limit 100 --yes
+mailcellar restore personal --id 18c0ffee0000abcd --yes
+mailcellar restore personal --offloaded                 # everything offloaded
+mailcellar restore personal --all                       # the whole backup
+mailcellar restore work --all --to personal --label-prefix work   # into another account
 ```
 
 Batch names are the folders in `<data root>/offload/batches/`. `--limit`
@@ -356,8 +383,8 @@ last one stopped.
 "last year's mail from one sender" needs no ID lookup first:
 
 ```bash
-uv run mailcellar restore personal --all --after 2025-01-01 --before 2026-01-01 --sender @example.com
-uv run mailcellar restore personal --offloaded --has-label projects --sender alex@example.org
+mailcellar restore personal --all --after 2025-01-01 --before 2026-01-01 --sender @example.com
+mailcellar restore personal --offloaded --has-label projects --sender alex@example.org
 ```
 
 - `--before DATE` keeps mail older than the date, `--after DATE` mail from
@@ -409,7 +436,7 @@ large restores in the background.
 
 Runs are logged in `<data root>/restore/restore-log.csv`, and each
 restored message is recorded in its backup's `meta.sqlite`. How it works:
-[docs/architecture.md](docs/architecture.md#restore).
+[docs/architecture.md](https://github.com/mailcellar/mailcellar/blob/main/docs/architecture.md#restore).
 
 **From elsewhere.** Three other sources hold mail that isn't in a backup's
 index. Each restores every message it holds, narrowed by `--id`, `--before`,
@@ -417,9 +444,9 @@ index. Each restores every message it holds, narrowed by `--id`, `--before`,
 and `--yes`:
 
 ```bash
-uv run mailcellar restore personal --from-pruned 2026-03-01-120000   # what backup --sync moved out
-uv run mailcellar restore personal --from-mbox ~/Takeout/Mail/All.mbox --yes
-uv run mailcellar restore personal --from-folder /Volumes/old/GYB-GMail-Backup-old@example.org
+mailcellar restore personal --from-pruned 2026-03-01-120000   # what backup --sync moved out
+mailcellar restore personal --from-mbox ~/Takeout/Mail/All.mbox --yes
+mailcellar restore personal --from-folder /Volumes/old/GYB-GMail-Backup-old@example.org
 ```
 
 - `--from-pruned BATCH`: mail that `backup --sync` moved into
@@ -448,8 +475,8 @@ offloaded mail. `export` copies a selection out of the backup. It is
 read-only (nothing changes in Gmail or the backup) and needs no Gmail access.
 
 ```bash
-uv run mailcellar export personal --offloaded --to ~/old-mail.mbox      # for a mail client
-uv run mailcellar export personal --all --after 2025-01-01 --before 2026-01-01 \
+mailcellar export personal --offloaded --to ~/old-mail.mbox      # for a mail client
+mailcellar export personal --all --after 2025-01-01 --before 2026-01-01 \
     --sender @example.com --to ~/for-the-accountant.zip                 # the .eml files and an index
 ```
 
@@ -475,7 +502,7 @@ missing from the backup is left out and reported, and the exit status is 1:
 `mailcellar verify` shows what is missing.
 
 An export is a copy of your mail, outside the backup: keep it, and delete it,
-with the same care. The [Exporting mail](docs/guide/exporting.md) guide has
+with the same care. The [Exporting mail](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/exporting.md) guide has
 worked selections and what to do with the result.
 
 ## Searching mail
@@ -486,9 +513,9 @@ recipients, subject and body (not attachments). It is read-only towards
 Gmail and the backups, and needs no Gmail access.
 
 ```bash
-uv run mailcellar search "invoice 2024"                        # every backup
-uv run mailcellar search "from:alex subject:contract" work      # one backup
-uv run mailcellar search '"quarterly figures"' --offloaded --after 2020-01-01
+mailcellar search "invoice 2024"                     # every backup
+mailcellar search "from:alex subject:contract" work  # one backup
+mailcellar search '"quarterly figures"' --offloaded --after 2020-01-01
 ```
 
 Every word must be found, whole and ignoring case and accents. A
@@ -513,15 +540,15 @@ again.
 ## Reports
 
 ```bash
-uv run mailcellar report storage                 # what takes up space; space freed per offload batch
-uv run mailcellar report storage personal --csv ~/reports/storage
-uv run mailcellar report bulk                    # mailing lists and bulk senders; unsubscribe candidates
-uv run mailcellar report volume                  # received, sent and forwarded mail over time
-uv run mailcellar report threads                 # thread sizes; threads in both accounts
-uv run mailcellar report labels                  # user labels per account; unlabelled mail
-uv run mailcellar report correspondents          # who you write to and hear from; reply rates
-uv run mailcellar report health                  # backup completeness, runs, gaps, pruned batches
-uv run mailcellar report senders personal --top 30  # top senders and domains in one backup
+mailcellar report storage                 # what takes up space; space freed per offload batch
+mailcellar report storage personal --csv ~/reports/storage
+mailcellar report bulk                    # mailing lists and bulk senders; unsubscribe candidates
+mailcellar report volume                  # received, sent and forwarded mail over time
+mailcellar report threads                 # thread sizes; threads in both accounts
+mailcellar report labels                  # user labels per account; unlabelled mail
+mailcellar report correspondents          # who you write to and hear from; reply rates
+mailcellar report health                  # backup completeness, runs, gaps, pruned batches
+mailcellar report senders personal --top 30  # top senders and domains in one backup
 ```
 
 Reports read only the local backups, never Gmail. Each takes `--help`,
@@ -529,7 +556,13 @@ and prints notes on what its columns mean.
 
 ## Development
 
+To run mailcellar from a clone, with the tests and tools:
+
 ```bash
+git clone https://github.com/mailcellar/mailcellar.git
+cd mailcellar
+uv sync                                    # the dependencies, and mailcellar in editable mode
+uv run mailcellar config                   # every command, run from the clone
 uv run pytest                              # all tests; no network, never the real config or data
 uv run pytest --cov                        # the same, with a branch-coverage report
 uv run ruff format && uv run ruff check
@@ -539,10 +572,10 @@ The code is one package, `src/mailcellar/`: `cli.py` dispatches to
 `backup/`, `dedup/`, `offload/`, `restore/` and `report/`, which share `paths.py`,
 `gmailapi.py` and `message.py`. `uv sync` installs it in editable mode;
 `python -m mailcellar` works too. See
-[docs/architecture.md](docs/architecture.md).
+[docs/architecture.md](https://github.com/mailcellar/mailcellar/blob/main/docs/architecture.md).
 
 How to contribute, and the rules changes follow:
-[CONTRIBUTING.md](CONTRIBUTING.md).
+[CONTRIBUTING.md](https://github.com/mailcellar/mailcellar/blob/main/CONTRIBUTING.md).
 
 ## Acknowledgements
 
@@ -556,4 +589,4 @@ project. Gmail and Google Workspace are trademarks of Google LLC.
 
 ## License
 
-Apache License 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache License 2.0: see [LICENSE](https://github.com/mailcellar/mailcellar/blob/main/LICENSE) and [NOTICE](https://github.com/mailcellar/mailcellar/blob/main/NOTICE).

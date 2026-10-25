@@ -140,8 +140,8 @@ project.
 ## 6. The first backup
 
 ```bash
-uv run mailcellar config        # check the folders and that each account has a client
-uv run mailcellar backup work   # opens the browser once per account
+mailcellar config        # check the folders and that each account has a client
+mailcellar backup work   # opens the browser once per account
 ```
 
 mailcellar prints `Authorising work@... for gmail.readonly` and opens your

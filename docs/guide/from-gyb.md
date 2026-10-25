@@ -27,7 +27,7 @@ gyb names its folder `GYB-GMail-Backup-<email>`. mailcellar looks for
 renamed on the way in. `mailcellar config` shows where the data root is.
 
 ```bash
-uv run mailcellar config        # the data root, and each account's state
+mailcellar config        # the data root, and each account's state
 cp -a /path/to/GYB-GMail-Backup-alex@example.com \
       "<data root>/alex@example.com"
 ```
@@ -63,8 +63,8 @@ deleted once you have stopped using gyb.
 ## 3. The first run
 
 ```bash
-uv run mailcellar backup personal
-uv run mailcellar meta personal
+mailcellar backup personal
+mailcellar meta personal
 ```
 
 **`backup`** has no history to start from on its first run in the folder
@@ -87,7 +87,7 @@ knows the folder.
 ## 4. Check
 
 ```bash
-uv run mailcellar count personal
+mailcellar count personal
 ```
 
 `count` compares Gmail with the folder and changes nothing. Mail that
