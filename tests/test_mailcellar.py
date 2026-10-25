@@ -144,6 +144,16 @@ def test_backup_status_lines_are_log_output(setup, capsys):
     assert "Using backup folder" not in captured.err + captured.out
 
 
+def test_backup_listing_summary_is_log_output(setup, capsys):
+    assert cli.main(["backup", A, "--full"]) == 0
+    captured = capsys.readouterr()
+    assert "Gmail has 1 messages" in captured.err
+    assert "Gmail has 1 messages" not in captured.out
+    assert cli.main(["-q", "backup", A, "--full"]) == 0
+    captured = capsys.readouterr()
+    assert "Gmail has" not in captured.err + captured.out
+
+
 def test_fatal_errors_use_the_log_prefix(setup):
     with pytest.raises(SystemExit) as fatal:
         cli.main(["backup", "--folder", "x"])

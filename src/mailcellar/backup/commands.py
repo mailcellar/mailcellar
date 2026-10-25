@@ -267,7 +267,7 @@ def _backup(gmail, con, mcon, folder: Path, query, refresh_labels: bool, stats: 
             mcon.commit()
         except gmailapi.HistoryExpired:
             stats["reason"] = "expired"
-            print(
+            logger.info(
                 "Gmail no longer has history back to the last run; listing every message instead."
             )
     if todo is None:
@@ -276,7 +276,7 @@ def _backup(gmail, con, mcon, folder: Path, query, refresh_labels: bool, stats: 
         ids = gmail.list_message_ids(query)
         stats["listed"] = len(ids)
         todo = [i for i in ids if i not in have]
-        print(
+        logger.info(
             f"Gmail has {len(ids):,} messages"
             + (f" matching {query!r}" if query else "")
             + f"; {len(ids) - len(todo):,} already backed up; "

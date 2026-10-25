@@ -68,7 +68,9 @@ def test_expired_history_falls_back_to_listing(tmp_path, capsys):
     assert stats["mode"] == "full" and gmail.list_calls == 2
     assert "g3" in rows(folder)["uids"]
     assert history_id(folder) not in gmail.expired
-    assert "listing every message instead" in capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert "listing every message instead" in captured.err
+    assert "listing every message instead" not in captured.out
 
 
 # ── what a history run does ──────────────────────────────────────────────────
