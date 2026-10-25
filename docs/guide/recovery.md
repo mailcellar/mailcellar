@@ -153,6 +153,11 @@ the 30 days, open Gmail's Trash and move the messages back by hand. This is
 the reason `offload apply --trash` reminds you to keep a second copy of the
 data root, and why you should.
 
+`mailcellar export` is one way to keep such a copy: it writes a selection
+(for example `--offloaded`) as an mbox file or a zip of `.eml` files, without
+touching the backup. It is a copy of your mail, so store it as carefully as
+the data root. See [Exporting mail](../../README.md#exporting-mail).
+
 ## A leaked token or `client_secrets.json`
 
 Revoke access, delete the token files and, if the client's secrets leaked
