@@ -27,6 +27,11 @@ errors.
 
 How it fits together: [docs/architecture.md](docs/architecture.md).
 
+## Guides
+
+- [Setting up Google Cloud](docs/guide/google-cloud.md): the project and
+  OAuth client mailcellar signs in with, and the first consent screen.
+
 ## Quick start
 
 You need [uv](https://docs.astral.sh/uv/) (it provides Python 3.14, as set
@@ -40,10 +45,12 @@ in `.python-version`) and a Google account.
    ```
 2. **Create an OAuth client.** In the [Google Cloud
    console](https://console.cloud.google.com/), create a project, enable the
-   **Gmail API**, set up the OAuth consent screen with yourself as a user,
-   and create an OAuth client of type **Desktop app**. Download its JSON.
-   One client can serve several accounts: copy the same JSON into each
-   account's folder.
+   **Gmail API**, set up the OAuth consent screen with yourself as a test
+   user, and create an OAuth client of type **Desktop app**. Download its
+   JSON. One client can serve several accounts: copy the same JSON into each
+   account's folder. The step-by-step version, including *Testing* versus
+   *In production* (Testing tokens expire after 7 days), is
+   [Setting up Google Cloud](docs/guide/google-cloud.md).
 3. **Configure the account.** Save the JSON as
    `~/.config/mailcellar/<name>/client_secrets.json` and list the account
    in `~/.config/mailcellar/accounts.toml` (see
