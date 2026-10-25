@@ -1,6 +1,6 @@
 [project]
 name = "mailcellar"
-version = "0.1.0"
+version = "0.9.0"
 description = "Gmail backups in gyb's format, with deduplication, offloading old mail, restore and reports"
 readme = "README.md"
 license = "Apache-2.0"
@@ -8,7 +8,7 @@ license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "The mailcellar authors" }]
 keywords = ["gmail", "backup", "archive", "email", "deduplication", "gyb"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
     "Operating System :: MacOS",
