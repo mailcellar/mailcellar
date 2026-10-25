@@ -80,8 +80,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 - **Types:** `feat` (a new command, option or behaviour), `fix`, `docs`,
   `test`, `refactor`, `perf`, `build` (`pyproject.toml`, `uv.lock`), `ci`,
   `chore`.
-- **Scopes,** optional: `backup`, `dedup`, `offload`, `restore`, `report`,
-  `gmailapi`, `message`, `cli`, `paths`.
+- **Scopes,** optional: `backup`, `dedup`, `offload`, `restore`, `search`,
+  `report`, `gmailapi`, `message`, `cli`, `paths`.
 - **Summary** at most 72 characters.
 - **Breaking changes** (a CLI option or output format changes, or the
   backup format) take `!` after the scope and a `BREAKING CHANGE:` footer
@@ -93,6 +93,41 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 - **AI assistance** is disclosed with a `Co-Authored-By:` trailer naming
   the model. It records how the change was made, and doesn't change who
   "the mailcellar authors" in NOTICE are.
+
+## Releasing
+
+Pushing a tag `vX.Y.Z` releases that version:
+[`.github/workflows/release.yml`](.github/workflows/release.yml) checks the
+tag against `version` in `pyproject.toml`, runs the checks again, builds the
+package, uploads it to [PyPI](https://pypi.org/project/mailcellar/) and
+attaches it to a GitHub release with notes from the merged pull requests.
+
+**Once, before the first release** (a maintainer with access to both):
+
+1. On PyPI, add a *pending trusted publisher* (Your account → Publishing):
+   project `mailcellar`, owner `mailcellar`, repository `mailcellar`,
+   workflow `release.yml`, environment `pypi`. PyPI then accepts uploads
+   from that workflow alone, with no token stored anywhere.
+2. On GitHub, create the environment `pypi` (Settings → Environments) and,
+   preferably, add a required reviewer, so each upload waits for a person's
+   approval.
+
+**Each release:**
+
+1. On `main`, with CI green: set `version` in `pyproject.toml` (`uv version
+   X.Y.Z` also updates `uv.lock`), and commit it as
+   `build: release X.Y.Z` through a pull request like any other change.
+2. Once that is merged, tag the merge commit and push the tag:
+   ```bash
+   git switch main && git pull
+   git tag -a vX.Y.Z -m "mailcellar X.Y.Z"
+   git push origin vX.Y.Z
+   ```
+3. Approve the `pypi` environment's deployment when GitHub asks, then
+   check the release page and `uvx mailcellar@X.Y.Z --help`.
+
+A version on PyPI can never be uploaded again, even after it is deleted: a
+broken release is fixed by the next version, not by replacing it.
 
 ## Reporting problems
 
