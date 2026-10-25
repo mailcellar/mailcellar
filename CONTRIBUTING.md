@@ -32,7 +32,12 @@ CI runs the same three checks on every push and pull request
 - **No real mail anywhere in the repository.** Not in tests, docs, issues,
   commit messages or pull requests: no addresses, names, subjects or
   message contents. Use `example.com`, `example.org` and invented names.
-  Never paste tokens or `client_secrets.json`.
+  Never paste tokens or `client_secrets.json`. A workflow
+  ([.github/workflows/pii-scan.yml](.github/workflows/pii-scan.yml)) flags
+  email addresses that aren't placeholders, token patterns and home-folder
+  paths in new issues and comments with the `needs-redaction` label. It
+  can't stop a post or spot names and subjects, so the rule is still yours
+  to keep.
 - **Anything that changes Gmail is staged.** A dry run by default, then an
   explicit flag (`--label`, `--trash`, `--yes`), and nothing is ever
   permanently deleted from Gmail. New commands follow the same pattern.
