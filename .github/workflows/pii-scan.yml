@@ -1,0 +1,150 @@
+name: PII scan
+
+# Issues and their comments are public, and this project's main rule is that
+# no real mail or credentials go in anything public. This flags what looks
+# like personal data or a credential in a new or edited issue or comment: it
+# adds the `needs-redaction` label and asks the author, once, to edit it. It
+# can't prevent a post, only catch it quickly, and it can be wrong; names,
+# subjects and message text can't be detected. The comment names the kinds of
+# thing found, never the text, so the warning doesn't repeat it.
+#
+# The issue text is only read from the event file by a script: it is never
+# put in a shell command, and nothing from the repository is checked out.
+# Pull requests are left to review.
+
+on:
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created, edited]
+
+permissions:
+  issues: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Look for personal data and credentials
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import urllib.error
+          import urllib.request
+
+          LABEL = "needs-redaction"
+          MARKER = "<!-- pii-scan -->"
+
+          # Addresses that are placeholders, not people (RFC 2606 / 6761 names).
+          PLACEHOLDER = re.compile(
+              r"(^|\.)(example\.(com|org|net)|users\.noreply\.github\.com|noreply\.github\.com)$"
+              r"|\.(example|test|invalid|localhost)$",
+              re.I,
+          )
+          EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)")
+          PATTERNS = {
+              "a Google OAuth access token": re.compile(r"\bya29\.[0-9A-Za-z_-]{20,}"),
+              "a Google OAuth refresh token": re.compile(r"(?<![\w/])1//[0-9A-Za-z_-]{20,}"),
+              "an OAuth client secret": re.compile(r"\bGOCSPX-[0-9A-Za-z_-]{16,}|\"client_secret\"\s*:"),
+              "an OAuth token field": re.compile(r"\"(refresh|access)_token\"\s*:"),
+              "an OAuth client ID": re.compile(r"\b\d{8,}-[a-z0-9]{8,}\.apps\.googleusercontent\.com"),
+              "a Google API key": re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"),
+              "a private key": re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+              "a home folder with a user name": re.compile(
+                  r"(?:/Users/|/home/|[A-Za-z]:\\Users\\)(?!(?:user|you|name|username|me|alex)\b)[\w.-]+"
+              ),
+          }
+
+
+          def scan(text):
+              """What kinds of personal data `text` seems to hold, with counts. Never the matches."""
+              found = {}
+              emails = [
+                  m
+                  for m in EMAIL.finditer(text or "")
+                  if not PLACEHOLDER.search(m.group(1))
+                  and m.group(0).split("@")[0].lower() not in ("git", "noreply", "no-reply")
+              ]
+              if emails:
+                  found["an email address that is not a placeholder"] = len(emails)
+              for kind, pattern in PATTERNS.items():
+                  hits = pattern.findall(text or "")
+                  if hits:
+                      found[kind] = len(hits)
+              return found
+
+
+          def api(method, path, body=None):
+              request = urllib.request.Request(
+                  f"https://api.github.com{path}",
+                  data=None if body is None else json.dumps(body).encode(),
+                  method=method,
+                  headers={
+                      "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  return json.load(response)
+
+
+          def main():
+              with open(os.environ["GITHUB_EVENT_PATH"]) as fh:
+                  event = json.load(fh)
+              issue = event["issue"]
+              if "pull_request" in issue:
+                  return  # pull requests are reviewed before anything is merged
+              comment = event.get("comment")
+              author = (comment or issue)["user"]
+              if author["type"] == "Bot":
+                  return
+              if comment:
+                  where, text, url = "a comment", comment["body"], comment["html_url"]
+              else:
+                  where, text, url = "the issue", f"{issue['title']}\n{issue['body'] or ''}", issue["html_url"]
+              found = scan(text)
+              if not found:
+                  return
+
+              repo, number = os.environ["GITHUB_REPOSITORY"], issue["number"]
+              try:
+                  api("POST", f"/repos/{repo}/labels", {"name": LABEL, "color": "d93f0b",
+                      "description": "May contain personal data or credentials; edit it out"})
+              except urllib.error.HTTPError:
+                  pass  # the label exists
+              api("POST", f"/repos/{repo}/issues/{number}/labels", {"labels": [LABEL]})
+
+              comments, page = [], 1
+              while chunk := api("GET", f"/repos/{repo}/issues/{number}/comments?per_page=100&page={page}"):
+                  comments += chunk
+                  page += 1
+              if any(MARKER in c["body"] for c in comments):
+                  return  # asked once is enough
+              kinds = "\n".join(f"- {kind} ({n})" for kind, n in found.items())
+              api("POST", f"/repos/{repo}/issues/{number}/comments", {"body": f"""{MARKER}
+          This looks like it may contain personal data or credentials, in {where} ({url}):
+
+          {kinds}
+
+          Issues are public. Please edit it to replace real addresses, names, paths and tokens with
+          placeholders (`alex@example.com`), or describe the problem by its structure. This is an
+          automatic check and can be wrong; if everything in it is a placeholder, ignore this.
+
+          Editing hides the text from the page, but the earlier version stays visible in the edit
+          history, so a maintainer may delete the comment or issue instead. If a token or
+          `client_secrets.json` was posted, revoke it now: see
+          [SECURITY.md](https://github.com/{repo}/blob/main/SECURITY.md#if-a-token-may-have-leaked).
+
+          ---
+          _Generated by an automatic check in `.github/workflows/pii-scan.yml`_"""})
+
+
+          if __name__ == "__main__":
+              main()
+          PY
