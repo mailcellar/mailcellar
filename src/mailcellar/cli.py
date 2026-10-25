@@ -247,7 +247,7 @@ def _config(argv: list[str]) -> int:
             if problem
             else [
                 "Config: $MAILCELLAR_CONFIG, else ~/.config/mailcellar, else ./config. "
-                "Data: $MAILCELLAR_DATA, else data_dir in settings.toml, else ./data. "
+                "Data: $MAILCELLAR_DATA, else data_dir in settings.toml, else ~/mailcellar. "
                 "Tokens: the access each account has granted (readonly, modify) and the days "
                 "since consent was given: with the consent screen in Testing status, Google "
                 "expires a token 7 days after that (renew: mailcellar auth ACCOUNT --scope S "

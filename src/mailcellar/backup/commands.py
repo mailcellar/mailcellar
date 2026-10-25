@@ -765,7 +765,7 @@ def main(argv=None, prog: str | None = None) -> int:
             "--folder",
             default=None,
             help="Backup folder (default: <data root>/<email>; the data root is "
-            "$MAILCELLAR_DATA, else data_dir in config/settings.toml, else ./data)",
+            "$MAILCELLAR_DATA, else data_dir in settings.toml, else ~/mailcellar)",
         )
         sp.add_argument(
             "--config",

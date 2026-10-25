@@ -135,7 +135,7 @@ def test_backups_live_under_the_data_root(tmp_path, monkeypatch):
     from mailcellar.paths import backup_folder, find_backups
 
     monkeypatch.chdir(tmp_path)
-    assert backup_folder(ACCOUNT) == tmp_path / "data" / ACCOUNT  # the default, ./data
+    assert backup_folder(ACCOUNT) == tmp_path / "data" / ACCOUNT  # ./data, as conftest sets
     assert backup_folder(ACCOUNT, tmp_path / "x") == tmp_path / "x" / ACCOUNT
 
     commands.backup(FakeGmail({"g1": raw_response("g1")}), ACCOUNT, backup_folder(ACCOUNT))
@@ -161,11 +161,10 @@ def test_data_root_from_environment_then_settings_then_default(tmp_path, monkeyp
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv(DATA_ENV)
-    assert data_root() == tmp_path / "data"
+    assert data_root() == tmp_path / "home" / "mailcellar"  # the default (~ is the test's)
     (tmp_path / "config").mkdir()
     settings = tmp_path / "config" / "settings.toml"
     settings.write_text('data_dir = "~/mail-archive"\n')
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     assert data_root() == tmp_path / "home" / "mail-archive"
     settings.write_text('data_dir = "backups"\n')  # relative: from the working directory
     assert data_root() == tmp_path / "backups"
@@ -173,6 +172,26 @@ def test_data_root_from_environment_then_settings_then_default(tmp_path, monkeyp
     assert data_root() == tmp_path / "elsewhere"
     monkeypatch.setenv(DATA_ENV, "  ")  # blank: as if unset
     assert data_root() == tmp_path / "backups"
+
+
+def test_the_old_default_is_kept_where_it_holds_mailcellars_data(tmp_path, monkeypatch):
+    from mailcellar.paths import DATA_ENV, data_root, data_setting
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv(DATA_ENV)
+    home = tmp_path / "home" / "mailcellar"
+    (tmp_path / "data").mkdir()  # a data/ folder that isn't mailcellar's: ignored
+    assert data_root() == home
+    (tmp_path / "data" / "offload").mkdir()  # mailcellar wrote here: kept
+    assert data_root() == tmp_path / "data"
+    assert data_setting()[1].startswith("./data (the old default")
+    (tmp_path / "data" / "offload").rmdir()
+    (tmp_path / "data" / ACCOUNT).mkdir()
+    (tmp_path / "data" / ACCOUNT / "msg-db.sqlite").write_bytes(b"")  # a backup: kept
+    assert data_root() == tmp_path / "data"
+    home.mkdir(parents=True)  # once ~/mailcellar exists, it wins
+    assert data_root() == home
+    assert data_setting() == ("~/mailcellar", "default")
 
 
 @pytest.mark.parametrize(

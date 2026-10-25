@@ -124,8 +124,8 @@ mailcellar` and `python -m mailcellar` both work.
   <name>/dedup-token-readonly.json, dedup-token-modify.json   # + authorised_at: when consent was last given
   settings.toml              data_dir: the data root; token_warn_days (optional)
 <data root>/                 everything derived from mail: $MAILCELLAR_DATA, else
-                             data_dir in <config>/settings.toml, else ./data (gitignored);
-                             paths.data_root()
+                             data_dir in <config>/settings.toml, else ~/mailcellar
+                             (or an existing ./data, the old default); paths.data_root()
   <email>/
     msg-db.sqlite            gyb index (db_version 6)
     <year>/<month>/<day>/<gmail_id>.eml

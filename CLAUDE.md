@@ -30,8 +30,8 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
 ## Rules
 
 - The data root (mail, derived databases, plans, logs) and the config
-  folder (OAuth clients, tokens) live outside the repo: `$MAILCELLAR_DATA`
-  or `data_dir` in settings.toml, and `$MAILCELLAR_CONFIG` or
+  folder (OAuth clients, tokens) live outside the repo: `$MAILCELLAR_DATA`,
+  `data_dir` in settings.toml or `~/mailcellar`, and `$MAILCELLAR_CONFIG` or
   `~/.config/mailcellar`; `mailcellar config` shows where. The old
   in-repo `data/` and `config/` stay gitignored.
 - Mail is personal data. Show message details to the user when they ask,
