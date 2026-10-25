@@ -57,6 +57,8 @@ How it fits together: [docs/architecture.md](https://github.com/mailcellar/mailc
 
 ## Guides
 
+Also on the documentation site, <https://mailcellar.github.io/mailcellar/>.
+
 - [Setting up Google Cloud](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/google-cloud.md): the project and
   OAuth client mailcellar signs in with, and the first consent screen.
 - [Scheduled backups](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/scheduling.md): run backups regularly, unattended,

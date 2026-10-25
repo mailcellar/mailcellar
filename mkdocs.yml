@@ -1,0 +1,57 @@
+# The documentation site, https://mailcellar.github.io/mailcellar/: the guides
+# and docs/architecture.md, built by .github/workflows/docs.yml. The README
+# stays the command reference, linked from the site. To preview it locally:
+#   uvx --from mkdocs==1.6.1 --with mkdocs-material==9.7.7 mkdocs serve
+site_name: mailcellar
+site_description: Back up Gmail locally, move old mail out by rule, and keep it searchable and restorable.
+site_url: https://mailcellar.github.io/mailcellar/
+repo_url: https://github.com/mailcellar/mailcellar
+repo_name: mailcellar/mailcellar
+edit_uri: edit/main/docs/
+copyright: Apache License 2.0 · not affiliated with Google
+
+docs_dir: docs
+exclude_docs: |
+  internal/
+strict: true
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - Guides:
+      - Setting up Google Cloud: guide/google-cloud.md
+      - Scheduled backups: guide/scheduling.md
+      - Migrating from gyb: guide/from-gyb.md
+      - Offloading old mail safely: guide/offloading.md
+      - Exporting mail: guide/exporting.md
+      - Recovering when something goes wrong: guide/recovery.md
+      - Troubleshooting and FAQ: guide/troubleshooting.md
+  - How it works: architecture.md
+  - Command reference: https://github.com/mailcellar/mailcellar#readme
+  - Releases: https://github.com/mailcellar/mailcellar/releases

@@ -17,3 +17,6 @@ docs/internal/
 # Coverage data (uv run pytest --cov)
 .coverage
 htmlcov/
+
+# The documentation site (mkdocs build)
+/site/
