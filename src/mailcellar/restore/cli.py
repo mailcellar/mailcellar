@@ -16,6 +16,7 @@ from mailcellar.paths import backup_folder, config_root, data_root
 from mailcellar.report.cli import parse_before
 from mailcellar.report.db import AnalyticsError
 from mailcellar.report.output import human_size
+from mailcellar.restore import sources
 from mailcellar.restore.apply import (
     DONE,
     DRY_RUN,
@@ -25,6 +26,7 @@ from mailcellar.restore.apply import (
     apply,
     candidates,
     dry_run,
+    matches,
     plan,
     restored_label,
     write_log,
@@ -74,12 +76,13 @@ def add_selection_arguments(
     )
 
 
-def selection(p: argparse.ArgumentParser, args) -> Narrowing:
+def selection(p: argparse.ArgumentParser, args, required: bool = True) -> Narrowing:
     """
     Check a selection given with add_selection_arguments() and return its
-    narrowing; an error ends the command through the parser.
+    narrowing; an error ends the command through the parser. Not
+    `required` when the messages come from a source that is selected whole.
     """
-    if not (args.batch or args.rule or args.id or args.offloaded or args.all):
+    if required and not (args.batch or args.rule or args.id or args.offloaded or args.all):
         p.error("say which messages: --batch, --rule, --id, --offloaded or --all")
     if args.all and (args.batch or args.rule or args.offloaded):
         p.error(
@@ -122,8 +125,31 @@ def main(argv=None, prog: str | None = None) -> int:
         "the backup and Gmail and says what it would do. (--has-label narrows by a label "
         "the mail has; --label names the label restored mail gets.)",
     )
-    p.add_argument("account", help="The backup: address, config folder name or unique part")
+    p.add_argument(
+        "account",
+        help="The backup: address, config folder name or unique part. With --from-mbox or "
+        "--from-folder, the account restored into",
+    )
     add_selection_arguments(p)
+    elsewhere = p.add_argument_group(
+        "restore from elsewhere (instead of the backup; every message, which --id and the "
+        "narrowing options can narrow)"
+    ).add_mutually_exclusive_group()
+    elsewhere.add_argument(
+        "--from-pruned",
+        metavar="BATCH",
+        help="Mail backup --sync moved out of the backup, in <data root>/_pruned/<email>/BATCH/",
+    )
+    elsewhere.add_argument(
+        "--from-mbox",
+        metavar="FILE",
+        help="An mbox file: a Google Takeout export, or one written by mailcellar export",
+    )
+    elsewhere.add_argument(
+        "--from-folder",
+        metavar="DIR",
+        help="A gyb backup folder from elsewhere, read as it is",
+    )
     p.add_argument(
         "--to",
         default=None,
@@ -157,7 +183,17 @@ def main(argv=None, prog: str | None = None) -> int:
     )
     p.add_argument("--log", default=str(log), help=f"Restore log, appended to (default: {log})")
     args = p.parse_args(argv)
-    narrowing = selection(p, args)
+    source = args.from_pruned or args.from_mbox or args.from_folder
+    if source and (args.batch or args.rule or args.offloaded or args.all):
+        p.error(
+            "--from-pruned, --from-mbox and --from-folder take every message they hold; "
+            "use --id, --before, --after, --has-label or --sender to narrow it"
+        )
+    if (args.from_mbox or args.from_folder) and args.to:
+        p.error("with --from-mbox or --from-folder, name the account to restore into as ACCOUNT")
+    narrowing = selection(p, args, required=not source)
+    if source:
+        return restore_from_elsewhere(p, args, narrowing, log)
 
     from mailcellar import gmailapi
 
@@ -223,6 +259,77 @@ def main(argv=None, prog: str | None = None) -> int:
     return 1 if any(r.outcome in ("failed", "skipped") for r in results) else 0
 
 
+def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowing, log) -> int:
+    """restore --from-pruned, --from-mbox or --from-folder: the same staging, another source."""
+    from mailcellar import gmailapi
+
+    config = Path(args.config)
+    try:
+        account, config_folder = gmailapi.resolve_account(config, args.account)
+        target, target_config = account, config_folder
+        if args.to:
+            target, target_config = gmailapi.resolve_account(config, args.to)
+    except gmailapi.GmailError as exc:
+        sys.exit(f"error: {exc}")
+    try:
+        if args.from_pruned:
+            where = f"pruned batch {args.from_pruned}"
+            cands = sources.from_pruned(backup_folder(account), args.from_pruned)
+        elif args.from_mbox:
+            where = args.from_mbox
+            cands = sources.from_mbox(Path(args.from_mbox).expanduser())
+        else:
+            where = args.from_folder
+            folder = Path(args.from_folder).expanduser()
+            if folder.resolve() == backup_folder(target).resolve():
+                p.error(
+                    "--from-folder is the backup of the account restored into; select its "
+                    "mail with --offloaded, --batch, --rule, --id or --all instead"
+                )
+            cands = sources.from_folder(folder)
+    except sources.SourceError as exc:
+        sys.exit(f"error: {exc}")
+    cands = sorted(
+        (c for c in cands if (not args.id or c.source_id in args.id) and matches(c, narrowing)),
+        key=lambda c: (c.internal_date, c.source_id),
+    )
+    if args.limit is not None:
+        cands = cands[: args.limit]
+    if not cands:
+        sys.exit("Nothing to do: no matching messages.")
+
+    mode = "restore" if args.yes else "dry-run"
+    progress = timer()
+    try:
+        gmail = gmailapi.GmailAccount(
+            target,
+            gmailapi.load_credentials(target_config, target, "modify" if args.yes else "readonly"),
+        )
+        decisions = plan(gmail, cands, same_account=False, progress=progress)
+        if args.yes:
+            run = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+            results = apply(
+                gmail,
+                None,
+                decisions,
+                run,
+                args.label or restored_label(),
+                target=target,
+                prefix=args.label_prefix,
+                strip=args.strip_labels,
+                progress=progress,
+            )
+        else:
+            results = dry_run(decisions)
+    except gmailapi.GmailError as exc:
+        sys.exit(f"error: {exc}")
+
+    write_log(Path(args.log), results, mode, account, target if target != account else "")
+    report(results, mode, account, target, where)
+    print(f"Log → {args.log}")
+    return 1 if any(r.outcome in ("failed", "skipped") for r in results) else 0
+
+
 def timer():
     """A progress callback logging each message with the time since it was made."""
     start = time.monotonic()
@@ -234,10 +341,11 @@ def timer():
     return progress
 
 
-def report(results, mode: str, account: str, target: str) -> None:
+def report(results, mode: str, account: str, target: str, source: str = "") -> None:
     counts = Counter(r.outcome for r in results)
     into = f" → {target}" if target != account else ""
-    print(f"Restore ({mode}) — {account}{into}: {len(results):,} messages")
+    origin = f" from {source}" if source else ""
+    print(f"Restore ({mode}) — {account}{into}{origin}: {len(results):,} messages")
     for outcome, n in counts.most_common():
         print(f"  {outcome:<34} {n:>8,}")
     problems = [r for r in results if r.outcome in ("skipped", "failed")]

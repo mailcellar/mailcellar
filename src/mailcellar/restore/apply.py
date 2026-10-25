@@ -30,6 +30,10 @@ The steps, each returning new frozen values:
   apply()       does it, recording each restore as it succeeds (Result)
 
 Nothing is changed without apply(); nothing is deleted.
+
+Candidates can also come from elsewhere (sources.py): a pruned batch, an
+mbox file or another gyb folder. They take the other-account way back, and
+apply() with no backup folder records and indexes nothing.
 """
 
 import base64
@@ -106,6 +110,18 @@ class Candidate:
     parser_version: str  # "" if the sidecar has no row
     offloaded: bool = True
     sender: str = ""  # the From address, lower case; "" if the sidecar has no row
+    span: tuple[int, int] | None = None  # in an mbox file (path): where the message is
+
+
+def read_raw(c: Candidate) -> bytes:
+    """The message's bytes: its .eml file, or its entry in an mbox file."""
+    if c.span is None:
+        return c.path.read_bytes()
+    from mailcellar.restore import mbox
+
+    with c.path.open("rb") as fh:
+        fh.seek(c.span[0])
+        return mbox.message(fh.read(c.span[1] - c.span[0]))
 
 
 @dataclass(frozen=True)
@@ -272,7 +288,7 @@ def check_backup(c: Candidate) -> tuple[str, Copy | None]:
     if c.parser_version != PARSER_VERSION:
         return "sidecar row is stale; run mailcellar meta", None
     try:
-        raw = c.path.read_bytes()
+        raw = read_raw(c)
         fields = parse_message(raw)
     except Exception as exc:
         return f"backup copy doesn't parse: {exc}", None
@@ -392,8 +408,12 @@ def plan(
         progress(f"Searching Gmail for the Message-IDs of {len(gone):,} messages it doesn't have")
     with_id = {c.source_id: copies[c.source_id].message_id for c in gone}
     searched = gmail.find_message_ids({k: m for k, m in with_id.items() if m})
+    # In its own account a message's own ID isn't another copy; elsewhere any ID is.
     hits = {
-        c.source_id: [g for g in searched.get(c.source_id, []) if g != c.source_id] for c in gone
+        c.source_id: [
+            g for g in searched.get(c.source_id, []) if not (same_account and g == c.source_id)
+        ]
+        for c in gone
     }
     others = sorted({g for found in hits.values() for g in found})
     hashes: dict[str, str] = {}
@@ -450,7 +470,7 @@ def dry_run(decisions: list[Decision]) -> list[Result]:
 
 def apply(
     gmail,
-    folder: Path,
+    folder: Path | None,
     decisions: list[Decision],
     run: str,
     label: str,
@@ -466,19 +486,24 @@ def apply(
     `target` (whose backup is `target_folder`). Each restore is recorded in
     the backup's meta.sqlite as it succeeds, so an interrupted run carries
     on where it stopped. Returns a Result per decision, in order.
+
+    folder None: the candidates come from a source other than a backup's
+    index (sources.py). Nothing is recorded or indexed; a run again finds
+    what was restored by its Message-ID, and the next backup downloads it.
     """
     by_way: dict[str, list[Decision]] = {}
     for d in decisions:
         by_way.setdefault(d.way, []).append(d)
     results = {d.source_id: r for d in decisions if (r := unchanged(d)) is not None}
-    mcon = sidecar.open_meta(folder)
+    mcon = sidecar.open_meta(folder) if folder else None
     try:
 
         def record(d: Decision, new_id: str, how: str, outcome: str, detail: str) -> Result:
-            sidecar.record_restored(
-                mcon, d.source_id, new_id, how, run, int(time.time() * 1000), target
-            )
-            mcon.commit()
+            if mcon is not None:
+                sidecar.record_restored(
+                    mcon, d.source_id, new_id, how, run, int(time.time() * 1000), target
+                )
+                mcon.commit()
             return Result(d, outcome, detail, new_id)
 
         # Untrash: the offloaded message itself, or the copy Gmail has in Trash.
@@ -514,17 +539,26 @@ def apply(
             gmail.label_ids([label])  # creates restored/ first
             gmail.add_label(done, label)
     finally:
-        mcon.close()
+        if mcon is not None:
+            mcon.close()
     return [results[d.source_id] for d in decisions]
 
 
 def _import(
-    gmail, mcon, folder: Path, target_folder: Path | None, imports, record, prefix, strip, progress
+    gmail,
+    mcon,
+    folder: Path | None,
+    target_folder: Path | None,
+    imports,
+    record,
+    prefix,
+    strip,
+    progress,
 ) -> list[Result]:
     """
     Upload the gone messages, IMPORT_CHUNK at a time, and index each new ID
     in the backup of the account restored into: `target_folder`, or the
-    backup's own `folder`.
+    backup's own `folder`; neither, for another source.
     """
     system = {label["id"] for label in gmail.label_catalogue() if label["type"] == "system"}
     index_folder = target_folder or folder
@@ -548,7 +582,7 @@ def _import_chunk(gmail, tcon, folder, chunk, record, system, prefix, strip) -> 
     # source ID → (decision, raw bytes, parsed fields, labels note, label IDs)
     ready: dict[str, tuple[Decision, bytes, dict, str, list[str]]] = {}
     for d in chunk:
-        raw = d.candidate.path.read_bytes()
+        raw = read_raw(d.candidate)
         fields = parse_message(raw)
         if fields["content_hash"] != d.candidate.content_hash:  # changed since plan()
             results[d.source_id] = Result(d, "skipped", "backup copy differs from the sidecar")
@@ -569,7 +603,7 @@ def _import_chunk(gmail, tcon, folder, chunk, record, system, prefix, strip) -> 
         results[sid] = Result(ready[sid][0], "failed", failure)
 
     imported = [r for r in results.values() if r.outcome == "imported"]
-    if imported:
+    if imported and folder is not None:
         _index_new_ids(gmail, tcon, folder, imported, {sid: v[2] for sid, v in ready.items()})
     return list(results.values())
 

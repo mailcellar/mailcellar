@@ -10,6 +10,7 @@ mailcellar: one command for the Gmail backups and what is done with them.
   mailcellar dedup   index | match | plan | apply
   mailcellar offload plan | apply       take old mail out of Gmail, keep it here
   mailcellar restore ACCOUNT --batch B | --rule R | --id G | --offloaded | --all
+                     | --from-pruned B | --from-mbox F | --from-folder D
                      [--to ACCOUNT] [--yes]   put backed-up mail back into Gmail
   mailcellar export  ACCOUNT <selection> --to FILE.mbox|FILE.zip   copy mail out, read-only
   mailcellar search  QUERY [ACCOUNT ...] [--offloaded]   find mail in the backups

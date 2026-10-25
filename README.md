@@ -131,7 +131,7 @@ or stages its changes:
 | `dedup apply --label` / `offload apply --label` | adds a review label to the planned messages | modify |
 | `dedup apply --trash` / `offload apply --trash` | moves labelled messages to Gmail's Trash | modify |
 | `auth ACCOUNT --scope modify` | grants modify access (changes nothing in the mailbox) | modify |
-| `restore ACCOUNT … --yes` | moves offloaded mail out of Trash, or uploads backed-up mail Gmail no longer has (into this account or, with `--to`, another); adds a `restored/<date>` label | modify |
+| `restore ACCOUNT … --yes` | moves offloaded mail out of Trash, or uploads backed-up mail Gmail no longer has (into this account or, with `--to`, another), or mail from a pruned batch, an mbox file or another gyb folder; adds a `restored/<date>` label | modify |
 | `backup --sync` | the *backup*: moves mail permanently deleted from Gmail into `<data root>/_pruned/` | read-only |
 
 - **Nothing is ever permanently deleted from Gmail.** Removals go to Trash,
@@ -395,6 +395,35 @@ large restores in the background.
 Runs are logged in `<data root>/restore/restore-log.csv`, and each
 restored message is recorded in its backup's `meta.sqlite`. How it works:
 [docs/architecture.md](docs/architecture.md#restore).
+
+**From elsewhere.** Three other sources hold mail that isn't in a backup's
+index. Each restores every message it holds, narrowed by `--id`, `--before`,
+`--after`, `--has-label`, `--sender` and `--limit`, with the same dry run
+and `--yes`:
+
+```bash
+uv run mailcellar restore personal --from-pruned 2026-03-01-120000   # what backup --sync moved out
+uv run mailcellar restore personal --from-mbox ~/Takeout/Mail/All.mbox --yes
+uv run mailcellar restore personal --from-folder /Volumes/old/GYB-GMail-Backup-old@example.org
+```
+
+- `--from-pruned BATCH`: mail that `backup --sync` moved into
+  `<data root>/_pruned/<email>/BATCH/`, with the labels in its `pruned.csv`.
+  It goes back into that account, or another with `--to`.
+- `--from-mbox FILE`: a Google Takeout export, or a file `mailcellar export`
+  wrote, into ACCOUNT. Labels come from each message's `X-Gmail-Labels`
+  header (Takeout's names such as `Inbox` or `Category Updates` become
+  Gmail's own; its `Opened` and `Archived` markers are not labels), and that
+  header and `X-GM-THRID` are taken off before upload. In the log the
+  messages are `mbox-1`, `mbox-2`, … in file order.
+- `--from-folder DIR`: a gyb backup folder from elsewhere (another
+  machine, an old account), into ACCOUNT. It is only read.
+
+None of these has Gmail IDs that mean anything in the account restored
+into, so each message is looked up there by Message-ID and content, as
+with `--to`: recorded if Gmail has it, uploaded otherwise. Nothing is
+recorded in a backup or indexed: a run again finds what was restored by
+its Message-ID, and the next `backup` downloads it.
 
 ## Exporting mail
 

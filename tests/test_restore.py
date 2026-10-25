@@ -934,3 +934,13 @@ def test_help_names_the_narrowing_options(capsys):
     out = capsys.readouterr().out
     for option in ("--before", "--after", "--has-label", "--sender"):
         assert option in out
+
+
+def test_in_another_account_a_message_with_the_same_id_is_another_copy(env):
+    env.other.messages["g1"] = message("g1")  # B happens to hold g1 under the same ID
+    assert run("--id", "g1", "--to", "b", "--yes") == 0
+    assert not any(c[0] == "import" for c in env.other.calls)
+    con = sidecar.open_meta(env.folder)
+    found = con.execute("SELECT new_id, how FROM restored WHERE source_id = 'g1'").fetchone()
+    con.close()
+    assert found == ("g1", "found")
