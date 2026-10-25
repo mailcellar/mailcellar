@@ -4,9 +4,7 @@ mailcellar: Gmail backups (`backup/`), deduplication (`dedup/`),
 offloading old mail out of Gmail (`offload/`) and back (`restore/`), and
 reports (`report/`) for the configured accounts, all in one package,
 `src/mailcellar/`, behind one `mailcellar` command (`cli.py`).
-Read [docs/architecture.md](docs/architecture.md) first. Design decisions
-and real-data measurements are in `docs/internal/plans/`, which is
-gitignored: kept locally, never committed (it describes the user's mail).
+Read [docs/architecture.md](docs/architecture.md) first.
 User-facing usage: [README.md](README.md).
 
 ## Commands
@@ -48,10 +46,8 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
     never delete from it.
 - Copy a database aside before running a schema migration on real data
   (`meta.sqlite.pre-vN` next to it).
-- Check changes against the real backups, read-only, and record the
-  figures in a dated "Done" section of the relevant plan in
-  `docs/internal/plans/`. Committed files (code, README, architecture.md)
-  never link to it or quote its figures.
+- Check changes against the real backups, read-only. Committed files
+  (code, README, architecture.md) never quote figures from them.
 - Run live Gmail operations that take more than a couple of minutes in the
   background. Trashing goes at about 4 messages a second.
 - Keep the backup format byte-compatible with gyb (`backup/gyb.py`);
@@ -59,8 +55,7 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
 - Schema changes go through `SCHEMA_VERSION` + `MIGRATIONS`
   (`dedup/db.py`, `backup/sidecar.py`); migrations must be safe to repeat.
 - Bump `message.PARSER_VERSION` whenever `parse_message()` output changes.
-- Matching changes need evidence from the real backups (see
-  `docs/internal/plans/dedup-package.md`) and a note in the relevant plan.
+- Matching changes need evidence from the real backups.
 - Tests use the fakes in `tests/` (`FakeGmail`, `FakeService`,
   `FakeBackup`); never call the real API from tests. `tests/conftest.py`
   pins the data root and config folder to each test's directory, so no
