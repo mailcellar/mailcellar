@@ -1,5 +1,7 @@
 # mailcellar
 
+[![CI](https://github.com/mailcellar/mailcellar/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mailcellar/mailcellar/actions/workflows/ci.yml?query=branch%3Amain)
+
 Local backups of Gmail accounts, kept as an archive: remove duplicate
 messages within and across accounts, move old mail out of Gmail while the
 backup keeps it, put it back when it's needed, and report on what's there.
