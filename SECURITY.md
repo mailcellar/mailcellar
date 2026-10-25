@@ -19,8 +19,9 @@ Never include, in a report or anywhere else:
 If a message is needed to reproduce the problem, build a synthetic one
 with `example.com` addresses that shows the same structure.
 
-Reports are acknowledged within a week. A fix is released as soon as it
-is ready, and the advisory is published with it.
+Reports are acknowledged on a best-effort basis, with no guaranteed
+response time. A fix is released as soon as it is ready, and the advisory
+is published with it.
 
 ## Supported versions
 
