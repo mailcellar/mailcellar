@@ -11,6 +11,7 @@ mailcellar: one command for the Gmail backups and what is done with them.
   mailcellar offload plan | apply       take old mail out of Gmail, keep it here
   mailcellar restore ACCOUNT --batch B | --rule R | --id G | --offloaded | --all
                      [--to ACCOUNT] [--yes]   put backed-up mail back into Gmail
+  mailcellar export  ACCOUNT <selection> --to FILE.mbox|FILE.zip   copy mail out, read-only
   mailcellar report  storage | bulk | volume | threads | labels | correspondents
                      | health | senders
   mailcellar config  where the config and data live; each account's state
@@ -78,6 +79,12 @@ def _restore(argv: list[str]) -> int:
     from mailcellar.restore.cli import main
 
     return main(argv, prog="mailcellar restore")
+
+
+def _export(argv: list[str]) -> int:
+    from mailcellar.restore.export import main
+
+    return main(argv, prog="mailcellar export")
 
 
 def _report(argv: list[str]) -> int:
@@ -255,6 +262,7 @@ COMMANDS = {
     "dedup": _dedup,
     "offload": _offload,
     "restore": _restore,
+    "export": _export,
     "report": _report,
     "config": _config,
 }

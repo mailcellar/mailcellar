@@ -14,6 +14,9 @@ One command, `mailcellar`, over one Python package, `src/mailcellar/`:
 - **`mailcellar restore`** puts mail back: offloaded mail out of Gmail's
   Trash within 30 days, otherwise uploaded from the backup; a whole
   backup, into its own account or another one.
+- **`mailcellar export`** copies a selection of the backup out, read-only,
+  as an mbox file for a mail client or a zip of the `.eml` files with a CSV
+  index.
 - **`mailcellar report`** (storage, bulk mail, volume, threads, labels,
   correspondents, backup health, senders) reports on the backups from the
   per-message sidecars.
@@ -23,26 +26,59 @@ and real-data measurements are kept outside the repository.
 
 ## Data flow
 
-```
-                      Gmail API (gmailapi.py)
-                       │                   ▲
-     backup / count / meta                 │  apply --label / --trash
-     (gmail.readonly)                      │  (gmail.modify)
-                       ▼                   │
-  <data>/<email>/ ── msg-db.sqlite + .eml   │
-                 └─ meta.sqlite ─────┐     │
-                                     ▼     │
-            mailcellar dedup index → <data>/dedup/dedup.sqlite
-                            match → groups (match_groups / match_members)
-                             plan → <data>/dedup/dedup-plan.csv
-                            apply → Gmail labels / Trash, dedup-apply-log.csv
+Gmail is read from one place and changed from another, and the backup sits
+between them. Everything else reads the backup, not Gmail.
 
-  mailcellar offload plan → <data>/offload/offload-plan.csv
-                    apply → Gmail labels / Trash; meta.sqlite offloaded
-  mailcellar restore      → Gmail: untrash, or messages.import from the .eml
-                            (gmail.modify); meta.sqlite restored; new IDs
-                            indexed in the backup of the account restored into
 ```
+   Gmail
+     │  ▲
+     │  └─────────────────────────────── changes Gmail (gmail.modify) ──────┐
+     │ reads (gmail.readonly)                                               │
+     ▼                                                                      │
+   backup · count · meta                                                    │
+     │ add to                                                               │
+     ▼                                                                      │
+   ┌───────────────────────────────────────┐                                │
+   │ THE BACKUP   <data>/<email>/          │ ◄── verify · export · report   │
+   │   msg-db.sqlite + .eml   (gyb format) │     (read only)                │
+   │   meta.sqlite            (sidecar)    │                                │
+   └───────────────────┬───────────────────┘                                │
+                       │ read by                                            │
+                       ▼                                                    │
+   dedup index · match · plan      ──► dedup-plan.csv ──┐                   │
+   offload plan                    ──► offload-plan.csv ┤                   │
+                                                        ▼                   │
+                      dedup apply · offload apply · restore --yes ──────────┘
+                      (labels, Trash, untrash, messages.import)
+                                  │
+                                  ▼
+               logs and records: dedup-apply-log.csv, offload-apply-log.csv,
+               restore-log.csv, and meta.sqlite (`offloaded`, `restored`)
+```
+
+Reading the picture from the top: `backup` copies Gmail into the backup and
+touches nothing in Gmail. The planning commands only read the backup and write
+their own plan file. Only the three steps at the bottom change Gmail, and only
+when run for real (`--label`/`--trash`, or `--yes`), with the broader
+`gmail.modify` permission. Their dry runs still read Gmail, to check each
+message, but change nothing. Each takes its instructions from a plan or a
+selection you can see first. The `apply` steps record what they did in a log and in `meta.sqlite`, and
+`restore` also indexes the messages it uploads in the backup of the account
+they went into.
+
+Who touches what:
+
+| Command | Reads | Writes | Gmail |
+|---|---|---|---|
+| `backup` | Gmail | the backup | read-only |
+| `count` | Gmail, the backup | nothing (a line in `runs`) | read-only |
+| `meta` | the `.eml` files; Gmail, for label and thread details | `meta.sqlite` | read-only |
+| `verify`, `export`, `report` | the backup | `export`: the file you name; the others, nothing | none |
+| `dedup index` | the backups | `dedup.sqlite` | none |
+| `dedup match`, `plan` | `dedup.sqlite` | `dedup.sqlite` (groups); `dedup-plan.csv` | none |
+| `offload plan` | the backup, `rules.toml` | `offload-plan.csv`, `plans/` | none |
+| `dedup apply`, `offload apply` | the plan; Gmail, to check each message | with `--label`/`--trash`: Gmail labels and Trash; logs; `meta.sqlite` (offload) | read-only for a dry run, modify with `--label`/`--trash` |
+| `restore` | the backup; Gmail, to look each message up | with `--yes`: Gmail; `restore-log.csv`; `meta.sqlite` | read-only for a dry run, modify with `--yes` |
 
 ## Modules
 
@@ -68,7 +104,7 @@ mailcellar` and `python -m mailcellar` both work.
 | `dedup/apply.py` | Live checks against Gmail, then label or trash; the audit log. Shared with offload. `apply_plan()` reads Gmail's state, `check_row()`/`checked()` decide, and `act()` carries out one account's rows; each returns new frozen `Result`s (the plan rows are never changed) |
 | `dedup/report.py`, `dedup/paths.py` | Text reports; default output locations |
 | `offload/` | `rules.py` (TOML rules), `plan.py` (selection, plan CSV, summary), `apply.py` (backup checks, the offload record, batch manifests on top of dedup's label → trash loop), `cli.py` |
-| `restore/` | `apply.py` (which offloaded messages, backup checks, each message's way back: untrash, already in Gmail, found by Message-ID, or import; indexing a new ID in the backup), `cli.py` |
+| `restore/` | `apply.py` (which offloaded messages, narrowed by date, label and sender; backup checks; each message's way back: untrash, already in Gmail, found by Message-ID, or import; indexing a new ID in the backup), `cli.py` (the command, and the selection options `export` shares), `export.py` (`export`: the same selection copied out read-only as an mbox file or a zip of `.eml` files with an index; the mbox entry, label header and index row are pure) |
 | `report/` | Reports over all accounts' sidecars, attached read-only (`db.py`): `storage`, `bulk`, `volume`, `threads`, `labels`, `correspondents`, `health`; `senders.py` for one backup; `output.py` formats tables |
 | `run.sh` (repo root) | `./run.sh <account> [backup\|count\|meta] [options]`: runs `mailcellar` |
 

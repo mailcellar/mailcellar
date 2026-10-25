@@ -202,6 +202,7 @@ def candidates(
     everything: bool = False,
     target: str = "",
     narrow: Narrowing | None = None,
+    include_restored: bool = False,
 ) -> list[Candidate]:
     """
     Messages of the backup in `folder` not yet restored into `target` ('' =
@@ -209,6 +210,9 @@ def candidates(
     to the given batches, rules and Gmail IDs (any of each), or with
     `everything` the whole backup (old IDs superseded by a restore apart).
     `narrow` then keeps only those that meet its dates, labels and senders.
+    include_restored (for an export, which is not a restore) keeps messages
+    already restored, but always leaves out the old IDs of messages restored
+    under new ones, so none is listed twice.
     """
     con = _open_current(folder)
     try:
@@ -223,10 +227,10 @@ def candidates(
                    FROM messages"""
             )
         }
-        done = sidecar.restored_ids(con, target)
+        done = set() if include_restored else sidecar.restored_ids(con, target)
     finally:
         con.close()
-    superseded = sidecar.superseded_ids(folder) if everything else set()
+    superseded = sidecar.superseded_ids(folder) if everything or include_restored else set()
     index = {bm.gmail_id: bm for bm in gyb.iter_backup(folder)}
     pool = set(index) | set(offload) if everything else set(offload)
 
