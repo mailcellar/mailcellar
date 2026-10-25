@@ -8,13 +8,17 @@ data root (backups and everything derived from them) are.
   <data>/dedup/, offload/, restore/               ← plans, logs, indexes
 
 config_root(): $MAILCELLAR_CONFIG, else ~/.config/mailcellar, else ./config.
-data_root(): $MAILCELLAR_DATA, else data_dir in <config>/settings.toml, else ./data.
-They are functions, so a changed setting applies.
+data_root(): $MAILCELLAR_DATA, else data_dir in <config>/settings.toml, else
+~/mailcellar (or ./data, the old default, where that already holds mailcellar's
+data and ~/mailcellar doesn't exist). They are functions, so a changed setting
+applies.
 """
 
 from pathlib import Path
 
-DATA_DIR = "data"  # the default data root, relative to the working directory
+DATA_DIR = "~/mailcellar"  # the default data root: visible, since it holds the user's mail
+LEGACY_DATA_DIR = "data"  # the old default, relative to the working directory
+DATA_SUBDIRS = ("dedup", "offload", "restore", "search", "_pruned")  # what mailcellar writes there
 DATA_ENV = "MAILCELLAR_DATA"
 CONFIG_ENV = "MAILCELLAR_CONFIG"
 SETTINGS_NAME = "settings.toml"  # in the config folder: data_dir = "~/data/mailcellar"
@@ -74,7 +78,16 @@ def data_setting() -> tuple[str, str]:
             raise ValueError(f"{settings_file}: data_dir must be a path")
         if value.strip():
             return value.strip(), str(settings_file)
+    if not _path(DATA_DIR).is_dir() and holds_data(_path(LEGACY_DATA_DIR)):
+        return LEGACY_DATA_DIR, "./data (the old default, in this folder)"
     return DATA_DIR, "default"
+
+
+def holds_data(folder: Path) -> bool:
+    """Whether a folder holds mailcellar's data: a backup, or a folder mailcellar writes."""
+    if not folder.is_dir():
+        return False
+    return any((folder / d).is_dir() for d in DATA_SUBDIRS) or bool(find_backups(folder))
 
 
 def token_warn_days(config: Path | None = None) -> int:

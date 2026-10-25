@@ -97,11 +97,10 @@ Google account.
    ```toml
    work = "alex@example.org"
    ```
-   Then choose where the backups go, in
-   `~/.config/mailcellar/settings.toml`; without it they go into `./data`
-   wherever you run the command:
+   The backups go in `~/mailcellar`. To keep them somewhere else, such as
+   a larger disk, set it in `~/.config/mailcellar/settings.toml`:
    ```toml
-   data_dir = "~/mailcellar"
+   data_dir = "/Volumes/Archive/mailcellar"
    ```
 4. **Check, then back up.**
    ```bash
@@ -209,7 +208,10 @@ count and last backup. It never prints a credential.
   place.
 - **Data root:** everything derived from mail, that is the backups, the
   dedup and offload plans and logs, and `_pruned/`. It is
-  `$MAILCELLAR_DATA`, else `data_dir` in `settings.toml`, else `./data`.
+  `$MAILCELLAR_DATA`, else `data_dir` in `settings.toml`, else
+  `~/mailcellar`. (It used to default to `./data` in the folder you ran the
+  command from; a `./data` that already holds mailcellar's data is still
+  used until `~/mailcellar` exists, and `mailcellar config` says so.)
 
 `~` is expanded; a relative path is taken from the working directory.
 
