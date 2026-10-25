@@ -259,7 +259,7 @@ def main(argv=None, prog: str | None = None):
 
     backup_dir = Path(args.folder).expanduser().resolve()
     if not (backup_dir / "msg-db.sqlite").is_file():
-        sys.exit(f"ERROR: '{backup_dir}' is not a backup (no msg-db.sqlite).")
+        sys.exit(f"error: '{backup_dir}' is not a backup (no msg-db.sqlite).")
 
     data = analyse(backup_dir, args.min_count)
 

@@ -143,7 +143,7 @@ def open_db(db_path: Path) -> sqlite3.Connection:
             con.commit()
         if version != SCHEMA_VERSION:
             sys.exit(
-                f"ERROR: {db_path} has schema {version}, expected {SCHEMA_VERSION}. "
+                f"error: {db_path} has schema {version}, expected {SCHEMA_VERSION}. "
                 "Delete it and rerun index."
             )
         return con

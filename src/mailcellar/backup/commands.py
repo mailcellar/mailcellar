@@ -164,7 +164,7 @@ def history_plan(
             todo.append(gid)
     sidecar.mark_gone(mcon, gone & offloaded, now_ms())
     stats["deleted_backed_up"] = len(gone - offloaded)
-    print(
+    logger.info(
         f"History since last run: {len(touched):,} messages changed"
         + (f", {len(indexed - have):,} missing locally" if indexed - have else "")
         + f"; {len(todo):,} to download, {stats['labels_changed']:,} label updates"
@@ -249,7 +249,7 @@ def _record_backup(con, mcon, started: int, stats: dict, status: str) -> None:
 def _backup(gmail, con, mcon, folder: Path, query, refresh_labels: bool, stats: dict) -> None:
     """The body of backup(): updates stats as it goes."""
     sidecar.replace_label_catalogue(mcon, gmail.label_catalogue())
-    print(f"Using backup folder {folder}")
+    logger.info(f"Using backup folder {folder}")
     have = gyb.backed_up_ids(con, folder)
 
     start = None
@@ -267,7 +267,7 @@ def _backup(gmail, con, mcon, folder: Path, query, refresh_labels: bool, stats: 
             mcon.commit()
         except gmailapi.HistoryExpired:
             stats["reason"] = "expired"
-            print(
+            logger.info(
                 "Gmail no longer has history back to the last run; listing every message instead."
             )
     if todo is None:
@@ -276,7 +276,7 @@ def _backup(gmail, con, mcon, folder: Path, query, refresh_labels: bool, stats: 
         ids = gmail.list_message_ids(query)
         stats["listed"] = len(ids)
         todo = [i for i in ids if i not in have]
-        print(
+        logger.info(
             f"Gmail has {len(ids):,} messages"
             + (f" matching {query!r}" if query else "")
             + f"; {len(ids) - len(todo):,} already backed up; "
@@ -435,7 +435,7 @@ def _sync(
 def cmd_backup(args) -> int:
     if args.sync and args.search:
         sys.exit(
-            "ERROR: --sync can't be combined with --search: messages outside "
+            "error: --sync can't be combined with --search: messages outside "
             "the search would look deleted."
         )
     account, folder, gmail = connect(args)
@@ -694,7 +694,7 @@ def cmd_count(args) -> int:
     try:
         c = count(gmail, account, folder)
     except SyncAborted as exc:
-        sys.exit(f"ERROR: {exc}")
+        sys.exit(f"error: {exc}")
     lines = [
         ("In Gmail (excl. spam/trash)", c["in_gmail"]),
         ("In backup", c["backed_up"]),
@@ -801,9 +801,9 @@ def main(argv=None, prog: str | None = None) -> int:
     try:
         accounts = args.accounts or sorted(gmailapi.config_accounts(Path(args.config)))
     except gmailapi.GmailError as exc:
-        sys.exit(f"ERROR: {exc}")
+        sys.exit(f"error: {exc}")
     if args.folder and len(accounts) != 1:
-        sys.exit("ERROR: --folder needs exactly one account.")
+        sys.exit("error: --folder needs exactly one account.")
     status = 0
     for account in accounts:
         if len(accounts) > 1:
@@ -813,7 +813,7 @@ def main(argv=None, prog: str | None = None) -> int:
         except (gmailapi.GmailError, gyb.FormatError, sidecar.MetaError) as exc:
             end_progress()
             if len(accounts) == 1:
-                sys.exit(f"ERROR: {exc}")
+                sys.exit(f"error: {exc}")
             logger.error(f"{account}: {exc}")
             status = 1  # the other accounts still run
     return status

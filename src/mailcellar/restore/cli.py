@@ -101,11 +101,11 @@ def main(argv=None, prog: str | None = None) -> int:
         if args.to:
             target, target_config = gmailapi.resolve_account(config, args.to)
     except gmailapi.GmailError as exc:
-        sys.exit(f"ERROR: {exc}")
+        sys.exit(f"error: {exc}")
     other = target != account
     folder = backup_folder(account)
     if not sidecar.meta_path(folder).is_file():
-        sys.exit(f"ERROR: {folder} has no meta.sqlite; run mailcellar meta")
+        sys.exit(f"error: {folder} has no meta.sqlite; run mailcellar meta")
     try:
         cands = candidates(
             folder,
@@ -116,7 +116,7 @@ def main(argv=None, prog: str | None = None) -> int:
             target=target if other else "",
         )
     except sidecar.MetaError as exc:
-        sys.exit(f"ERROR: {exc}")
+        sys.exit(f"error: {exc}")
     if args.limit is not None:
         cands = cands[: args.limit]
     if not cands:
@@ -147,7 +147,7 @@ def main(argv=None, prog: str | None = None) -> int:
         else:
             results = dry_run(decisions)
     except gmailapi.GmailError as exc:
-        sys.exit(f"ERROR: {exc}")
+        sys.exit(f"error: {exc}")
 
     write_log(Path(args.log), results, mode, account, target if other else "")
     report(results, mode, account, target)
