@@ -173,7 +173,7 @@ works, as an alias.)
 Every command and option, on the [documentation site](https://mailcellar.github.io/mailcellar/reference/):
 
 - [Backups](https://mailcellar.github.io/mailcellar/reference/backup/): `backup`, `count`, `meta`, `verify`
-- [Configuration](https://mailcellar.github.io/mailcellar/reference/configuration/): the config folder, `accounts.toml`, `settings.toml`
+- [Configuration](https://mailcellar.github.io/mailcellar/reference/configuration/): the config folder, `accounts.toml`, `settings.toml`; `setup`, `auth`, `schedule`, `config`
 - [What changes Gmail](https://mailcellar.github.io/mailcellar/reference/what-changes-gmail/): the few commands that write to Gmail
 - [Removing duplicates](https://mailcellar.github.io/mailcellar/reference/dedup/): `dedup`
 - [Offloading old mail](https://mailcellar.github.io/mailcellar/reference/offload/): `offload`, and the rule keys

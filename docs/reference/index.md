@@ -6,7 +6,7 @@ Every command and option. For a task from start to finish, see the
 | Page | Commands |
 | --- | --- |
 | [Backups](backup.md) | `backup`, `count`, `meta`, `verify` |
-| [Configuration](configuration.md) | the config folder, `accounts.toml`, `settings.toml` |
+| [Configuration](configuration.md) | the config folder, `accounts.toml`, `settings.toml`; `setup`, `auth`, `schedule`, `config` |
 | [What changes Gmail](what-changes-gmail.md) | the few commands that write to Gmail |
 | [Removing duplicates](dedup.md) | `dedup` |
 | [Offloading old mail](offload.md) | `offload`, and the rule keys |
