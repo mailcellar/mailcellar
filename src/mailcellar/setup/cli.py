@@ -18,7 +18,6 @@ a fully specified call (ADDRESS and --client) asks nothing.
 import argparse
 import json
 import logging
-import os
 import re
 import shlex
 import sys
@@ -26,7 +25,7 @@ import tomllib
 from pathlib import Path
 
 from mailcellar import gmailapi
-from mailcellar.paths import config_root
+from mailcellar.paths import config_root, write_private
 
 logger = logging.getLogger(__name__)
 
@@ -169,10 +168,7 @@ def install_client(source: Path, folder: Path, force: bool) -> str:
             )
         status = "replaced"
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
-    fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "wb") as fh:
-        fh.write(data)
-    dest.chmod(0o600)
+    write_private(dest, data)
     return status
 
 

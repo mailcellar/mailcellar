@@ -1,11 +1,14 @@
 import json
 import logging
+import os
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
 from mailcellar import gmailapi
 from mailcellar.dedup import cli as dedup
+from mailcellar.paths import write_private
 
 ACCOUNTS = {"work": "alex@example.org", "personal": "alex@example.com"}
 
@@ -294,6 +297,52 @@ def write_token(folder, scope="readonly", days_ago=None):
     if days_ago is not None:
         data["authorised_at"] = (datetime.now(UTC) - timedelta(days=days_ago)).isoformat()
     gmailapi.token_file(folder, scope).write_text(json.dumps(data))
+
+
+@pytest.fixture
+def open_umask():
+    """A umask that would leave new files readable and writable by everyone."""
+    old = os.umask(0)
+    yield
+    os.umask(old)
+
+
+def test_a_token_is_never_readable_by_others_while_it_is_written(
+    account_folder, consent, monkeypatch, open_umask
+):
+    write_token(account_folder, days_ago=2)
+    token = gmailapi.token_file(account_folder, "readonly")
+    token.chmod(0o644)
+    seen = []
+    real_replace = os.replace
+
+    def replace(src, dst):
+        seen.append((Path(src).stat().st_mode & 0o777, json.loads(Path(src).read_text())))
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", replace)
+    gmailapi.load_credentials(account_folder, "alex@example.org", "readonly")
+    (mode, written), *more = seen
+    assert mode == 0o600 and written["token"] == "t" and not more
+    assert token.stat().st_mode & 0o777 == 0o600
+    assert [p.name for p in account_folder.iterdir() if p.name.endswith(".part")] == []
+
+
+def test_a_private_file_left_half_written_keeps_the_old_one(tmp_path, monkeypatch, open_umask):
+    target = tmp_path / "token-readonly.json"
+    target.write_text("old")
+    (tmp_path / ".token-readonly.json.part").write_text("from a crash")
+    (tmp_path / ".token-readonly.json.part").chmod(0o644)
+
+    def fail(src, dst):
+        assert Path(src).stat().st_mode & 0o777 == 0o600  # a leftover .part is made private too
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "replace", fail)
+    with pytest.raises(OSError):
+        write_private(target, b"new")
+    assert target.read_text() == "old"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["token-readonly.json"]
 
 
 def test_a_new_consent_records_when_it_was_given(account_folder, consent):

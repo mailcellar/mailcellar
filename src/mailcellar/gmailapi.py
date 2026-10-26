@@ -27,7 +27,7 @@ from collections import Counter, deque
 from datetime import UTC, datetime
 from pathlib import Path
 
-from mailcellar.paths import TOKEN_WARN_DAYS, token_warn_days
+from mailcellar.paths import TOKEN_WARN_DAYS, token_warn_days, write_private
 
 SCOPES = {
     "readonly": "https://www.googleapis.com/auth/gmail.readonly",
@@ -278,8 +278,7 @@ def load_credentials(
     if authorised_at is not None:
         data[TOKEN_FIELD] = authorised_at.isoformat()
     stored = new_token_file(config_folder, scope)
-    stored.write_text(json.dumps(data))
-    stored.chmod(0o600)
+    write_private(stored, json.dumps(data).encode())
     legacy_token_file(config_folder, scope).unlink(missing_ok=True)  # moved to the new name
     if not consented:
         try:
