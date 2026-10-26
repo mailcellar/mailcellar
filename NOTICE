@@ -6,3 +6,7 @@ contributors in the project's git history.
 
 This product is licensed under the Apache License, Version 2.0
 (see LICENSE).
+
+src/mailcellar/restore/takeout_labels.py contains data from Got Your Back
+(https://github.com/GAM-team/got-your-back), licensed under the Apache
+License, Version 2.0.

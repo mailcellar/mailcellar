@@ -88,6 +88,10 @@ def test_the_headers_takeout_adds_are_removed_and_nothing_else():
         (["Opened", "Archived", "Work", " Work "], ("Work",)),
         (["Drafts", "Spam", "Trash", "Chat"], ("DRAFT", "SPAM", "TRASH", "CHAT")),
         (["Clients/Acme", ""], ("Clients/Acme",)),
+        # Takeout in the account's language: German, French, Turkish (dotless ı)
+        (["Posteingang", "Gesendet", "Projekte"], ("INBOX", "SENT", "Projekte")),
+        (["Boîte de réception", "Messages envoyés"], ("INBOX", "SENT")),
+        (["Önemli", "Gelen  Kutusu"], ("IMPORTANT", "INBOX")),
     ],
 )
 def test_takeout_label_names_become_gyb_labels(names, expected):

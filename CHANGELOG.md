@@ -11,6 +11,10 @@ in beta, so commands and options may still change before 1.0.
 - `restore` creates a user label whose name Gmail reserves (`Muted`,
   `Archive`, `Todo` and others) as `_Muted` and so on, as gyb does;
   Gmail refuses those names (HTTP 400), as gyb's users found.
+- `restore --from-mbox` maps a Takeout's system label names in any of the
+  73 interface languages to Gmail's own (from gyb's list), where only
+  English names were mapped and others became user labels such as
+  "Posteingang".
 
 ## 0.12.0 (2026-10-26)
 

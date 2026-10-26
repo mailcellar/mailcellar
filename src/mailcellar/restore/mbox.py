@@ -17,6 +17,7 @@ import re
 from email.parser import BytesHeaderParser
 
 from mailcellar.message import decode_header_value
+from mailcellar.restore import takeout_labels
 
 SEPARATOR = b"From "
 ADDED_HEADERS = ("x-gmail-labels", "x-gm-thrid")
@@ -111,6 +112,8 @@ def label_names(names) -> tuple[str, ...]:
             continue
         if key in SYSTEM_LABELS:
             label = SYSTEM_LABELS[key]
+        elif (upper := " ".join(name.split()).upper()) in takeout_labels.NAMES:
+            label = takeout_labels.NAMES[upper]  # Takeout in another language
         elif re.fullmatch(r"category[ _]\w+", key):
             label = "CATEGORY_" + key.split(None, 1)[-1].split("_", 1)[-1].upper()
         else:

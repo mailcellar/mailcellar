@@ -136,7 +136,8 @@ mailcellar restore personal --from-mbox ~/Takeout/Mail/All.mbox
 ```
 
 Labels come from each message's `X-Gmail-Labels` header, with Takeout's
-display names mapped to Gmail's own. **A gyb backup folder from elsewhere**,
+display names mapped to Gmail's own, in any of the 73 languages Gmail's
+interface uses ("Posteingang" is the inbox). **A gyb backup folder from elsewhere**,
 such as an old machine, is read but never changed:
 
 ```bash
