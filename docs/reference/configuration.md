@@ -136,5 +136,6 @@ work@example.org: checking: 1,610 of 56,136 (2%), 201/s, 0:08 so far, about 4:31
 On a terminal the line is rewritten in place and ends with how long the
 step took. When stderr isn't a terminal (a scheduled run, or output sent to
 a file) the line is logged about once a minute instead. The rate and the
-time left go by the last half minute, since Gmail's pace changes. `-q`
-turns progress off.
+time left go by the last half minute of work, since Gmail's pace changes;
+they appear after ten seconds, and time spent waiting for Gmail's rate
+limit doesn't count as slowness. `-q` turns progress off.

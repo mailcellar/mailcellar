@@ -99,7 +99,7 @@ def test_on_a_terminal_the_line_is_rewritten_and_ended_with_the_last_state(termi
         p.advance(70)
     out = terminal.getvalue()
     assert out.count("\r") == 3 and out.endswith("\rDownloading: 100 of 100 in 0:04\x1b[K\n")
-    assert "\rDownloading: 30 of 100 (30%), 10/s, 0:03 so far, about 0:07 left\x1b[K" in out
+    assert "\rDownloading: 30 of 100 (30%), 0:03 so far\x1b[K" in out  # no estimate yet
     assert progress.current == []
 
 
@@ -110,7 +110,7 @@ def test_a_run_stopped_part_way_ends_on_its_last_state(terminal):
         now.now += 3
         p.advance(30)
         raise RuntimeError("interrupted")
-    assert terminal.getvalue().endswith("0:03 so far, about 0:07 left\x1b[K\n")
+    assert terminal.getvalue().endswith("30 of 100 (30%), 0:03 so far\x1b[K\n")
     assert progress.current == []
 
 
@@ -125,7 +125,7 @@ def test_a_log_record_gets_a_line_of_its_own(terminal):
         now.now += 1
         p.advance(10)
     out = terminal.getvalue()
-    assert "0:07 left\x1b[K\r\x1b[Kwarning: a rate-limit wait\n\rDownloading: 40" in out
+    assert "0:03 so far\x1b[K\r\x1b[Kwarning: a rate-limit wait\n\rDownloading: 40" in out
 
 
 def test_off_a_terminal_it_is_logged_now_and_then(capsys):
@@ -158,6 +158,32 @@ def test_quick_runs_and_quiet_runs_show_nothing(terminal):
     assert terminal.getvalue() == ""
 
 
+def test_no_estimate_until_ten_seconds_of_work(capsys):
+    now = Clock()
+    with Progress("Reading", 1_000, now=now) as p:
+        now.now += 9
+        p.advance(90)
+        assert progress.recent_rate(p._samples) is None  # a bursty start says nothing yet
+        now.now += 1
+        p.advance(10)
+        assert progress.recent_rate(p._samples) == pytest.approx(10)
+
+
+def test_a_rate_limit_wait_is_not_counted_in_the_rate(capsys):
+    now = Clock()
+    with Progress("Trashing", 1_000, now=now) as p:
+        for _ in range(20):  # 10 a second
+            now.now += 1
+            p.advance(10)
+        progress.waited(33)  # Gmail's quota: a 33 s wait, then work resumes
+        now.now += 33
+        now.now += 1
+        p.advance(10)
+        line = p._line(now.now)
+    assert "10/s" in line and "0:54 so far" in line  # the wait counts as time, not as slowness
+    assert "about 1:19 left" in line  # 790 left at 10 a second
+
+
 def test_the_estimate_follows_the_recent_rate(capsys):
     now = Clock()
     with Progress("Trashing", 10_000, now=now) as p:
@@ -181,6 +207,15 @@ def test_gmail_batches_count_each_message_once_however_often_it_was_retried():
         gmail.message_details(ids)
     assert p.done == 300
     gmail.message_details(ids[:10])  # no Progress open: nothing to advance, no error
+
+
+def test_gmails_rate_limit_waits_are_reported_to_the_progress():
+    sleeps = []
+    service = ConcurrencyLimitedService(limit=2)  # refused often enough to back off
+    gmail = gmailapi.GmailAccount(ACCOUNT, None, service=service, sleep=sleeps.append)
+    with Progress("Reading", 300) as p:
+        gmail.message_details([f"g{i}" for i in range(300)])
+    assert sleeps and p._waited == pytest.approx(sum(sleeps))
 
 
 def test_the_innermost_progress_is_the_one_advanced():
