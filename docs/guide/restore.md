@@ -20,11 +20,9 @@ invented.
 | Recover mail `backup --sync` moved out | `--from-pruned` |
 | Load a Takeout export or an old gyb folder | `--from-mbox`, `--from-folder` |
 
-Restoring needs modify access to the account the mail goes into:
-
-```bash
-mailcellar auth personal --scope modify
-```
+Restoring needs modify access to the account the mail goes into. A
+restore with `--yes` asks you to sign in in the browser when it starts,
+and keeps that access only until it ends.
 
 ## The pattern: dry run, small, then the rest
 

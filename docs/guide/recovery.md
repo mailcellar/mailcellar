@@ -32,8 +32,12 @@ no browser, or from a scheduled job, authorise ahead of time:
 
 ```bash
 mailcellar auth ACCOUNT --scope readonly   # for backup, count, meta, reports
-mailcellar auth ACCOUNT --scope modify     # for apply and restore --yes
 ```
+
+Apply and `restore --yes` sign in for modify access each time they run, so
+they need a browser; with `keep_modify_token = true` in `settings.toml`,
+`mailcellar auth ACCOUNT --scope modify` stores that access ahead of time
+instead.
 
 `auth` changes nothing in the mailbox and takes every account if none is
 named. (It used to be `mailcellar dedup auth`, which still works.) To avoid

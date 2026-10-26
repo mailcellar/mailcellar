@@ -3,9 +3,11 @@ gmailapi: the Gmail API, for every command that talks to Gmail.
 
 Accounts: <config>/accounts.toml maps each config folder name to an
 address. Auth: an installed-app OAuth flow with the account's own OAuth
-client (<config>/<name>/client_secrets.json); tokens are stored next to it
-as token-<scope>.json, readonly or modify, and a modify token also
-serves reads. The token file also records when consent was last given
+client (<config>/<name>/client_secrets.json); the read-only token is stored
+next to it as token-readonly.json. A gmail.modify token, which can change
+the mailbox, is held in memory for the run that needs it, unless
+keep_modify_token in settings.toml stores it as token-modify.json; a stored
+modify token also serves reads. The token file also records when consent was last given
 (authorised_at): with the consent screen in Testing status Google expires
 the token 7 days after that, so ageing tokens are reported before a run
 fails. Every account checks it reached the mailbox it expects.
@@ -27,7 +29,7 @@ from collections import Counter, deque
 from datetime import UTC, datetime
 from pathlib import Path
 
-from mailcellar.paths import TOKEN_WARN_DAYS, token_warn_days, write_private
+from mailcellar.paths import TOKEN_WARN_DAYS, keep_modify_token, token_warn_days, write_private
 
 SCOPES = {
     "readonly": "https://www.googleapis.com/auth/gmail.readonly",
@@ -209,6 +211,44 @@ def aging_notice(
     )
 
 
+# gmail.modify tokens held for this run only (unless keep_modify_token):
+# (config folder, scope) → credentials, so a run signs in once per account.
+_held: dict[tuple[Path, str], object] = {}
+
+
+def stores_modify_token(config_folder: Path) -> bool:
+    """keep_modify_token from settings.toml in the config root above `config_folder`."""
+    try:
+        return keep_modify_token(config_folder.parent)
+    except ValueError as exc:
+        raise GmailError(str(exc)) from None
+
+
+def forget_modify_token(config_folder: Path, account: str) -> None:
+    """
+    Delete a stored gmail.modify token, from before they were held for a
+    run only, saying so. Google isn't asked to revoke it: that would revoke
+    the read-only token too, which the scheduled backup needs.
+    """
+    for path in (
+        new_token_file(config_folder, "modify"),
+        legacy_token_file(config_folder, "modify"),
+    ):
+        if not path.is_file():
+            continue
+        path.unlink()
+        logger.info(
+            f"{account}: deleted {path}. gmail.modify tokens are no longer stored: a command "
+            "that changes Gmail signs in when it runs (keep_modify_token = true in "
+            "settings.toml stores them again)"
+        )
+        if not token_file(config_folder, "readonly").is_file():
+            logger.warning(
+                f"{account}: there is no read-only token, which backups use; before the "
+                f"next unattended backup, run: mailcellar auth {account} --scope readonly"
+            )
+
+
 def load_credentials(
     config_folder: Path,
     account: str,
@@ -224,33 +264,42 @@ def load_credentials(
     starting Google's 7 days afresh. A token that is getting old is
     reported (see aging_notice). With interactive=False (an unattended run:
     nobody to sign in) a token that needs consent raises NeedsConsent, naming
-    the command that fixes it, instead of opening a browser.
+    the command that fixes it, instead of opening a browser. A gmail.modify
+    token is held in memory for the run, never stored, unless
+    keep_modify_token is set (see forget_modify_token for older ones).
     """
     from google.auth.exceptions import RefreshError
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
 
+    # A modify token is held for the run unless kept; a read that falls back
+    # to a modify token stored earlier keeps using it, for unattended backups.
+    keep = scope != "modify" or stores_modify_token(config_folder)
     scope = effective_scope(config_folder, scope)
     scope_url = SCOPES[scope]
     token_path = token_file(config_folder, scope)
     previous = token_authorised_at(config_folder, scope)
     creds = None
     why = "has no token yet"
-    if token_path.is_file() and not renew:
+    held = None if keep or renew else _held.get((config_folder, scope))
+    if held is not None:
+        creds = held  # signed in earlier in this run
+    elif token_path.is_file() and not renew:
         creds = Credentials.from_authorized_user_file(str(token_path), [scope_url])
         why = "is not valid"
-        if creds.expired and creds.refresh_token:
-            try:
-                creds.refresh(Request())
-            except RefreshError as exc:
-                why = f"was rejected ({exc})"
-                if interactive:
-                    print(
-                        f"Stored {scope} token for {account} {why}; authorising again."
-                        f" To do it ahead of an unattended run: {renew_command(account, scope)}"
-                    )
-                creds = None
+    if creds is not None and creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(Request())
+        except RefreshError as exc:
+            why = f"was rejected ({exc})"
+            if interactive:
+                ahead = f" To do it ahead of an unattended run: {renew_command(account, scope)}"
+                print(
+                    f"Stored {scope} token for {account} {why}; authorising again."
+                    + (ahead if keep else "")
+                )
+            creds = None
     consented = not creds or not creds.valid
     if consented and not interactive:
         raise NeedsConsent(
@@ -261,6 +310,7 @@ def load_credentials(
         print(
             f"Authorising {account} for gmail.{scope} — sign in as {account} "
             "in the browser and tick the Gmail permission."
+            + ("" if keep else " The token is held for this run only, never stored.")
         )
         flow = InstalledAppFlow.from_client_secrets_file(
             str(config_folder / "client_secrets.json"), [scope_url]
@@ -272,6 +322,10 @@ def load_credentials(
             "screen, tick the Gmail permission. Delete "
             f"{token_path.name} and retry."
         )
+    if not keep:
+        _held[(config_folder, scope)] = creds
+        forget_modify_token(config_folder, account)
+        return creds
     now = datetime.now(UTC)
     authorised_at = now if consented else previous
     data = json.loads(creds.to_json())

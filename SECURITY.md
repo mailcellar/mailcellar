@@ -33,7 +33,8 @@ Only the latest release, and the `main` branch, receive fixes.
    <https://myaccount.google.com/permissions>. That stops every token
    issued to your OAuth client, for this account.
 2. Delete the token files in the account's config folder
-   (`mailcellar config` shows where).
+   (`mailcellar config` shows where). Only the read-only token is stored,
+   unless `keep_modify_token = true` is set.
 3. Authorise again: `mailcellar auth ACCOUNT --scope readonly`.
 
 If `client_secrets.json` leaked too, delete the OAuth client in the Google
@@ -42,7 +43,10 @@ Cloud console and create a new one.
 ## What mailcellar does to limit the damage
 
 - Read-only access unless a command needs to change Gmail; modify access
-  is asked for only by `dedup apply`, `offload apply` and `restore --yes`.
+  is asked for only by `dedup apply`, `offload apply` and `restore --yes`,
+  and held in memory while that command runs, never written to disk
+  (`keep_modify_token = true` in `settings.toml` stores it). A copy of
+  the config folder can read the mailbox, but not change it.
 - Token files are written owner-only (mode 600). Make the config folder
   owner-only too (`chmod 700 ~/.config/mailcellar`); mailcellar doesn't
   create it.

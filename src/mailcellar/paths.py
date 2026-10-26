@@ -22,7 +22,7 @@ DATA_SUBDIRS = ("dedup", "offload", "restore", "search", "_pruned")  # what mail
 DATA_ENV = "MAILCELLAR_DATA"
 CONFIG_ENV = "MAILCELLAR_CONFIG"
 SETTINGS_NAME = "settings.toml"  # in the config folder: data_dir = "~/data/mailcellar"
-SETTINGS_KEYS = {"data_dir", "token_warn_days"}
+SETTINGS_KEYS = {"data_dir", "token_warn_days", "keep_modify_token"}
 TOKEN_WARN_DAYS = 5  # days after consent when a token starts to be reported as ageing
 PRUNED_DIR = "_pruned"  # <data>/_pruned/<email>/<timestamp>/, written by --sync
 
@@ -106,6 +106,25 @@ def token_warn_days(config: Path | None = None) -> int:
         value = tomllib.load(fh).get("token_warn_days", TOKEN_WARN_DAYS)
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError(f"{settings_file}: token_warn_days must be a number of days, or 0")
+    return value
+
+
+def keep_modify_token(config: Path | None = None) -> bool:
+    """
+    Whether a gmail.modify token is stored, like a read-only one
+    (keep_modify_token = true in <config>/settings.toml). By default it isn't:
+    a command that changes Gmail signs in when it runs and holds the token in
+    memory, so no file can give someone else write access to the mailbox.
+    """
+    import tomllib
+
+    settings_file = (config or config_root()) / SETTINGS_NAME
+    if not settings_file.is_file():
+        return False
+    with settings_file.open("rb") as fh:
+        value = tomllib.load(fh).get("keep_modify_token", False)
+    if not isinstance(value, bool):
+        raise ValueError(f"{settings_file}: keep_modify_token must be true or false")
     return value
 
 

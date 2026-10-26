@@ -169,6 +169,13 @@ def cmd_auth(args) -> None:
     for account in accounts:
         folder = known[account]
         try:
+            if args.scope == "modify" and not gmailapi.stores_modify_token(folder):
+                print(
+                    f"  {account}: gmail.modify tokens aren't stored; dedup apply, offload "
+                    "apply and restore --yes sign in when they run. To store one, set "
+                    "keep_modify_token = true in settings.toml"
+                )
+                continue
             creds = gmailapi.load_credentials(folder, account, args.scope, renew=args.renew)
             gmailapi.GmailAccount(account, creds)  # confirms the mailbox identity
         except gmailapi.GmailError as exc:
@@ -303,7 +310,8 @@ def main(argv=None, prog: str | None = None) -> None:
         required=True,
         choices=["readonly", "modify"],
         help="readonly for backups, counts and reports; modify for the account "
-        "apply --label/--trash or restore --yes changes",
+        "apply --label/--trash or restore --yes changes, stored only with "
+        "keep_modify_token = true in settings.toml",
     )
     p_auth.add_argument(
         "--renew",

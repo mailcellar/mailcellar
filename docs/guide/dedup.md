@@ -22,7 +22,8 @@ Every option is in the [reference](../reference/dedup.md).
 | 8. Check | `count` | nothing |
 
 Stages 1 to 4 can be repeated as often as you like. Stages 5 and 7 need
-modify access to the account (`mailcellar auth ACCOUNT --scope modify`).
+modify access to the account: each asks you to sign in in the browser when
+it runs, and keeps that access only until it ends.
 
 ## 1. Back up, then index
 

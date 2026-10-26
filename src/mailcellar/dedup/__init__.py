@@ -44,7 +44,6 @@ Usage
   mailcellar dedup plan --keep alex@example.org
   mailcellar dedup plan --keep origin
   mailcellar dedup plan --scope within
-  mailcellar auth work --scope modify
   mailcellar dedup apply                     # dry run
   mailcellar dedup apply --label --limit 5
   mailcellar dedup apply --trash --limit 5

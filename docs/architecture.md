@@ -127,8 +127,9 @@ mailcellar` and `python -m mailcellar` both work.
                              gitignored); paths.config_root()
   accounts.toml              folder name → address (work = "alex@example.org")
   <name>/client_secrets.json the account's OAuth client (Desktop app)
-  <name>/token-readonly.json, token-modify.json   # + authorised_at: when consent was last given
-  settings.toml              data_dir: the data root; token_warn_days (optional)
+  <name>/token-readonly.json  # + authorised_at: when consent was last given
+  <name>/token-modify.json    # only with keep_modify_token; otherwise held per run
+  settings.toml              data_dir: the data root; token_warn_days, keep_modify_token (optional)
 <data root>/                 everything derived from mail: $MAILCELLAR_DATA, else
                              data_dir in <config>/settings.toml, else ~/mailcellar
                              (or an existing ./data, the old default); paths.data_root()
@@ -264,7 +265,10 @@ that is pure.
 - Read-only by default: backups, `count`, `meta`, `index`, `match`,
   `plan` and dry-run `apply` use `gmail.readonly` or no API at all.
 - `gmail.modify` is requested only for the account `apply --label/--trash`
-  or `restore --yes` changes; a modify token also serves read-only requests.
+  or `restore --yes` changes, and held in memory for that run, never
+  stored, unless `keep_modify_token` is set; a stored modify token also
+  serves read-only requests. It isn't revoked at Google afterwards, since
+  that would revoke the read-only token too.
 - Nothing is ever permanently deleted from Gmail (no `batchDelete`), and
   the backup keeps everything unless `--sync` is asked for. Restore only
   adds, and skips what Gmail already has.
