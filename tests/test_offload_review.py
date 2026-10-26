@@ -63,6 +63,27 @@ def test_file_names_come_from_the_rule_name(name, expected):
     assert review.file_name(name) == expected
 
 
+def test_rule_text_says_what_a_rule_selects():
+    from mailcellar.offload.rules import parse_rule
+
+    rule = parse_rule(
+        {
+            "name": "r",
+            "before": "2016-10-26",
+            "query": ["has:attachment", "larger:10M"],
+            "to_me": False,
+            "larger_than_mb": 5,
+            "except": {"subject": "Contract", "sender": "@example.org"},
+        },
+        parse_before,
+        lambda a: a,
+    )
+    assert review.rule_text(rule) == (
+        'to_me false · larger_than_mb 5 · query "has:attachment" or "larger:10M" · '
+        'before 2016-10-26 · except sender "@example.org" · subject "contract"'
+    )
+
+
 def test_html_cells_are_escaped():
     t = review.Table("t", "<Title>", [("Subject", "text"), ("Size", "size")], [("<b>&", 2048)])
     out = review.table_html(t)
@@ -91,6 +112,7 @@ def test_review_writes_a_page_per_rule(data, capsys):  # noqa: F811
     assert set(got) == {"work.html", "shop.html", "old-forwards.html"}
     work = text_of(got["work.html"])
     assert "Offload review: work" in work and "for you alone" in work
+    assert 'Selects: label "work" · before 2020-01-01' in work
     for gid in ("w1", "w8", "p2", "t1", "b1"):  # its offload: all five, in the sample
         assert f"s-{gid}" in work
     assert f"Kept: {PROTECTIONS['starred']}" in work and f"Kept: {PROTECTIONS['sent']}" in work
