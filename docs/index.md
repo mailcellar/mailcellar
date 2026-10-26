@@ -37,7 +37,9 @@ disk. mailcellar is in beta; it runs on macOS and Linux and needs Python
    [quick start](https://github.com/mailcellar/mailcellar#quick-start)
    to make the first backup.
 3. [Schedule backups](guide/scheduling.md), so they happen at least every
-   four weeks.
+   four weeks. Then
+   [keep the backup safe](guide/backing-up.md): check it, and keep a second
+   copy of it.
 4. When you are ready to free space, [offload old mail](guide/offloading.md),
    one stage at a time.
 

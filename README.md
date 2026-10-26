@@ -62,6 +62,9 @@ Also on the documentation site, <https://mailcellar.github.io/mailcellar/>.
 
 - [Setting up Google Cloud](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/google-cloud.md): the project and
   OAuth client mailcellar signs in with, and the first consent screen.
+- [Backing up, and keeping the backup safe](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/backing-up.md): the routine
+  (`count`, `verify`, `report health`), a second copy of the data root and
+  checking it, and `backup --sync`.
 - [Scheduled backups](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/scheduling.md): run backups regularly, unattended,
   and what happens when a token needs signing in.
 - [Migrating from gyb](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/from-gyb.md): continue an existing Got Your Back
