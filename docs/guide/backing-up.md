@@ -11,7 +11,7 @@ second copy of it. The README has the reference for each command
 - **It only adds.** `backup`, `count` and `meta` never delete anything from
   the backup. Mail you delete from Gmail stays in the backup, and
   `backup` says how many such messages there are.
-- **It can move, never delete, with `--sync`.** `backup --sync` moves mail
+- **It can move, never delete, with `--prune`.** `backup --prune` moves mail
   that is permanently gone from Gmail out of the backup into
   `<data root>/_pruned/<email>/<batch>/`. It asks first, refuses to move
   more than a tenth of the backup unless you add `--force`, and never
@@ -111,14 +111,14 @@ that any mail client can read, without mailcellar
 ([Exporting mail](exporting.md)). It is useful for what you have offloaded,
 but it does not replace a copy of the data root, which can be restored.
 
-## Mail deleted from Gmail: `--sync`
+## Mail deleted from Gmail: `--prune`
 
 Mail you delete in Gmail and then empty from Trash is permanently gone from
 Gmail but stays in the backup, so you can undo a mistake. `backup` counts
 those messages. To tidy them out of the backup:
 
 ```bash
-mailcellar backup work --sync
+mailcellar backup work --prune
 ```
 
 It lists how many messages it would move and asks. It stops at 10% of the
@@ -134,7 +134,7 @@ mailcellar restore work --from-pruned 2026-03-01-120000        # dry run
 mailcellar restore work --from-pruned 2026-03-01-120000 --yes
 ```
 
-Most people never need `--sync`. Mail stays in the backup if you leave it
+Most people never need `--prune`. Mail stays in the backup if you leave it
 alone, at the cost of disk space.
 
 ## Adding an account, or moving the backup

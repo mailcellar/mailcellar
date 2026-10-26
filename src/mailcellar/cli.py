@@ -2,7 +2,7 @@
 mailcellar: one command for the Gmail backups and what is done with them.
 
   mailcellar setup   [ADDRESS] [--client FILE]   add an account from a downloaded OAuth client
-  mailcellar backup  [ACCOUNT ...] [--full | --search Q | --refresh-labels] [--sync]
+  mailcellar backup  [ACCOUNT ...] [--full | --search Q | --refresh-labels] [--prune]
   mailcellar count   [ACCOUNT ...]      compare Gmail with the backup
   mailcellar meta    [ACCOUNT ...]      fill meta.sqlite for older mail
   mailcellar verify  [ACCOUNT ...] [--offloaded] [--sample N]   check the backup's files

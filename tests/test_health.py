@@ -94,13 +94,13 @@ def test_count_and_sync_runs(tmp_path):
     del gmail.messages["g0"]
     gmail.messages["g10"] = raw_response("g10")
     commands.count(gmail, A, folder)
-    commands.sync(gmail, A, folder, confirm=lambda p: False)
-    commands.sync(gmail, A, folder, confirm=yes)
-    commands.sync(gmail, A, folder, confirm=yes)  # nothing left to prune
+    commands.prune(gmail, A, folder, confirm=lambda p: False)
+    commands.prune(gmail, A, folder, confirm=yes)
+    commands.prune(gmail, A, folder, confirm=yes)  # nothing left to prune
     for gid in ("g1", "g2"):
         del gmail.messages[gid]
-    with pytest.raises(commands.SyncAborted):
-        commands.sync(gmail, A, folder, confirm=yes, max_fraction=0.1)
+    with pytest.raises(commands.PruneAborted):
+        commands.prune(gmail, A, folder, confirm=yes, max_fraction=0.1)
     cols = ("command", "status", "in_gmail", "missing", "only_in_backup", "pruned", "messages")
     assert runs(folder, *cols)[1:] == [
         ("count", "missing", 10, 1, 1, None, 10),

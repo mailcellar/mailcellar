@@ -8,8 +8,8 @@ are dedup apply's (dedup/apply.py); this adds:
 - before trashing: each account's last backup succeeded and ran after the
   plan was made, and a report on a second copy (Time Machine on macOS);
 - the offload record: trashed messages go into meta.sqlite's offloaded table,
-  so --sync keeps them in the backup, and into a manifest per batch,
-  <data root>/offload/batches/<batch>/offloaded.csv (like --sync's pruned.csv).
+  so --prune keeps them in the backup, and into a manifest per batch,
+  <data root>/offload/batches/<batch>/offloaded.csv (like --prune's pruned.csv).
 
 Gmail empties its Trash after 30 days; nothing here deletes permanently.
 """
@@ -223,7 +223,7 @@ def recorder(folders: dict[str, Path], batch: str, manifest: Path):
     """
     on_trashed for apply_plan: record trashed messages in the account's
     offloaded table, then in the batch manifest. The table is the record
-    (--sync reads it); the manifest is the readable copy, so it comes second.
+    (--prune reads it); the manifest is the readable copy, so it comes second.
     """
 
     def on_trashed(account: str, rows: list[dict]) -> None:

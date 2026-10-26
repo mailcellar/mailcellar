@@ -45,7 +45,7 @@ or interrupted backup, for the same reason.
 | --- | --- |
 | `Chats (never backed up)` | Gmail chats, which are skipped on purpose (below). |
 | `Only in backup (not in mailbox)` | The backup holds mail Gmail does not list: deleted for good, or in Trash or Spam. Offloaded mail is counted apart. |
-| `  of which permanently deleted` | Gone from Gmail altogether. Only `backup --sync` moves these out of the backup. |
+| `  of which permanently deleted` | Gone from Gmail altogether. Only `backup --prune` moves these out of the backup. |
 | `Offloaded (kept in backup)` | Mail you offloaded on purpose. |
 | `Indexed but .eml missing` | The backup's index lists a message whose file is gone. The next `backup` downloads it again if Gmail still has it. |
 
@@ -87,10 +87,10 @@ check a backup against Gmail, and put mail back with its labels.
   (`dedup apply`, `offload apply`, `restore --yes`) are dry runs unless you
   add a flag, and the strongest thing any of them does is move mail to
   Trash, which Gmail empties after 30 days. `restore` only adds.
-- **From the backup:** nothing, unless you ask. `backup --sync` moves mail
+- **From the backup:** nothing, unless you ask. `backup --prune` moves mail
   that is permanently gone from Gmail into `<data root>/_pruned/`, after
   asking, and refuses to move more than a tenth of the backup unless
-  forced. Offloaded mail is never moved, and `--sync` moves files rather
+  forced. Offloaded mail is never moved, and `--prune` moves files rather
   than deleting them.
 
 Because of that, once mail has been offloaded and Gmail has emptied its

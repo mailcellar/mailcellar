@@ -9,14 +9,14 @@ or stages its changes:
 | `dedup apply --trash` / `offload apply --trash` | moves labelled messages to Gmail's Trash | modify |
 | `auth ACCOUNT --scope modify` | with `keep_modify_token = true`, grants and stores modify access (changes nothing in the mailbox); otherwise only says that the commands above sign in when they run | modify |
 | `restore ACCOUNT … --yes` | moves offloaded mail out of Trash, or uploads backed-up mail Gmail no longer has (into this account or, with `--to`, another), or mail from a pruned batch, an mbox file or another gyb folder; adds a `restored/<date>` label | modify |
-| `backup --sync` | the *backup*: moves mail permanently deleted from Gmail into `<data root>/_pruned/` | read-only |
+| `backup --prune` | the *backup*: moves mail permanently deleted from Gmail into `<data root>/_pruned/` | read-only |
 
 - **Nothing is ever permanently deleted from Gmail.** Removals go to Trash,
   after a review label. Removing the label from a message vetoes it.
   Gmail empties its Trash after 30 days; until then, a message can be moved
   back from Trash in Gmail.
 - **Backups only add.** `backup`, `count` and `meta` never delete anything.
-  The one exception is `--sync`, and it moves files to `_pruned/` rather
+  The one exception is `--prune`, and it moves files to `_pruned/` rather
   than deleting them, behind a confirmation and a 10% guard.
 - **Offloaded mail stays in the backup.** Once Gmail empties its Trash, the
   backup is the only copy, and `restore` uploads it from there.

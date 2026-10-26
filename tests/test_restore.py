@@ -223,7 +223,7 @@ def test_restore_untrashes_imports_and_records(env):
     assert ("unlabel", done, OFFLOAD_LABEL) in env.calls
     assert ("label", done, "restored/today") in env.calls
 
-    # Offloaded no more; the old IDs stay in the backup, kept from --sync.
+    # Offloaded no more; the old IDs stay in the backup, kept from --prune.
     con = sidecar.open_meta(env.folder)
     assert sidecar.offloaded_ids(con) == {"c1"}
     assert sidecar.kept_ids(con) == {"t1", "g1", "g2", "o1", "c1"}

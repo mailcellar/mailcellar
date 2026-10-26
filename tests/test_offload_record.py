@@ -122,7 +122,7 @@ def test_count_reports_offloaded_apart(setup):
 def test_sync_keeps_offloaded_and_leaves_them_out_of_the_guard(setup):
     gmail, folder = setup
     delete(gmail, *OFFLOADED, "g5")  # 4 of 20 gone: over 10%, but only 1 of 17 unexpectedly
-    result = commands.sync(gmail, A, folder, confirm=yes)
+    result = commands.prune(gmail, A, folder, confirm=yes)
     assert result["pruned"] == 1
     con = sqlite3.connect(folder / "msg-db.sqlite")
     uids = {u for (u,) in con.execute("SELECT uid FROM uids")}
@@ -132,8 +132,8 @@ def test_sync_keeps_offloaded_and_leaves_them_out_of_the_guard(setup):
     assert last_run(folder, "command", "status", "pruned", "offloaded") == ("sync", "ok", 1, 3)
 
     delete(gmail, "g6", "g7")  # 2 more of 17 unexpectedly: the guard still applies
-    with pytest.raises(commands.SyncAborted):
-        commands.sync(gmail, A, folder, confirm=yes, max_fraction=0.1)
+    with pytest.raises(commands.PruneAborted):
+        commands.prune(gmail, A, folder, confirm=yes, max_fraction=0.1)
 
 
 def test_history_backup_does_not_count_offloaded_as_deleted(setup):

@@ -200,7 +200,7 @@ steps of a few thousand with `--limit`.
 What is recorded:
 
 - each trashed message goes into the account's `meta.sqlite` as offloaded,
-  so `backup --sync` never moves it out of the backup;
+  so `backup --prune` never moves it out of the backup;
 - a manifest of the batch, `<data root>/offload/batches/<batch>/offloaded.csv`:
   every message, with its `.eml` path, date, sender, subject and rule;
 - a line per message in `<data root>/offload/offload-apply-log.csv`, naming

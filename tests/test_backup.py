@@ -433,7 +433,7 @@ def yes(prompt):
 
 def test_sync_moves_permanently_deleted_messages_out(tmp_path):
     gmail, folder = synced(tmp_path)
-    result = commands.sync(gmail, ACCOUNT, folder, confirm=yes)
+    result = commands.prune(gmail, ACCOUNT, folder, confirm=yes)
 
     assert result["pruned"] == 1
     dest = result["dest"]
@@ -461,7 +461,7 @@ def test_sync_moves_permanently_deleted_messages_out(tmp_path):
 def test_sync_drops_index_entries_whose_file_is_missing(tmp_path):
     gmail, folder = synced(tmp_path)
     (folder / "2026/10/22/g0.eml").unlink()
-    result = commands.sync(gmail, ACCOUNT, folder, confirm=yes)
+    result = commands.prune(gmail, ACCOUNT, folder, confirm=yes)
     assert result["pruned"] == 1
     assert "g0" not in rows(folder)["uids"]
     assert not (result["dest"] / "2026/10/22/g0.eml").exists()
@@ -470,7 +470,7 @@ def test_sync_drops_index_entries_whose_file_is_missing(tmp_path):
 def test_sync_declined_changes_nothing(tmp_path):
     gmail, folder = synced(tmp_path)
     before = rows(folder)
-    assert commands.sync(gmail, ACCOUNT, folder, confirm=lambda p: False) == {
+    assert commands.prune(gmail, ACCOUNT, folder, confirm=lambda p: False) == {
         "pruned": 0,
         "dest": None,
     }
@@ -480,17 +480,17 @@ def test_sync_declined_changes_nothing(tmp_path):
 
 def test_sync_stops_above_threshold_unless_forced(tmp_path):
     gmail, folder = synced(tmp_path, n=10, gone=("g0", "g1"), trashed=())
-    with pytest.raises(commands.SyncAborted, match="more than 10%"):
-        commands.sync(gmail, ACCOUNT, folder, confirm=yes)
+    with pytest.raises(commands.PruneAborted, match="more than 10%"):
+        commands.prune(gmail, ACCOUNT, folder, confirm=yes)
     assert len(rows(folder)["uids"]) == 10
-    assert commands.sync(gmail, ACCOUNT, folder, confirm=yes, force=True)["pruned"] == 2
+    assert commands.prune(gmail, ACCOUNT, folder, confirm=yes, force=True)["pruned"] == 2
 
 
 def test_sync_refuses_when_gmail_lists_nothing(tmp_path):
     gmail, folder = synced(tmp_path)
     gmail.messages.clear()
-    with pytest.raises(commands.SyncAborted, match="no messages at all"):
-        commands.sync(gmail, ACCOUNT, folder, confirm=yes, force=True)
+    with pytest.raises(commands.PruneAborted, match="no messages at all"):
+        commands.prune(gmail, ACCOUNT, folder, confirm=yes, force=True)
     assert len(rows(folder)["uids"]) == 20
 
 
@@ -498,14 +498,14 @@ def test_pruned_backup_is_still_valid_for_index(tmp_path):
     gmail, folder = synced(tmp_path)
     db = tmp_path / "dedup.sqlite"
     dedup.main(["index", "--db", str(db), str(folder)])
-    commands.sync(gmail, ACCOUNT, folder, confirm=yes)
+    commands.prune(gmail, ACCOUNT, folder, confirm=yes)
     dedup.main(["index", "--db", str(db), str(folder)])
     con = sqlite3.connect(db)
     assert con.execute("SELECT count(*) FROM messages WHERE gmail_id = 'g0'").fetchone() == (0,)
     assert con.execute("SELECT count(*) FROM messages").fetchone() == (19,)
 
 
-# ── backup --sync (CLI) ──────────────────────────────────────────────────────
+# ── backup --prune (CLI) ──────────────────────────────────────────────────────
 
 
 @pytest.fixture
@@ -524,40 +524,51 @@ def cli(tmp_path, monkeypatch):
     return state, run
 
 
-def test_cli_sync_with_search_is_refused(cli):
+def test_cli_prune_with_search_is_refused(cli):
     _state, run = cli
     with pytest.raises(SystemExit, match="can't be combined with --search"):
-        run("backup", "a", "--sync", "--search", "x")
+        run("backup", "a", "--prune", "--search", "x")
 
 
-def test_cli_sync_skipped_after_fetch_failures(tmp_path, cli):
+def test_cli_prune_skipped_after_fetch_failures(tmp_path, cli):
     state, run = cli
     gmail, folder = synced(tmp_path)
     gmail.messages["new"] = raw_response("new")
     gmail.fail = {"new"}
     state.update(gmail=gmail, folder=folder)
-    assert run("backup", "a", "--sync", "--yes") == 1
+    assert run("backup", "a", "--prune", "--yes") == 1
     assert "g0" in rows(folder)["uids"]
 
 
-def test_cli_sync_yes_and_aborted(tmp_path, cli):
+def test_cli_prune_yes_and_aborted(tmp_path, cli):
     state, run = cli
     gmail, folder = synced(tmp_path / "ok")
     state.update(gmail=gmail, folder=folder)
-    assert run("backup", "a", "--sync", "--yes") == 0
+    assert run("backup", "a", "--prune", "--yes") == 0
     assert "g0" not in rows(folder)["uids"]
 
     # above the guard: aborted, exit 1, nothing pruned
     gmail, folder = synced(tmp_path / "guard", n=10, gone=("g0", "g1"), trashed=())
     state.update(gmail=gmail, folder=folder)
-    assert run("backup", "a", "--sync", "--yes") == 1
+    assert run("backup", "a", "--prune", "--yes") == 1
     assert len(rows(folder)["uids"]) == 10
 
 
-def test_cli_help_renders():
+def test_cli_sync_still_prunes_with_a_warning(tmp_path, cli, caplog):
+    state, run = cli
+    gmail, folder = synced(tmp_path)
+    state.update(gmail=gmail, folder=folder)
+    assert run("backup", "a", "--sync", "--yes") == 0
+    assert "g0" not in rows(folder)["uids"]  # pruned, as with --prune
+    assert "'backup --sync' is now 'backup --prune'" in caplog.text
+
+
+def test_cli_help_renders_and_lists_prune_not_sync(capsys):
     with pytest.raises(SystemExit) as exc:
         commands.main(["backup", "--help"])
     assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "--prune" in out and "--sync" not in out
 
 
 # ── gmailapi retries ─────────────────────────────────────────────────────────

@@ -216,6 +216,6 @@ def test_v3_sidecar_migrates_and_reparse_fills_children_once(tmp_path):
 def test_sync_removes_child_rows(tmp_path):
     gmail, folder = backed_up(tmp_path, n=20)
     del gmail.messages["g0"]
-    commands.sync(gmail, ACCOUNT, folder, confirm=lambda p: True)
+    commands.prune(gmail, ACCOUNT, folder, confirm=lambda p: True)
     assert "g0" not in {g for g, *_ in children(folder)[0]}
     assert len(children(folder)[0]) == 19

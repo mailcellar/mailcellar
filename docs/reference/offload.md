@@ -44,7 +44,7 @@ Repeated runs with `--limit` move on through the plan; `--trash` takes only
 the messages a `--label` run labelled, as its apply log shows. Removing the
 label in Gmail vetoes a message for good. A message Gmail can't be asked
 about, even after retries, is skipped and tried again by the next run. Trashed messages are recorded as
-offloaded, so `backup --sync` keeps them in the backup after Gmail empties
+offloaded, so `backup --prune` keeps them in the backup after Gmail empties
 its Trash.
 
 **How long it takes:**

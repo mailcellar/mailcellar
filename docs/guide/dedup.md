@@ -183,12 +183,12 @@ mailcellar count
 backup, so after Gmail empties its Trash they will show as in the backup but
 not in Gmail.
 
-**Do not use `backup --sync` to clear them out unthinkingly.** `--sync`
+**Do not use `backup --prune` to clear them out unthinkingly.** `--prune`
 protects mail that was *offloaded* or restored, because those are recorded
 in the backup. `dedup` records nothing, so removed duplicates look like mail
-Gmail lost, and `--sync` will offer to move them into `_pruned/`. That is
+Gmail lost, and `--prune` will offer to move them into `_pruned/`. That is
 harmless (the files move, not vanish) and they are duplicates, but read what
-it lists before you confirm. See [Backing up](backing-up.md#mail-deleted-from-gmail-sync).
+it lists before you confirm. See [Backing up](backing-up.md#mail-deleted-from-gmail-prune).
 
 ## If it went wrong
 

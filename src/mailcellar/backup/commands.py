@@ -10,7 +10,7 @@ there is continued as it is.
           everything when there is no history to start from, the history
           has expired, or with --full, --search or --refresh-labels
           (which re-syncs the labels of every backed-up message).
-          With --sync, it then moves messages permanently gone from Gmail
+          With --prune, it then moves messages permanently gone from Gmail
           (not even in Trash or Spam) out of the backup, into
           <data root>/_pruned/<email>/<timestamp>/ with a pruned.csv
           manifest. It asks first unless --yes, and stops if more than 10%
@@ -33,12 +33,12 @@ Usage
   mailcellar backup work --full
   mailcellar backup personal --refresh-labels
   mailcellar backup personal --search "after:2026/10/01"
-  mailcellar backup personal --sync
+  mailcellar backup personal --prune
   mailcellar count
   mailcellar meta personal
 
 Exit status is 1 if an account failed, any message could not be fetched,
-a sync stopped at its guard (backup), or the backup is missing messages
+a prune stopped at its guard (backup), or the backup is missing messages
 (count).
 """
 
@@ -59,8 +59,8 @@ from mailcellar.progress import Progress
 logger = logging.getLogger(__name__)
 
 COMMIT_EVERY = 100
-# --sync stops without --force if more than this share of the backup would go.
-SYNC_MAX_FRACTION = 0.10
+# --prune stops without --force if more than this share of the backup would go.
+PRUNE_MAX_FRACTION = 0.10
 
 
 def now_ms() -> int:
@@ -306,7 +306,7 @@ def _backup(gmail, con, mcon, folder: Path, query, refresh_labels: bool, stats: 
     mcon.commit()
 
 
-class SyncAborted(Exception):
+class PruneAborted(Exception):
     pass
 
 
@@ -319,18 +319,18 @@ def gone_from_server(gmail, con, offloaded: set[str]) -> tuple[list[str], int, l
     indexed = {uid for (uid,) in con.execute("SELECT uid FROM uids")}
     on_server = set(gmail.list_message_ids(include_spam_trash=True))
     if indexed and not on_server:
-        raise SyncAborted("Gmail returned no messages at all; refusing to prune")
+        raise PruneAborted("Gmail returned no messages at all; refusing to prune")
     gone = indexed - on_server
     return sorted(gone - offloaded), len(indexed - offloaded), sorted(gone & offloaded)
 
 
-def sync(
+def prune(
     gmail,
     account: str,
     folder: Path,
     confirm,
     force: bool = False,
-    max_fraction: float = SYNC_MAX_FRACTION,
+    max_fraction: float = PRUNE_MAX_FRACTION,
 ) -> dict:
     """
     Move messages permanently gone from Gmail out of the backup, into
@@ -346,9 +346,9 @@ def sync(
     offloaded = sidecar.kept_ids(mcon)
     mcon.close()
     try:
-        result, status = _sync(con, gmail, folder, offloaded, confirm, force, max_fraction)
+        result, status = _prune(con, gmail, folder, offloaded, confirm, force, max_fraction)
         return result
-    except SyncAborted:
+    except PruneAborted:
         status = "aborted"
         raise
     finally:
@@ -357,7 +357,7 @@ def sync(
             try:
                 sidecar.record_run(
                     mcon,
-                    "sync",
+                    "sync",  # the runs table's name for a prune, from before --prune
                     started,
                     now_ms(),
                     status,
@@ -371,10 +371,10 @@ def sync(
             con.close()
 
 
-def _sync(
+def _prune(
     con, gmail, folder: Path, offloaded: set[str], confirm, force: bool, max_fraction: float
 ) -> tuple[dict, str]:
-    """The body of sync(): (result, run status)."""
+    """The body of prune(): (result, run status)."""
     gone, total, gone_offloaded = gone_from_server(gmail, con, offloaded)
     if gone_offloaded:
         mcon = sidecar.open_meta(folder)
@@ -384,13 +384,13 @@ def _sync(
         finally:
             mcon.close()
     if offloaded:
-        print(f"Sync: keeping {len(offloaded):,} offloaded messages.")
+        print(f"Prune: keeping {len(offloaded):,} offloaded messages.")
     if not gone:
-        print("Sync: nothing in the backup is gone from Gmail.")
+        print("Prune: nothing in the backup is gone from Gmail.")
         return {"pruned": 0, "dest": None}, "ok"
 
     if len(gone) > max_fraction * total and not force:
-        raise SyncAborted(
+        raise PruneAborted(
             f"{len(gone):,} of {total:,} backed-up messages are gone from Gmail, "
             f"more than {max_fraction:.0%}; re-run with --force if that is right"
         )
@@ -402,12 +402,12 @@ def _sync(
             WHERE u.uid IN ({placeholders}) GROUP BY 1 ORDER BY 1""",
         gone,
     ).fetchall()
-    print(f"Sync: {len(gone):,} messages in the backup are permanently gone from Gmail:")
+    print(f"Prune: {len(gone):,} messages in the backup are permanently gone from Gmail:")
     print("  " + ", ".join(f"{year} {n:,}" for year, n in by_year))
 
     dest = pruned_folder(folder) / datetime.now().strftime("%Y-%m-%d-%H%M%S")
     if not confirm(f"Move them out of the backup to {dest}?"):
-        print("Sync: nothing pruned.")
+        print("Prune: nothing pruned.")
         return {"pruned": 0, "dest": None}, "declined"
     manifest = gyb.prune(con, folder, gone, dest)
     mcon = sidecar.open_meta(folder)
@@ -416,7 +416,7 @@ def _sync(
         mcon.commit()
     finally:
         mcon.close()
-    print(f"Sync: moved {len(manifest):,} messages to {dest}")
+    print(f"Prune: moved {len(manifest):,} messages to {dest}")
     return {"pruned": len(manifest), "dest": dest}, "ok"
 
 
@@ -439,9 +439,9 @@ def record_unattended_failure(args) -> None:
 
 
 def cmd_backup(args) -> int:
-    if args.sync and args.search:
+    if args.prune and args.search:
         sys.exit(
-            "error: --sync can't be combined with --search: messages outside "
+            "error: --prune can't be combined with --search: messages outside "
             "the search would look deleted."
         )
     try:
@@ -459,28 +459,28 @@ def cmd_backup(args) -> int:
             else ""
         )
     )
-    if stats["deleted_backed_up"] and not args.sync:
+    if stats["deleted_backed_up"] and not args.prune:
         print(
             f"{stats['deleted_backed_up']:,} backed-up messages were permanently deleted "
-            "from Gmail; 'backup --sync' would move them out of the backup."
+            "from Gmail; 'backup --prune' would move them out of the backup."
         )
     if stats["failed"]:
         logger.warning(
             f"{len(stats['failed']):,} messages could not be fetched, e.g. "
             f"{stats['failed'][0]}. Re-run backup to retry them."
-            + (" Sync skipped." if args.sync else "")
+            + (" Prune skipped." if args.prune else "")
         )
         return 1
 
-    if args.sync:
+    if args.prune:
 
         def confirm(prompt):
             return args.yes or input(f"{prompt} [y/N] ").strip().lower() == "y"
 
         try:
-            sync(gmail, account, folder, confirm, force=args.force)
-        except SyncAborted as exc:
-            logger.error(f"Sync aborted: {exc}")
+            prune(gmail, account, folder, confirm, force=args.force)
+        except PruneAborted as exc:
+            logger.error(f"Prune aborted: {exc}")
             return 1
     return 0
 
@@ -700,7 +700,7 @@ def cmd_count(args) -> int:
     account, folder, gmail = connect(args)
     try:
         c = count(gmail, account, folder)
-    except SyncAborted as exc:
+    except PruneAborted as exc:
         sys.exit(f"error: {exc}")
     lines = [
         ("In Gmail (excl. spam/trash)", c["in_gmail"]),
@@ -720,7 +720,7 @@ def cmd_count(args) -> int:
             print(f"  {label:<34} {n:>8,}")
     if c["gone_from_server"]:
         print(
-            f"\n'backup --sync' would move {c['gone_from_server']:,} permanently "
+            f"\n'backup --prune' would move {c['gone_from_server']:,} permanently "
             "deleted messages out of the backup."
         )
     if c["missing"]:
@@ -776,13 +776,15 @@ def main(argv=None, prog: str | None = None) -> int:
         help="List every message instead of reading Gmail's history since the last run",
     )
     p_backup.add_argument(
-        "--sync",
+        "--prune",
         action="store_true",
         help="Then move messages permanently deleted from Gmail "
         "out of the backup, into <data root>/_pruned/<email>/",
     )
+    # --prune's old name: still works, with a warning, and isn't listed.
+    p_backup.add_argument("--sync", action="store_true", help=argparse.SUPPRESS)
     p_backup.add_argument(
-        "--yes", action="store_true", help="With --sync: don't ask before moving messages"
+        "--yes", action="store_true", help="With --prune: don't ask before moving messages"
     )
     p_backup.add_argument(
         "--unattended",
@@ -793,7 +795,7 @@ def main(argv=None, prog: str | None = None) -> int:
     p_backup.add_argument(
         "--force",
         action="store_true",
-        help=f"With --sync: allow pruning more than {SYNC_MAX_FRACTION:.0%}% of the backup",
+        help=f"With --prune: allow pruning more than {PRUNE_MAX_FRACTION:.0%}% of the backup",
     )
     p_backup.set_defaults(func=cmd_backup)
 
@@ -811,6 +813,9 @@ def main(argv=None, prog: str | None = None) -> int:
     p_meta.set_defaults(func=cmd_meta)
 
     args = p.parse_args(argv)
+    if getattr(args, "sync", False):
+        logger.warning("'backup --sync' is now 'backup --prune'; the old name still works.")
+        args.prune = True
     try:
         accounts = args.accounts or sorted(gmailapi.config_accounts(Path(args.config)))
     except gmailapi.GmailError as exc:
