@@ -49,5 +49,5 @@ existing backup in place. Something went wrong?
 cover the usual cases.
 
 Every command and option is described in the
-[command reference](https://github.com/mailcellar/mailcellar#readme), and
+[command reference](reference/index.md), and
 [How it works](architecture.md) explains the design.

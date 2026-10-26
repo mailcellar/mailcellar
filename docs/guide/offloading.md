@@ -7,7 +7,7 @@ messages to Gmail's Trash, which Gmail empties after 30 days.
 
 This page walks through one offload from start to finish. The mail in it is
 invented. The README has the reference for each command
-([Offloading old mail](https://github.com/mailcellar/mailcellar#offloading-old-mail)).
+([Offloading old mail](../reference/offload.md)).
 
 The stages, and where to stop and check:
 
@@ -232,7 +232,7 @@ does, and says how to put each match back:
 mailcellar search "build failed" work --offloaded
 ```
 
-See [Searching mail](https://github.com/mailcellar/mailcellar#searching-mail).
+See [Searching mail](../reference/search.md).
 
 ## Changing your mind
 
@@ -255,4 +255,4 @@ mailcellar restore work --rule "old build notifications" --yes
 
 Restored mail loses the offload label and gains `restored/<date>`, so you can
 find it. Restore only adds: it deletes nothing, in Gmail or the backup. See
-[Restoring mail](https://github.com/mailcellar/mailcellar#restoring-mail) for every option.
+[Restoring mail](../reference/restore.md) for every option.

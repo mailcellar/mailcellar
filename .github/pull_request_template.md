@@ -16,5 +16,5 @@ as counts only. -->
 - [ ] Anything that changes Gmail is a dry run by default and never deletes
       permanently
 - [ ] Commit messages follow the conventions in CONTRIBUTING.md
-- [ ] README, CONTRIBUTING.md or docs/architecture.md updated if behaviour
-      or design changed
+- [ ] README, CONTRIBUTING.md, docs/reference/ or docs/architecture.md
+      updated if behaviour or design changed

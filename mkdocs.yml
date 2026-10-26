@@ -54,5 +54,15 @@ nav:
       - Recovering when something goes wrong: guide/recovery.md
       - Troubleshooting and FAQ: guide/troubleshooting.md
   - How it works: architecture.md
-  - Command reference: https://github.com/mailcellar/mailcellar#readme
+  - Command reference:
+      - reference/index.md
+      - Backups: reference/backup.md
+      - Configuration: reference/configuration.md
+      - What changes Gmail: reference/what-changes-gmail.md
+      - Removing duplicates: reference/dedup.md
+      - Offloading old mail: reference/offload.md
+      - Restoring mail: reference/restore.md
+      - Exporting mail: reference/export.md
+      - Searching mail: reference/search.md
+      - Reports: reference/report.md
   - Releases: https://github.com/mailcellar/mailcellar/releases

@@ -5,7 +5,8 @@ offloading old mail out of Gmail (`offload/`) and back (`restore/`), and
 reports (`report/`) for the configured accounts, all in one package,
 `src/mailcellar/`, behind one `mailcellar` command (`cli.py`).
 Read [docs/architecture.md](docs/architecture.md) first.
-User-facing usage: [README.md](README.md).
+User-facing usage: [README.md](README.md); every command and option is in
+[docs/reference/](docs/reference/index.md).
 
 ## Commands
 
@@ -55,7 +56,7 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
 - Copy a database aside before running a schema migration on real data
   (`meta.sqlite.pre-vN` next to it).
 - Check changes against the real backups, read-only. Committed files
-  (code, README, architecture.md) never quote figures from them.
+  (code, README, docs/) never quote figures from them.
 - Run live Gmail operations that take more than a couple of minutes in the
   background. Trashing goes at about 4 messages a second.
 - Keep the backup format byte-compatible with gyb (`backup/gyb.py`);

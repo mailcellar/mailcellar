@@ -101,8 +101,10 @@ Co-Authored-By: <model or agent> <address>   (only if AI helped)
 <https://mailcellar.github.io/mailcellar/> from `docs/` and
 [`mkdocs.yml`](mkdocs.yml): pull requests that touch them build it in strict
 mode (a broken link fails), and pushes to `main` deploy it. A new guide goes in
-`docs/guide/` and in `mkdocs.yml`'s `nav`. Links from a guide to the README use
-its GitHub address, so they work on GitHub and on the site. To preview:
+`docs/guide/` and in `mkdocs.yml`'s `nav`. Every command and option is
+documented in `docs/reference/` (one page per command); guides link there for
+options instead of repeating them. Links from a guide to the README use its
+GitHub address, so they work on GitHub and on the site. To preview:
 
 ```bash
 uvx --from mkdocs==1.6.1 --with mkdocs-material==9.7.7 mkdocs serve

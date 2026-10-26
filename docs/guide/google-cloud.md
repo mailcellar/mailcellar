@@ -122,7 +122,7 @@ personal = "alex@example.com"
 ```
 
 so the example above goes in `~/.config/mailcellar/personal/`. The
-[README](https://github.com/mailcellar/mailcellar#configuration) describes the config folder, and
+[README](../reference/configuration.md) describes the config folder, and
 `mailcellar config` shows where it is on your machine and whether each
 account's client is found.
 
@@ -174,7 +174,7 @@ browser (if it cannot, it prints the address to open). On the way:
 
 A backup needs only read access. Later, `dedup apply`, `offload apply` and
 `restore --yes` ask once more, for *modify* access, the same way; see
-[Backups need only read access](https://github.com/mailcellar/mailcellar#what-changes-gmail).
+[Backups need only read access](../reference/what-changes-gmail.md).
 
 The tokens are saved beside the client as `token-readonly.json` and
 `token-modify.json`, readable only by you (0.9 and earlier called them
