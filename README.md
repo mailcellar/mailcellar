@@ -200,7 +200,7 @@ dotfile manager or sync:
   accounts.toml            # config name → address
   settings.toml            # optional: data_dir, token_warn_days
   <name>/client_secrets.json
-  <name>/dedup-token-readonly.json, dedup-token-modify.json   # written on first use
+  <name>/token-readonly.json, token-modify.json   # written on first use
 ```
 
 ```toml
