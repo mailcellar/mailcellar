@@ -17,7 +17,9 @@ every LOG_EVERY seconds. Either way it goes through logging's INFO level, so
 than DELAY shows nothing.
 
 The innermost open Progress is `current`: GmailAccount's batches advance it
-once per message, so wrapping a Gmail call in a Progress is all it takes.
+once per message, so wrapping a Gmail call in a Progress is all it takes,
+and its rate-limit waits are reported with waited(): the rate and the time
+left go by time spent working, so a 30 s wait doesn't read as "1/min".
 cli's stderr handler calls clear_line() before each log record, so a
 warning or a rate-limit wait gets its own line and the progress line
 returns at the next update.
@@ -38,7 +40,9 @@ DELAY = 2.0  # seconds before anything is shown
 REDRAW = 0.25  # seconds between rewrites of a terminal line
 LOG_EVERY = 60.0  # seconds between log lines when not on a terminal
 WINDOW = 30.0  # seconds of recent progress the rate is measured over
-MIN_SPAN = 3.0  # seconds of progress needed before a rate is given
+# Seconds of work needed before a rate is given: Gmail answers in batches, so the
+# first seconds are bursty (3 s gave estimates like "2:09:53 left").
+MIN_SPAN = 10.0
 
 
 # ── decisions ────────────────────────────────────────────────────────────────
@@ -108,6 +112,12 @@ def advance(n: int = 1) -> None:
         current[-1].advance(n)
 
 
+def waited(seconds: float) -> None:
+    """Tell the innermost open Progress that this much time went on waiting, not working."""
+    if current:
+        current[-1].waited(seconds)
+
+
 def clear_line() -> None:
     """Rub out a progress line on the terminal, so other output starts clean."""
     global _open_line
@@ -126,7 +136,8 @@ class Progress:
         self._stream = stream
         self.started = now()
         self._last_shown: float | None = None
-        self._samples: deque = deque([(self.started, 0)])
+        self._waited = 0.0  # seconds spent waiting (rate limits), left out of the rate
+        self._samples: deque = deque([(self.started, 0)])  # (working time, done)
 
     @property
     def stream(self):
@@ -148,11 +159,15 @@ class Progress:
     def advance(self, n: int = 1) -> None:
         self.update(self.done + n)
 
+    def waited(self, seconds: float) -> None:
+        self._waited += seconds
+
     def update(self, done: int) -> None:
         now = self._now()
         self.done = done
-        self._samples.append((now, done))
-        while len(self._samples) > 2 and now - self._samples[1][0] >= WINDOW:
+        working = now - self._waited
+        self._samples.append((working, done))
+        while len(self._samples) > 2 and working - self._samples[1][0] >= WINDOW:
             self._samples.popleft()
         if due(now, self.started, self._last_shown, self.terminal):
             self._show(self._line(now))

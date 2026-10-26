@@ -453,6 +453,7 @@ class GmailAccount:
         delay = min(2**attempt, 64) + random.random()
         level = logging.INFO if delay >= LONG_WAIT else logging.DEBUG
         logger.log(level, "%s: %s; waiting %.0f s before retrying", self.account, why, delay)
+        progress.waited(delay)
         self._sleep(delay)
 
     def _execute(self, request):
