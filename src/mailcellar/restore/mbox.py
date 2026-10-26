@@ -14,7 +14,6 @@ Everything but entries() is pure.
 
 import csv
 import re
-from email.parser import BytesHeaderParser
 
 from mailcellar.message import decode_header_value
 from mailcellar.restore import takeout_labels
@@ -125,8 +124,32 @@ def label_names(names) -> tuple[str, ...]:
 
 def labels(entry: bytes) -> tuple[str, ...]:
     """The labels in an entry's X-Gmail-Labels header; () if it has none."""
-    value = BytesHeaderParser().parsebytes(entry[: _header_end(entry)]).get("X-Gmail-Labels")
-    if value is None:
+    raw = header_bytes(entry, b"x-gmail-labels")
+    if raw is None:
         return ()
-    text = decode_header_value(str(value))
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = raw.decode("latin-1")
+    text = decode_header_value(text)  # and any RFC 2047 parts, as `export` writes them
     return label_names(next(csv.reader([text], skipinitialspace=True), []))
+
+
+def header_bytes(entry: bytes, name: bytes) -> bytes | None:
+    """
+    A header's value as the bytes in the file, its continuation lines
+    unfolded; None if it isn't there. Read as bytes, not through the email
+    parser, which turns raw UTF-8 into replacement characters.
+    """
+    found = None
+    for line in entry[: _header_end(entry)].splitlines():
+        if line[:1] in (b" ", b"\t"):
+            if found is not None:
+                found += b" " + line.strip()
+            continue
+        if found is not None:
+            break
+        key, sep, value = line.partition(b":")
+        if sep and key.strip().lower() == name:
+            found = value.strip()
+    return found
