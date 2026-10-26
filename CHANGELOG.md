@@ -1,0 +1,63 @@
+# Changelog
+
+What changed for users in each release. Releases and their dates are on the
+[releases page](https://github.com/mailcellar/mailcellar/releases); the format
+follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). mailcellar is
+in beta, so commands and options may still change before 1.0.
+
+## Unreleased
+
+### Added
+- A command reference on the documentation site, one page per command, with
+  every option listed. A test fails when `--help` lists an option the
+  reference doesn't name.
+- Guides for backing up and keeping the backup safe, removing duplicate mail,
+  restoring mail, and finding mail and deciding what to offload.
+
+### Changed
+- The README is now a landing page: a short quick start, with the guides and
+  the command reference on the documentation site.
+- `report --help` lists `senders`, which it left out before.
+- `report senders --help` no longer lists `--folder`, which the command fills in
+  from the account.
+
+### Removed
+- `run.sh`, a wrapper around `mailcellar backup`, `count` and `meta`. Run
+  `mailcellar` directly.
+
+## 0.10.0 (2026-10-26)
+
+### Added
+- `mailcellar setup` adds an account from a downloaded OAuth client: it
+  copies the client into the config folder, lists the account in
+  `accounts.toml` and signs in, read-only.
+- A documentation site on GitHub Pages, built from `docs/`.
+
+### Changed
+- Token files are named `token-<scope>.json`, not `dedup-token-<scope>.json`.
+  mailcellar renames existing ones on first use.
+
+## 0.9.0 (2026-10-25)
+
+The first release, classified beta. It brings together:
+
+- **Backup** in gyb's format, incremental by Gmail's change history, for
+  several accounts, with `count`, `meta` and `verify`, and `backup --sync` to
+  move mail permanently deleted from Gmail into `_pruned/`.
+- **Scheduled backups** (`schedule install`, `status`, `remove`) and
+  `backup --unattended`; a warning before Testing-status OAuth tokens expire,
+  and `auth --renew`.
+- **Deduplication** within and across accounts (`dedup index`, `match`,
+  `plan`, `apply`), staged through a review label and Trash.
+- **Offloading** old mail by rule (`offload plan`, `apply`), with review
+  pages per rule and the space each batch freed in `report storage`.
+- **Restore** of offloaded mail, whole backups, mail into another account,
+  and mail from a pruned batch, an mbox file or another gyb folder; selections
+  narrowed by date, label or sender.
+- **Search** of the backups, offloaded mail included, and **export** as an
+  mbox file or a zip.
+- **Reports**: storage, bulk, volume, threads, labels, correspondents,
+  health and senders.
+- Guides for setting up Google Cloud, migrating from gyb, offloading,
+  recovery and troubleshooting.
+- The data root defaults to `~/mailcellar`, not `./data`.
