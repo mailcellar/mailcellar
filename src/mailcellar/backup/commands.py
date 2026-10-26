@@ -784,8 +784,6 @@ def main(argv=None, prog: str | None = None) -> int:
         help="Then move messages permanently deleted from Gmail "
         "out of the backup, into <data root>/_pruned/<email>/",
     )
-    # --prune's old name: still works, with a warning, and isn't listed.
-    p_backup.add_argument("--sync", action="store_true", help=argparse.SUPPRESS)
     p_backup.add_argument(
         "--yes", action="store_true", help="With --prune: don't ask before moving messages"
     )
@@ -816,9 +814,6 @@ def main(argv=None, prog: str | None = None) -> int:
     p_meta.set_defaults(func=cmd_meta)
 
     args = p.parse_args(argv)
-    if getattr(args, "sync", False):
-        logger.warning("'backup --sync' is now 'backup --prune'; the old name still works.")
-        args.prune = True
     try:
         accounts = args.accounts or sorted(gmailapi.config_accounts(Path(args.config)))
     except gmailapi.GmailError as exc:

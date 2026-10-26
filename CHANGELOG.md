@@ -27,7 +27,7 @@ in beta, so commands and options may still change before 1.0.
 ### Changed
 - `backup --sync` is now `backup --prune`, which says what it does: move mail
   permanently deleted from Gmail out of the backup, into `_pruned/`, the name
-  `restore --from-pruned` already used. `--sync` still works, with a warning.
+  `restore --from-pruned` already used. `--sync` is no longer accepted.
 - Long steps show their progress the same way everywhere: how many of how
   many, the rate, the time so far and about how long is left, on one line
   that a terminal rewrites in place, or logged about once a minute when
