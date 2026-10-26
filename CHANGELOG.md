@@ -32,6 +32,14 @@ in beta, so commands and options may still change before 1.0.
 - `run.sh`, a wrapper around `mailcellar backup`, `count` and `meta`. Run
   `mailcellar` directly.
 
+### Security
+- mailcellar requires certifi 2026.10.19 or later, the CA bundle its
+  connections to Google trust. Earlier versions trust emSign root
+  certificates whose intermediates' keys were compromised
+  ([GHSA-6q48-6c7w-9gw2](https://github.com/certifi/python-certifi/security/advisories/GHSA-6q48-6c7w-9gw2)),
+  which would let someone on the network impersonate Google. Upgrade an
+  existing install with `uv tool upgrade mailcellar`.
+
 ## 0.10.0 (2026-10-26)
 
 ### Added
