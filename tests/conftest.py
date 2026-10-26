@@ -24,14 +24,16 @@ settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "dev"))
 @pytest.fixture(autouse=True)
 def default_roots(monkeypatch, tmp_path):
     """
-    Every test uses ./data and ./config under its working directory, whatever
+    Every test uses data/ and config/ in its own temporary folder, whatever
     the developer's $MAILCELLAR_DATA, $MAILCELLAR_CONFIG or
     ~/.config/mailcellar say: a test must never reach real backups or tokens.
-    A test that unsets them falls back to the defaults under ~, so ~ is the
-    test's own folder too, never the developer's home with ~/mailcellar in it.
+    The paths are absolute, so a test that doesn't chdir still writes there,
+    not into the folder pytest runs in. A test that unsets them falls back to
+    the defaults under ~, so ~ is the test's own folder too, never the
+    developer's home with ~/mailcellar in it.
     """
-    monkeypatch.setenv(DATA_ENV, "data")
-    monkeypatch.setenv(CONFIG_ENV, "config")
+    monkeypatch.setenv(DATA_ENV, str(tmp_path / "data"))
+    monkeypatch.setenv(CONFIG_ENV, str(tmp_path / "config"))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     configure_logging()  # as `mailcellar` does; tests calling a command's main see its log
