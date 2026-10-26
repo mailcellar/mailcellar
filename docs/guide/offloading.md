@@ -129,7 +129,9 @@ changes. Per message it checks that:
 - it has not been offloaded already.
 
 Fix what the reasons point at, or accept the skips; skipped messages simply
-stay in Gmail.
+stay in Gmail. A message Gmail doesn't answer for, even after retries, is
+skipped too (`couldn't read it from Gmail`), and the next run tries it
+again; it never stops the run.
 
 ## 4. Label
 
@@ -180,7 +182,9 @@ tells you which account needs one.
 mailcellar offload apply --trash --limit 2000
 ```
 
-Before it moves anything, `apply --trash` repeats the Gmail and backup
+`--trash` works through the messages a `--label` run labelled, and only
+those: the rest of the plan isn't read from Gmail, since nothing unlabelled
+is trashed. Before it moves anything, it repeats the Gmail and backup
 checks of step 3, prints a reminder that Trash is emptied after 30 days
 and, on a Mac, whether Time Machine includes the data root and has run since
 the last backup. On other systems it asks you to check your second copy

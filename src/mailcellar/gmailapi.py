@@ -350,7 +350,10 @@ def load_credentials(
 def is_retryable(exc) -> bool:
     """
     Rate limiting and transient server errors, which Google says to retry,
-    and socket timeouts (a stalled connection). Repeating a request that did
+    socket timeouts (a stalled connection), and 400 "Precondition check
+    failed": during heavy rate limiting Gmail answered a few lookups of
+    ordinary messages that way, and the same lookups worked minutes later
+    (2026-10-26). Repeating a request that did
     reach Gmail is harmless: reads, trash and adding a label are idempotent,
     and a repeated label create fails with 409, leaving the label for the
     next run to find.
@@ -363,7 +366,10 @@ def is_retryable(exc) -> bool:
         return False
     if exc.status_code in RETRY_STATUSES:
         return True
-    return exc.status_code == 403 and b"ateLimitExceeded" in (exc.content or b"")
+    content = exc.content or b""
+    if exc.status_code == 400:
+        return b"failedPrecondition" in content
+    return exc.status_code == 403 and b"ateLimitExceeded" in content
 
 
 def describe(exc) -> str:
@@ -375,6 +381,8 @@ def describe(exc) -> str:
     if isinstance(exc, HttpError):
         if exc.status_code == 429 or exc.status_code == 403:
             return f"{exc.status_code} (rate limit)"
+        if exc.status_code == 400:
+            return "400 (precondition check failed)"
         return f"HTTP {exc.status_code}"
     return type(exc).__name__
 
@@ -697,11 +705,18 @@ class GmailAccount:
             raise GmailError(f"{self.account}: {len(errors)} lookups failed, e.g. {errors[0]}")
         return out
 
-    def message_labels(self, gmail_ids: list[str]) -> dict[str, set[str] | None]:
-        """Current label names per message; None for messages that don't exist."""
+    def message_labels(
+        self, gmail_ids: list[str], failures: list[str] | None = None
+    ) -> dict[str, set[str] | None]:
+        """
+        Current label names per message; None for messages that don't exist.
+        Lookups that still fail after retries raise GmailError, or are appended
+        to `failures` as "<id>: <error>" (and left out of the result) when it
+        is given.
+        """
         names = self._labels()
         out: dict[str, set[str] | None] = {}
-        errors: list[str] = []
+        errors: list[str] = failures if failures is not None else []
 
         def on_result(gid, response, exception):
             if exception is None:
@@ -720,7 +735,7 @@ class GmailAccount:
             ),
             on_result,
         )
-        if errors:
+        if errors and failures is None:
             raise GmailError(f"{self.account}: {len(errors)} lookups failed, e.g. {errors[0]}")
         return out
 

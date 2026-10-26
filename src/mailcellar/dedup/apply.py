@@ -180,6 +180,21 @@ def act(
     return done
 
 
+def unreadable(row: dict, unread: dict[tuple, str]) -> Result | None:
+    """
+    A skipped Result if Gmail couldn't tell apply about the message or its
+    keeper, else None. Pure. Not knowing a message's state is never taken as
+    its being gone, so nothing is labelled or trashed on a guess.
+    """
+    why = unread.get((row["account"], row["gmail_id"]))
+    if why is not None:
+        return Result(row, "skipped", f"couldn't read it from Gmail: {why}")
+    why = unread.get((row.get("keeper_account"), row.get("keeper_gmail_id")))
+    if why is not None:
+        return Result(row, "skipped", f"couldn't read the keeper from Gmail: {why}")
+    return None
+
+
 def checked(
     row: dict,
     mode: str,
@@ -231,6 +246,7 @@ def apply_plan(
         return clients[account]
 
     live: dict[tuple, set | None] = {}
+    unread: dict[tuple, str] = {}  # (account, gmail_id) → why Gmail couldn't be read
     wanted: dict[str, set] = {}
     for r in rows:
         wanted.setdefault(r["account"], set()).add(r["gmail_id"])
@@ -239,13 +255,23 @@ def apply_plan(
     for account in sorted(remove_accounts) + sorted(set(wanted) - remove_accounts):
         ids = sorted(wanted[account])
         logger.info(f"Reading {len(ids):,} messages from {account} …")
+        failures: list[str] = []
         with Progress(f"{account}: reading", len(ids)):
-            labels_by_id = client(account).message_labels(ids)
+            labels_by_id = client(account).message_labels(ids, failures)
         for gid, labels in labels_by_id.items():
             live[(account, gid)] = labels
+        for failure in failures:
+            gid, why = failure.split(": ", 1)
+            unread[(account, gid)] = why
+        if failures:
+            logger.warning(
+                f"{account}: {len(failures):,} messages couldn't be read from Gmail; "
+                "they are skipped, and the next run tries them again"
+            )
 
     results = [
-        checked(
+        unreadable(r, unread)
+        or checked(
             r,
             mode,
             live.get((r["account"], r["gmail_id"])),

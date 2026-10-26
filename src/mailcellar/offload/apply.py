@@ -309,7 +309,11 @@ def remaining(
     """
     The plan rows still to do, so that repeated runs with --limit advance:
     never offloaded ones; for --label, not those labelled before; for
-    --trash, not those vetoed before.
+    --trash, only those a label run labelled and not vetoed since. --trash
+    only acts on labelled messages, so reading Gmail for the rest would only
+    cost time (15,664 lookups, over four minutes, on 2026-10-26); a message
+    labelled by a run that stopped before writing its log is labelled, and
+    logged, again by the next --label run.
     """
     done = offloaded_by_account(folders)
     rows = [r for r in rows if r["gmail_id"] not in done.get(r["account"], set())]
@@ -317,7 +321,12 @@ def remaining(
     if mode == "label":
         rows = [r for r in rows if (r["account"], r["gmail_id"]) not in labelled]
     elif mode == "trash":
-        rows = [r for r in rows if (r["account"], r["gmail_id"]) not in vetoed]
+        rows = [
+            r
+            for r in rows
+            if (r["account"], r["gmail_id"]) in labelled
+            and (r["account"], r["gmail_id"]) not in vetoed
+        ]
     return rows
 
 

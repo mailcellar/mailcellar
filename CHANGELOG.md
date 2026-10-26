@@ -37,6 +37,15 @@ in beta, so commands and options may still change before 1.0.
 - `run.sh`, a wrapper around `mailcellar backup`, `count` and `meta`. Run
   `mailcellar` directly.
 
+### Fixed
+- `offload apply` and `dedup apply` no longer stop the whole run when Gmail
+  won't answer for a few messages: those are skipped, with the reason in the
+  log, and the next run tries them again. Gmail's transient 400
+  "Precondition check failed" is now retried like a rate limit.
+- `offload apply --trash` reads from Gmail only the messages a `--label` run
+  labelled, not every remaining plan row; with nothing labelled, it says so
+  at once instead of reading the whole plan.
+
 ### Security
 - mailcellar requires certifi 2026.10.19 or later, the CA bundle its
   connections to Google trust. Earlier versions trust emSign root

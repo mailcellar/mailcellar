@@ -40,8 +40,10 @@ mailcellar backup personal                     # trash needs a backup newer than
 mailcellar offload apply --trash --limit 2000  # trash the next 2,000 labelled ones
 ```
 
-Repeated runs with `--limit` move on through the plan. Removing the label
-in Gmail vetoes a message for good. Trashed messages are recorded as
+Repeated runs with `--limit` move on through the plan; `--trash` takes only
+the messages a `--label` run labelled, as its apply log shows. Removing the
+label in Gmail vetoes a message for good. A message Gmail can't be asked
+about, even after retries, is skipped and tried again by the next run. Trashed messages are recorded as
 offloaded, so `backup --sync` keeps them in the backup after Gmail empties
 its Trash.
 
