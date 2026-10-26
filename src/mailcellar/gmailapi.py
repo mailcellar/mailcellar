@@ -58,8 +58,30 @@ RETRY_STATUSES = {429, 500, 502, 503, 504}
 # Waits at least this long (seconds) are logged at INFO, so a run held up by
 # Gmail's quota says so; shorter ones, and every retried request, at DEBUG (-v).
 LONG_WAIT = 10
+# Top-level label names Gmail won't create as user labels (HTTP 400 "Invalid
+# label name"). Google's list "isn't exhaustive"; this is gyb's, gathered from
+# its users' failed restores. Such a label is created with a leading _.
+RESERVED_LABELS = frozenset(
+    {
+        "inbox", "spam", "trash", "unread", "starred", "important", "sent", "draft",
+        "drafts", "chat", "chats", "migrated", "todo", "todos", "buzz", "bin",
+        "allmail", "archive", "archived", "muted",
+    }
+)  # fmt: skip
 
 logger = logging.getLogger(__name__)
+
+
+def creatable_name(name: str, existing) -> str:
+    """
+    The name to create the user label `name` under: with a leading _ if
+    Gmail reserves its top level (gyb does the same), unless the account
+    already has a label by that name. Pure.
+    """
+    top = name.split("/")[0]
+    if top.lower() in RESERVED_LABELS and top not in existing:
+        return "_" + name
+    return name
 
 
 class GmailError(Exception):
@@ -843,7 +865,8 @@ class GmailAccount:
     def label_ids(self, names) -> list[str]:
         """
         IDs for gyb-style label names: system labels by ID, user labels by
-        name, created (with their parents, for nested names) if missing.
+        name, created (with their parents, for nested names) if missing. A
+        name Gmail reserves is created with a leading _ (creatable_name).
         """
         system = {i for i, name in self._labels().items() if i == name}
         out = []
@@ -851,6 +874,10 @@ class GmailAccount:
             if name in system:
                 out.append(name)
                 continue
+            safe = creatable_name(name, set(self._labels().values()))
+            if safe != name:
+                logger.info(f"{self.account}: Gmail reserves the label {name!r}; using {safe!r}")
+                name = safe
             parts = name.split("/")
             for depth in range(1, len(parts)):
                 self.ensure_label("/".join(parts[:depth]))

@@ -60,7 +60,9 @@ selection that includes some says so.
 
 Restored messages lose the offload label and gain `restored/<date>`
 (`--label NAME` to choose another), so a restore can be found and undone.
-The backup indexes each new Gmail ID, sharing the existing `.eml`, so the
+A user label whose name Gmail reserves (such as `Muted`, `Archive` or
+`Todo`) is created as `_Muted` and so on, as gyb does; a label the account
+already has is used as it is. The backup indexes each new Gmail ID, sharing the existing `.eml`, so the
 next backup doesn't download it again. A message whose Message-ID Gmail
 already holds with *other* content is skipped: Gmail would match the
 upload to that message instead of storing this one.
