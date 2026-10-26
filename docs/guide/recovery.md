@@ -1,9 +1,9 @@
 # Recovering when something goes wrong
 
 What to do, case by case, when a run fails or something is lost. Each case
-says what you see, what it means, and what to do. None of the first four
-needs more than re-running a command; the fifth is about the data root
-itself.
+says what you see, what it means, and what to do. None of the first three
+needs more than re-running a command; the fourth is about the data root
+itself, and the fifth about a leaked credential.
 
 The commands below are dry runs or only add to the backup unless they say
 otherwise. A failed run leaves the backup as it was, apart from what it had
