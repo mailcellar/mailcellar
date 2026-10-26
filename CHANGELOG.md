@@ -33,6 +33,8 @@ in beta, so commands and options may still change before 1.0.
   stopping the restore.
 - `restore --from-mbox` reads non-ASCII label names written as plain UTF-8
   in `X-Gmail-Labels`, where they became labels of replacement characters.
+- `restore`'s summary names the label restored mail carries (`--label`),
+  not always `restored/`.
 
 ## 0.12.0 (2026-10-26)
 
