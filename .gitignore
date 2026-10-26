@@ -1,6 +1,3 @@
-# The old in-repo data root and config folder (top level only)
-/data/
-/config/
 __pycache__/
 
 # Build output (uv installs the project for the mailcellar command)

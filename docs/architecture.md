@@ -118,7 +118,6 @@ mailcellar` and `python -m mailcellar` both work.
 | `restore/` | `sources.py` and `mbox.py` (`--from-pruned`, `--from-mbox`, `--from-folder`: candidates from a pruned batch, an mbox file or another gyb folder), `apply.py` (which offloaded messages, narrowed by date, label and sender; backup checks; each message's way back: untrash, already in Gmail, found by Message-ID, or import; indexing a new ID in the backup), `cli.py` (the command, and the selection options `export` shares), `export.py` (`export`: the same selection copied out read-only as an mbox file or a zip of `.eml` files with an index; the mbox entry, label header and index row are pure) |
 | `search/` | `index.py` (each message's sender, recipients, subject and readable body into the index, incrementally: `document()` and `changes()` are pure), `query.py` (the query language translated to FTS5 by `fts_query()`; `keep()` for the offload filters and `render()` for a result are pure; `find()` reads), `db.py` (`search.sqlite` schema and migrations), `cli.py` (the command) |
 | `report/` | Reports over all accounts' sidecars, attached read-only (`db.py`): `storage` (with each offload batch's space freed, from `offloaded.gone_ms`), `bulk`, `volume`, `threads`, `labels`, `correspondents`, `health`; `senders.py` for one backup; `output.py` formats tables |
-| `run.sh` (repo root) | `./run.sh <account> [backup\|count\|meta] [options]`: runs `mailcellar` |
 
 ## Files on disk
 
