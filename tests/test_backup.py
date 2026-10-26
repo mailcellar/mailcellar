@@ -98,6 +98,10 @@ class FakeGmail:
             for gid in ids
         }
 
+    def labels_by_listing(self):
+        self.listings = getattr(self, "listings", 0) + 1
+        return {g: list(m["labelIds"]) for g, m in self.messages.items()}
+
     def message_details(self, ids, failures=None):
         self.detail_lookups = getattr(self, "detail_lookups", []) + list(ids)
         out = {}
@@ -339,6 +343,26 @@ def test_refresh_labels(tmp_path):
     stats = commands.backup(gmail, ACCOUNT, tmp_path, refresh_labels=True)
     assert stats["labels_changed"] == 1
     assert rows(tmp_path)["labels"] == [("g1", "work")]
+
+
+def test_many_labels_are_read_by_listing_the_mailbox(tmp_path, monkeypatch):
+    messages = {g: raw_response(g, label_ids=["INBOX"]) for g in ("g1", "g2", "g3")}
+    gmail = FakeGmail(messages)
+    commands.backup(gmail, ACCOUNT, tmp_path)
+    monkeypatch.setattr(gmailapi, "prefer_listing", lambda wanted, mailbox: True)
+    gmail.detail_lookups = []
+
+    gmail.messages["g1"]["labelIds"] = ["Label_1"]  # a history sync …
+    del gmail.messages["g2"]
+    stats = commands.backup(gmail, ACCOUNT, tmp_path)
+    assert stats["labels_changed"] == 1 and stats["deleted_backed_up"] == 1
+    assert ("g1", "work") in rows(tmp_path)["labels"]
+
+    gmail.messages["g3"]["labelIds"] = ["Label_1"]  # … and --refresh-labels
+    stats = commands.backup(gmail, ACCOUNT, tmp_path, refresh_labels=True)
+    assert ("g3", "work") in rows(tmp_path)["labels"]
+    # one listing each: the history sync, and the refresh (a full run, without history)
+    assert gmail.listings == 2 and gmail.detail_lookups == []  # never one by one
 
 
 def test_output_is_readable_by_index(tmp_path):

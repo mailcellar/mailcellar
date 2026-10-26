@@ -39,6 +39,10 @@ in beta, so commands and options may still change before 1.0.
   Each message is then read back, and only one Gmail shows in Trash is
   recorded as trashed. `restore --yes` moves offloaded messages out of Trash
   the same way, removing the label and reading each back.
+- `backup --refresh-labels`, and a backup that finds labels changed on
+  thousands of messages, read labels by listing the mailbox label by label,
+  500 messages per Gmail call, instead of one lookup per message: about a
+  minute for 50,000 messages instead of about 14.
 
 ### Removed
 - `run.sh`, a wrapper around `mailcellar backup`, `count` and `meta`. Run

@@ -333,6 +333,49 @@ def test_message_labels_raises_when_a_lookup_fails():
         gmail.message_labels(["g1", "g2"])
 
 
+def test_prefer_listing_above_a_thousand_and_a_twentieth_of_the_mailbox():
+    assert not gmailapi.prefer_listing(1_000, 2_000)  # quick enough one by one
+    assert gmailapi.prefer_listing(3_000, 52_000)
+    assert not gmailapi.prefer_listing(2_500, 52_000)
+    assert gmailapi.prefer_listing(56_000, 56_000)  # --refresh-labels
+
+
+class ListingService(RecordingService):
+    """messages.list that filters by label and pages, from messages_."""
+
+    def messages(self):
+        service, inner = self, super().messages()
+
+        class Messages:
+            def __getattr__(self, name):
+                return getattr(inner, name)
+
+            def list(self, userId, includeSpamTrash=False, pageToken=None, labelIds=None, **kw):
+                ids = [
+                    g for g, ls in service.messages_.items() if not labelIds or labelIds[0] in ls
+                ]
+                start = int(pageToken or 0)
+                page = ids[start : start + kw["maxResults"]]
+                more = start + kw["maxResults"] < len(ids)
+                result = {"messages": [{"id": g} for g in page]}
+                if more:
+                    result["nextPageToken"] = str(start + kw["maxResults"])
+                return service._request("messages.list", (labelIds, pageToken), result)
+
+        return Messages()
+
+
+def test_labels_by_listing_gives_every_messages_labels_from_pages(monkeypatch):
+    monkeypatch.setattr(gmailapi, "LIST_PAGE_SIZE", 2)
+    messages = {"a": ["INBOX", "Label_1"], "b": ["INBOX"], "c": [], "d": ["Label_1", "TRASH"]}
+    service = ListingService(labels=[*SYSTEM, TRASH, WORK], messages=messages)
+    got = account(service).labels_by_listing()
+    assert {g: sorted(ls) for g, ls in got.items()} == {g: sorted(ls) for g, ls in messages.items()}
+    listed = service.of("messages.list")
+    assert listed[0] == (None, None) and (["TRASH"], None) in listed  # all, then per label
+    assert len(listed) == 2 + 3  # all mail in 2 pages, then INBOX, TRASH and work in 1 each
+
+
 def test_list_message_ids_follows_the_pages():
     service, gmail = mailbox(
         pages=[

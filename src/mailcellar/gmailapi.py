@@ -421,6 +421,17 @@ def not_moved(
     return out
 
 
+def prefer_listing(wanted: int, mailbox: int) -> bool:
+    """
+    Whether to read `wanted` messages' labels by listing the whole mailbox
+    (labels_by_listing) rather than one lookup each. Pure. Measured on a
+    52,000-message mailbox (2026-10-26): listing took 45 s, lookups ran at
+    about 60 a second, so listing wins above about 5% of the mailbox; below
+    1,000 messages lookups are quick enough either way.
+    """
+    return wanted > 1_000 and wanted * 20 > mailbox
+
+
 class GmailAccount:
     """The handful of Gmail operations backup and apply need, for one account."""
 
@@ -608,9 +619,12 @@ class GmailAccount:
                 return touched, deleted, str(resp["historyId"])
 
     def list_message_ids(
-        self, query: str | None = None, include_spam_trash: bool = False
+        self,
+        query: str | None = None,
+        include_spam_trash: bool = False,
+        label_id: str | None = None,
     ) -> list[str]:
-        """IDs of every message matching `query` (all mail by default)."""
+        """IDs of every message matching `query` and carrying `label_id` (all mail by default)."""
         ids: list[str] = []
         page_token = None
         while True:
@@ -624,12 +638,33 @@ class GmailAccount:
                     maxResults=LIST_PAGE_SIZE,
                     pageToken=page_token,
                     fields="nextPageToken,messages/id",
+                    **({"labelIds": [label_id]} if label_id else {}),
                 )
             )
             ids.extend(m["id"] for m in resp.get("messages", []))
             page_token = resp.get("nextPageToken")
             if not page_token:
                 return ids
+
+    def labels_by_listing(self) -> dict[str, list[str]]:
+        """
+        Every message's label IDs, Spam and Trash included, from listings: all
+        message IDs, then the IDs carrying each label, LIST_PAGE_SIZE per call.
+        A message missing from the result is gone from Gmail. Far fewer calls
+        than message_details when most of the mailbox is wanted.
+        """
+        labels = self.label_catalogue()
+        with progress.Progress(f"{self.account}: listing labels", len(labels) + 1) as listing:
+            out: dict[str, list[str]] = {
+                gid: [] for gid in self.list_message_ids(include_spam_trash=True)
+            }
+            listing.advance()
+            for label in labels:
+                for gid in self.list_message_ids(include_spam_trash=True, label_id=label["id"]):
+                    if gid in out:  # one that arrived after the first listing: next run
+                        out[gid].append(label["id"])
+                listing.advance()
+        return out
 
     def find_message_ids(self, message_ids: dict[str, str]) -> dict[str, list[str]]:
         """
