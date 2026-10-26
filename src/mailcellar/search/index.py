@@ -215,10 +215,22 @@ def update(con: sqlite3.Connection, folder: Path) -> Stats:
     return Stats(account, len(current), indexed, len(todo.remove), errors)
 
 
-def _remove(con: sqlite3.Connection, account: str, gmail_id: str) -> None:
+def remove(con: sqlite3.Connection, account: str, gmail_ids) -> int:
+    """
+    Take messages out of the index: their docs rows and their words (offload
+    forget). Returns how many were indexed. No commit.
+    """
+    removed = 0
+    for gid in gmail_ids:
+        removed += _remove(con, account, gid)
+    return removed
+
+
+def _remove(con: sqlite3.Connection, account: str, gmail_id: str) -> int:
     row = con.execute(
         "SELECT doc FROM docs WHERE account = ? AND gmail_id = ?", (account, gmail_id)
     ).fetchone()
     if row:
         con.execute("DELETE FROM text WHERE rowid = ?", row)
         con.execute("DELETE FROM docs WHERE doc = ?", row)
+    return 1 if row else 0

@@ -31,7 +31,7 @@ from pathlib import Path
 from mailcellar.message import PARSER_VERSION
 
 META_NAME = "meta.sqlite"
-SCHEMA_VERSION = "9"
+SCHEMA_VERSION = "10"
 
 
 def _add_run_column(name: str):
@@ -112,6 +112,7 @@ MIGRATIONS = {
     "6": [_rename_purged],
     "7": [_add_offloaded_restored],
     "8": [_add_restored_target],
+    "9": [],  # v10 adds the forgotten table (created by _SCHEMA)
 }
 
 FIELDS = (
@@ -225,6 +226,19 @@ CREATE TABLE IF NOT EXISTS offloaded (
     trashed_ms INTEGER NOT NULL,          -- moved to Gmail's Trash, ms since epoch, UTC
     gone_ms    INTEGER,                   -- first seen permanently deleted from Gmail
     restored_ms INTEGER                   -- put back into Gmail (see restored); NULL if not
+);
+
+-- Offloaded messages deleted from the backup on purpose (offload forget):
+-- what is left of them, with no sender, subject or content.
+CREATE TABLE IF NOT EXISTS forgotten (
+    gmail_id      TEXT PRIMARY KEY,
+    batch         TEXT NOT NULL,          -- the offload batch it came from
+    rule          TEXT NOT NULL,
+    internal_date INTEGER,                -- ms since epoch, UTC; NULL if unknown
+    size_estimate INTEGER,
+    run           TEXT NOT NULL,          -- the forget run: <data root>/_forgotten/<email>/<run>/
+    forgotten_ms  INTEGER NOT NULL,       -- moved out of the backup, ms since epoch, UTC
+    emptied_ms    INTEGER                 -- its file deleted for good; NULL while held
 );
 
 -- Backed-up messages put back into Gmail by mailcellar restore.
@@ -440,7 +454,7 @@ def replace_label_catalogue(con: sqlite3.Connection, labels: list[dict]) -> None
 
 
 def delete_messages(con: sqlite3.Connection, gmail_ids) -> None:
-    """Forget messages (moved out of the backup by --prune). No commit."""
+    """Delete messages' rows: moved out of the backup by --prune or offload forget. No commit."""
     ids = list(gmail_ids)
     for table in ("message_labels", "attachments", "recipients"):
         con.executemany(f"DELETE FROM {table} WHERE gmail_id = ?", ((g,) for g in ids))
@@ -570,6 +584,11 @@ def superseded_ids(folder: Path) -> set[str]:
         }
     finally:
         con.close()
+
+
+def forgotten_ids(con: sqlite3.Connection) -> set[str]:
+    """Gmail IDs deleted from the backup by offload forget, held or emptied."""
+    return {gid for (gid,) in con.execute("SELECT gmail_id FROM forgotten")}
 
 
 def mark_gone(con: sqlite3.Connection, gmail_ids, gone_ms: int) -> None:

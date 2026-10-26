@@ -150,3 +150,19 @@ def open_db(db_path: Path) -> sqlite3.Connection:
     except BaseException:
         con.close()  # a failed open leaves no connection behind
         raise
+
+
+def remove_messages(con: sqlite3.Connection, account: str, gmail_ids) -> int:
+    """
+    Take messages out of the catalogue: their rows, labels and match
+    memberships (offload forget). Returns how many were catalogued. No commit.
+    """
+    removed = 0
+    for gid in gmail_ids:
+        key = (account, gid)
+        removed += con.execute(
+            "DELETE FROM messages WHERE account = ? AND gmail_id = ?", key
+        ).rowcount
+        con.execute("DELETE FROM labels WHERE account = ? AND gmail_id = ?", key)
+        con.execute("DELETE FROM match_members WHERE account = ? AND gmail_id = ?", key)
+    return removed

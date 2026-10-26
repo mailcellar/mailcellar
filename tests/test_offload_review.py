@@ -147,11 +147,11 @@ def test_attachment_types_are_summed_over_the_offload():
 
 
 def test_batch_rows_say_what_is_freed_and_when_the_rest_will_be():
-    raw = [(A, "b1", "work\x1fwork\x1fshop", 4, 1, 2, 300, 1, 50, 0, 10 * DAY)]
+    raw = [(A, "b1", "work\x1fwork\x1fshop", 4, 1, 2, 300, 1, 50, 0, 10 * DAY, 0)]
     (row,) = storage.batch_rows(raw)
-    assert row == (A, "b1", "shop, work", 4, 1, 2, 300, 1, 50, "1970-02-10")
-    done = [(A, "b2", "work", 2, 0, 2, 100, 0, None, 0, DAY)]
-    assert storage.batch_rows(done)[0][-2:] == (0, "")
+    assert row == (A, "b1", "shop, work", 4, 1, 2, 300, 1, 50, "1970-02-10", 0)
+    done = [(A, "b2", "work", 2, 0, 2, 100, 0, None, 0, DAY, 2)]
+    assert storage.batch_rows(done)[0][-3:] == (0, "", 2)  # 2 of them forgotten since
 
 
 def test_storage_report_shows_each_batch(data, capsys):  # noqa: F811

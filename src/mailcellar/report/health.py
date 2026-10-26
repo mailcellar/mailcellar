@@ -64,7 +64,8 @@ def state(con, folders: list[Path], opts: Options, now: int) -> Table:
         ).fetchone()
         offloaded, offloaded_in_gmail = con.execute(
             """SELECT count(*), coalesce(sum(gone_ms IS NULL), 0)
-               FROM all_offloaded WHERE account = :a AND restored_ms IS NULL""",
+               FROM all_offloaded WHERE account = :a AND restored_ms IS NULL
+                 AND gmail_id NOT IN (SELECT gmail_id FROM all_forgotten WHERE account = :a)""",
             p,
         ).fetchone()
         age = (now - point) / DAY_MS if point is not None else None

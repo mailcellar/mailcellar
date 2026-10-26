@@ -8,6 +8,13 @@ in beta, so commands and options may still change before 1.0.
 ## Unreleased
 
 ### Added
+- `offload forget` deletes offloaded mail from the backup once Gmail has
+  deleted it too, for mail that shouldn't be kept at all. It takes only
+  messages a backup recorded gone and Gmail confirms gone, holds their
+  files 30 days in `_forgotten/` (`--undo` puts them back, `--empty`
+  deletes them), and removes every trace from the backup's databases,
+  the search index, the dedup catalogue, plans, logs and manifests. A dry
+  run unless `--yes`, which asks for the count to be typed.
 - A command reference on the documentation site, one page per command, with
   every option listed. A test fails when `--help` lists an option the
   reference doesn't name.

@@ -25,6 +25,7 @@ COMMANDS = {
     ("dedup", "apply"): "dedup",
     ("offload", "plan"): "offload",
     ("offload", "apply"): "offload",
+    ("offload", "forget"): "offload",
     ("restore",): "restore",
     ("export",): "export",
     ("search",): "search",

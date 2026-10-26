@@ -60,7 +60,9 @@ def test_v5_sidecar_gains_offloaded_repeatably(tmp_path):
     for _ in range(2):
         sidecar.open_meta(folder).close()
     con = sqlite3.connect(folder / "meta.sqlite")
-    assert con.execute("SELECT value FROM meta WHERE name = 'schema_version'").fetchone() == ("9",)
+    assert con.execute("SELECT value FROM meta WHERE name = 'schema_version'").fetchone() == (
+        sidecar.SCHEMA_VERSION,
+    )
     assert con.execute("SELECT command, offloaded FROM runs").fetchall() == [("backup", None)]
     assert con.execute("SELECT count(*) FROM offloaded").fetchone() == (0,)
 
@@ -79,7 +81,9 @@ def test_v6_purge_record_becomes_the_offload_record_repeatably(setup):
     con = sqlite3.connect(folder / "meta.sqlite")
     tables = {n for (n,) in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert "purged" not in tables
-    assert con.execute("SELECT value FROM meta WHERE name = 'schema_version'").fetchone() == ("9",)
+    assert con.execute("SELECT value FROM meta WHERE name = 'schema_version'").fetchone() == (
+        sidecar.SCHEMA_VERSION,
+    )
     assert offloaded_rows(folder) == dict.fromkeys(OFFLOADED, 0)
     assert (
         con.execute("SELECT batch, rule FROM offloaded").fetchall()

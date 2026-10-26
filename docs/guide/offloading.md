@@ -261,3 +261,23 @@ mailcellar restore work --rule "old build notifications" --yes
 Restored mail loses the offload label and gains `restored/<date>`, so you can
 find it. Restore only adds: it deletes nothing, in Gmail or the backup. See
 [Restoring mail](../reference/restore.md) for every option.
+
+## Deleting offloaded mail for good
+
+Offloading keeps everything in the backup. For mail you shouldn't keep at
+all, `offload forget` deletes it from the backup too, once Gmail has
+deleted it:
+
+```bash
+mailcellar backup work                                     # records what Gmail has deleted
+mailcellar offload forget --batch 2026-01-15-093000        # dry run
+mailcellar offload forget --batch 2026-01-15-093000 --yes  # type the count to go ahead
+```
+
+Messages still in Gmail's Trash aren't touched, so run it after Gmail has
+emptied its Trash (30 days after the batch, or sooner if you empty it
+yourself) and a backup has run. Forgotten files are held for 30 days in
+`<data root>/_forgotten/`, where `--undo RUN` can still put them back;
+`offload forget --empty --yes` then deletes them. Copies outside the data
+root, such as an export or Time Machine, keep the mail. The details are in
+the [reference](../reference/offload.md#forgetting-offloaded-mail).

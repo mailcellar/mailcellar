@@ -46,7 +46,9 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
   the repo root or the data root.
 - Ask before anything that changes Gmail, the backups, or access:
   `dedup apply --label/--trash`, `offload apply --label/--trash`,
-  `restore --yes`, `backup --prune`, `auth --scope modify` (also as
+  `restore --yes`, `backup --prune`, `offload forget --yes`,
+  `offload forget --empty --yes` and `--undo` (they delete from, or move
+  within, the backup), `auth --scope modify` (also as
   `dedup auth`), `schedule install/remove`, and
   moving or deleting the data root or config folder. Fine without asking:
   - dry runs, `config`, `count`, `verify`, `schedule status`, the reports;
