@@ -38,9 +38,7 @@ COMMANDS = {
     ("report", "senders"): "report",
 }
 
-# Options the page need not name: --help everywhere, and `report senders`' --folder, which
-# the command fills in from the account it is given.
-SKIPPED = {"--help", "--folder"}
+SKIPPED = {"--help"}
 OPTION_LINE = re.compile(r"^\s+(?:-\w(?: \S+)?, )?(--[a-z][\w-]*)", re.MULTILINE)
 
 
