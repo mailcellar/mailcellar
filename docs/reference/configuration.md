@@ -77,6 +77,14 @@ Signs in, or renews consent. It changes nothing in the mailbox.
 | `--renew` | Ask for consent again even if the token still works, which starts Google's 7 days afresh for a consent screen in *Testing* status |
 | `--config CONFIG` | Config folder |
 
+Without `--renew`, `auth` signs in only if the token no longer works.
+mailcellar records when consent was given, shows it in `config` and
+`report health`, and warns when a token is `token_warn_days` (5) or more days
+past consent, printing the `auth --renew` command. It can't see the consent
+screen's publishing status, so the warning goes by the time since consent;
+if your tokens don't expire, set `token_warn_days = 0` in `settings.toml`.
+`dedup auth` still works, as an alias.
+
 ### `schedule`
 
 `schedule install`, `schedule status` and `schedule remove`; see

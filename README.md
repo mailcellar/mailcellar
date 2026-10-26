@@ -20,10 +20,17 @@ exportable and restorable whenever you need it.
   across accounts, copy mail out as an mbox or a zip, and see what takes up
   the space.
 
+**What changes Gmail.** Only `dedup apply`, `offload apply` and
+`restore --yes`, and each is a dry run until you add a flag. The first two
+label mail, then move it to Trash, which Gmail empties after 30 days;
+nothing is ever permanently deleted from Gmail. `restore` only adds mail.
+Everything else, including `backup`, only reads
+([details](https://mailcellar.github.io/mailcellar/reference/what-changes-gmail/)).
+
 It runs on your own computer with your own Google Cloud project: there is no
 service in between, and your mail goes nowhere but between Gmail and your
 disk. Setting up the project takes about ten minutes
-([guide](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/google-cloud.md)).
+([guide](https://mailcellar.github.io/mailcellar/guide/google-cloud/)).
 mailcellar is in beta: it is used on real mailboxes, and its backups are in
 gyb's fixed format, but commands and options may still change before 1.0.
 It runs on macOS and Linux and needs Python 3.14, which uv installs for you.
@@ -54,35 +61,7 @@ anywhere on the line to also see Gmail's retries and rate-limit waits (waits
 of 10 seconds or more show without it), or `-q` to see only warnings and
 errors.
 
-How it fits together: [docs/architecture.md](https://github.com/mailcellar/mailcellar/blob/main/docs/architecture.md).
-
-## Guides
-
-Also on the documentation site, <https://mailcellar.github.io/mailcellar/>.
-
-- [Setting up Google Cloud](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/google-cloud.md): the project and
-  OAuth client mailcellar signs in with, and the first consent screen.
-- [Backing up, and keeping the backup safe](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/backing-up.md): the routine
-  (`count`, `verify`, `report health`), a second copy of the data root and
-  checking it, and `backup --sync`.
-- [Scheduled backups](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/scheduling.md): run backups regularly, unattended,
-  and what happens when a token needs signing in.
-- [Migrating from gyb](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/from-gyb.md): continue an existing Got Your Back
-  backup instead of starting again.
-- [Finding mail, and deciding what to offload](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/finding-and-sizing.md):
-  `search`, including offloaded mail, and which `report` answers what.
-- [Offloading old mail safely](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/offloading.md): a worked example, from
-  writing a rule to restoring.
-- [Removing duplicate mail](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/dedup.md): a worked example, from
-  matching to trashing, with the same review stages as offloading.
-- [Restoring mail](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/restore.md): undo an offload, recover one message,
-  rebuild or copy an account, load a Takeout file.
-- [Exporting mail](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/exporting.md): copy mail out as an mbox or a zip, for a
-  mail client or for someone else.
-- [Recovering when something goes wrong](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/recovery.md): an expired token,
-  a long gap between backups, an interrupted run, a lost data root.
-- [Troubleshooting and FAQ](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/troubleshooting.md): slow runs, `count` results,
-  chats, weekly sign-in, why not IMAP or Takeout.
+How it fits together: [How it works](https://mailcellar.github.io/mailcellar/architecture/).
 
 ## Quick start
 
@@ -95,86 +74,77 @@ Google account.
    ```
    `pipx install mailcellar` works too, with Python 3.14. To run it from a
    clone instead, see [Development](#development).
-2. **Create an OAuth client.** In the [Google Cloud
-   console](https://console.cloud.google.com/), create a project, enable the
-   **Gmail API**, set up the OAuth consent screen with yourself as a test
-   user, and create an OAuth client of type **Desktop app**. Download its
-   JSON. One client can serve several accounts: copy the same JSON into each
-   account's folder. The step-by-step version, including *Testing* versus
-   *In production* (Testing tokens expire after 7 days), is
-   [Setting up Google Cloud](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/google-cloud.md).
-3. **Add the account.** `mailcellar setup` takes the downloaded JSON,
-   checks that it is a Desktop app client, saves it as
-   `~/.config/mailcellar/<name>/client_secrets.json`, lists the account in
-   `accounts.toml` and signs in, read-only. It asks for what you don't give:
+2. **Create an OAuth client** in the [Google Cloud
+   console](https://console.cloud.google.com/): a project with the **Gmail
+   API** enabled, a consent screen with yourself as a test user, and an OAuth
+   client of type **Desktop app**. Download its JSON. The step-by-step
+   version, including *Testing* versus *In production* (Testing tokens
+   expire after 7 days), is [Setting up Google Cloud](https://mailcellar.github.io/mailcellar/guide/google-cloud/).
+3. **Add the account.** `mailcellar setup` takes the downloaded JSON, saves
+   it in the config folder, lists the account in `accounts.toml` and signs
+   in, read-only. It asks for what you don't give and changes nothing in
+   Gmail:
    ```bash
    mailcellar setup alex@example.org --client ~/Downloads/client_secret_*.json
    ```
-   It changes nothing in Gmail, and a second run for the same account is
-   harmless (`--name` chooses the config name, `--no-auth` skips the
-   sign-in, `--force` replaces a different client). To do it by hand,
-   save the JSON and list the account yourself (see
-   [Configuration](https://mailcellar.github.io/mailcellar/reference/configuration/)):
-   ```toml
-   work = "alex@example.org"
-   ```
-   The backups go in `~/mailcellar`. To keep them somewhere else, such as
-   a larger disk, set it in `~/.config/mailcellar/settings.toml`:
+   The backups go in `~/mailcellar`. To keep them somewhere else, set it in
+   `~/.config/mailcellar/settings.toml`:
    ```toml
    data_dir = "/Volumes/Archive/mailcellar"
    ```
-4. **Check, then back up.** (After `setup` you are already signed in.)
+   The files and their keys are in [Configuration](https://mailcellar.github.io/mailcellar/reference/configuration/).
+4. **Back up, then check.**
    ```bash
    mailcellar config         # the config and data folders; the account's client and tokens
-   mailcellar backup work    # opens a browser once for Google's consent screen, if not yet
+   mailcellar backup work    # the first backup; resumes where it left off if stopped
    mailcellar count work     # what Gmail has against what the backup has
    ```
+5. **Schedule it.** Gmail keeps change history for about four weeks, so back
+   up at least that often. A longer gap still works, but lists the whole
+   mailbox again.
+   ```bash
+   mailcellar schedule install     # macOS: a launchd agent, weekly; elsewhere: a cron line
+   ```
+   If the consent screen is in *Testing*, tokens expire after 7 days:
+   publish it, or renew with `mailcellar auth work --scope readonly --renew`.
+   See [Scheduled backups](https://mailcellar.github.io/mailcellar/guide/scheduling/).
 
-The first backup lists every message and downloads it. For a large
-mailbox that takes a while; if it stops, re-running carries on where it
-left off. Later backups read
-Gmail's change history and take seconds.
+Then [keep the backup safe](https://mailcellar.github.io/mailcellar/guide/backing-up/), and when you are ready
+to free space, [offload old mail](https://mailcellar.github.io/mailcellar/guide/offloading/).
 
-**Back up at least every four weeks.** Gmail keeps change history for
-about four weeks. A backup after a longer gap still works, but it lists the
-whole mailbox again instead of reading the changes. A monthly or weekly
-scheduled job is enough, and mailcellar can set one up:
+## Documentation
 
-```bash
-mailcellar schedule install     # macOS: a launchd agent, weekly; elsewhere: a cron line
-mailcellar schedule status      # installed? each account's last backup and token
-mailcellar schedule remove
-```
+The [documentation site](https://mailcellar.github.io/mailcellar/) has the guides and the reference.
 
-The job runs `backup --unattended`, which never opens a browser: a token that
-needs signing in fails that account's run, with the command to fix it, and is
-recorded for `report health`. See [Scheduled backups](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/scheduling.md).
+**Guides**, in the order you will want them:
 
-**Tokens and the consent screen.** If the consent screen's publishing
-status is *Testing*, Google expires its tokens after 7 days, and the next
-backup asks you to sign in again. Either set the status to *In production*
-or renew access before it runs out:
+- [Setting up Google Cloud](https://mailcellar.github.io/mailcellar/guide/google-cloud/): the project and OAuth
+  client mailcellar signs in with, and the first consent screen.
+- [Backing up, and keeping the backup safe](https://mailcellar.github.io/mailcellar/guide/backing-up/): the
+  routine, a second copy of the data root and checking it, `backup --sync`.
+- [Scheduled backups](https://mailcellar.github.io/mailcellar/guide/scheduling/): run backups unattended, and
+  what happens when a token needs signing in.
+- [Migrating from gyb](https://mailcellar.github.io/mailcellar/guide/from-gyb/): continue an existing Got Your
+  Back backup.
+- [Finding mail, and deciding what to offload](https://mailcellar.github.io/mailcellar/guide/finding-and-sizing/):
+  `search`, and which `report` answers what.
+- [Offloading old mail safely](https://mailcellar.github.io/mailcellar/guide/offloading/): a worked example,
+  from writing a rule to restoring.
+- [Removing duplicate mail](https://mailcellar.github.io/mailcellar/guide/dedup/): a worked example, from
+  matching to trashing.
+- [Restoring mail](https://mailcellar.github.io/mailcellar/guide/restore/): undo an offload, recover one
+  message, rebuild or copy an account, load a Takeout file.
+- [Exporting mail](https://mailcellar.github.io/mailcellar/guide/exporting/): copy mail out as an mbox or a zip.
+- [Recovering when something goes wrong](https://mailcellar.github.io/mailcellar/guide/recovery/): an expired
+  token, a long gap, an interrupted run, a lost data root.
+- [Troubleshooting and FAQ](https://mailcellar.github.io/mailcellar/guide/troubleshooting/): slow runs, `count`
+  results, chats, why not IMAP or Takeout.
 
-```bash
-mailcellar auth work --scope readonly --renew   # or --scope modify for apply and restore
-```
-
-`auth` asks for consent again (`--renew`), which starts the 7 days afresh;
-without `--renew` it only signs in if the token no longer works. mailcellar
-records when consent was given, shows it in `mailcellar config` and
-`report health`, and warns when a token is 5 days old or more, printing this
-command. It can't see the consent screen's status, so the warning goes by
-the time since consent; if your tokens don't expire, turn it off with
-`token_warn_days = 0` in `settings.toml`. (`mailcellar dedup auth` still
-works, as an alias.)
-
-## Command reference
-
-Every command and option, on the [documentation site](https://mailcellar.github.io/mailcellar/reference/):
+**Command reference**, every command and option:
 
 - [Backups](https://mailcellar.github.io/mailcellar/reference/backup/): `backup`, `count`, `meta`, `verify`
 - [Configuration](https://mailcellar.github.io/mailcellar/reference/configuration/): the config folder, `accounts.toml`, `settings.toml`; `setup`, `auth`, `schedule`, `config`
-- [What changes Gmail](https://mailcellar.github.io/mailcellar/reference/what-changes-gmail/): the few commands that write to Gmail
+- [What changes Gmail](https://mailcellar.github.io/mailcellar/reference/what-changes-gmail/): the commands that write to Gmail
 - [Removing duplicates](https://mailcellar.github.io/mailcellar/reference/dedup/): `dedup`
 - [Offloading old mail](https://mailcellar.github.io/mailcellar/reference/offload/): `offload`, and the rule keys
 - [Restoring mail](https://mailcellar.github.io/mailcellar/reference/restore/): `restore`
@@ -200,7 +170,7 @@ The code is one package, `src/mailcellar/`: `cli.py` dispatches to
 `backup/`, `dedup/`, `offload/`, `restore/` and `report/`, which share `paths.py`,
 `gmailapi.py` and `message.py`. `uv sync` installs it in editable mode;
 `python -m mailcellar` works too. See
-[docs/architecture.md](https://github.com/mailcellar/mailcellar/blob/main/docs/architecture.md).
+[How it works](https://mailcellar.github.io/mailcellar/architecture/).
 
 How to contribute, and the rules changes follow:
 [CONTRIBUTING.md](https://github.com/mailcellar/mailcellar/blob/main/CONTRIBUTING.md).
