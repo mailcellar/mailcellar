@@ -36,6 +36,7 @@ theme:
 
 markdown_extensions:
   - admonition
+  - attr_list
   - tables
   - toc:
       permalink: true
@@ -69,3 +70,7 @@ nav:
       - Searching mail: reference/search.md
       - Reports: reference/report.md
   - Releases: https://github.com/mailcellar/mailcellar/releases
+
+# A broken link or anchor fails the strict build (mkdocs reports anchors at INFO by default).
+validation:
+  anchors: warn
