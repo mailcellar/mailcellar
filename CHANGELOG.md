@@ -5,7 +5,9 @@ What changed for users in each release. Releases and their dates are on the
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). mailcellar is
 in beta, so commands and options may still change before 1.0.
 
-## Unreleased
+## 0.12.0 (2026-10-26)
+
+**Upgrading from 0.11.0:** nothing to do: no database's schema changes.
 
 ### Added
 - Offload rules take `query`, a Gmail search written as in Gmail's search
