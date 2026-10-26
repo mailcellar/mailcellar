@@ -69,6 +69,8 @@ Also on the documentation site, <https://mailcellar.github.io/mailcellar/>.
   and what happens when a token needs signing in.
 - [Migrating from gyb](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/from-gyb.md): continue an existing Got Your Back
   backup instead of starting again.
+- [Finding mail, and deciding what to offload](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/finding-and-sizing.md):
+  `search`, including offloaded mail, and which `report` answers what.
 - [Offloading old mail safely](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/offloading.md): a worked example, from
   writing a rule to restoring.
 - [Removing duplicate mail](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/dedup.md): a worked example, from
