@@ -31,6 +31,8 @@ in beta, so commands and options may still change before 1.0.
   stopped with "Label name exists or conflicts". A label Gmail still
   refuses now costs that message the label, noted in the log, instead of
   stopping the restore.
+- `restore --from-mbox` reads non-ASCII label names written as plain UTF-8
+  in `X-Gmail-Labels`, where they became labels of replacement characters.
 
 ## 0.12.0 (2026-10-26)
 

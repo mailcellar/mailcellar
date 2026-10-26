@@ -98,6 +98,32 @@ def test_takeout_label_names_become_gyb_labels(names, expected):
     assert mbox.label_names(names) == expected
 
 
+@pytest.mark.parametrize(
+    "header, expected",
+    [
+        # raw UTF-8, as an mbox from elsewhere may hold it
+        ("X-Gmail-Labels: Café,Москва,📁 Files".encode(), ("Café", "Москва", "📁 Files")),
+        ("X-Gmail-Labels: Entwürfe,Posteingang".encode(), ("DRAFT", "INBOX")),
+        # RFC 2047, as `mailcellar export` writes non-ASCII labels
+        (b"X-Gmail-Labels: =?utf-8?b?Q2Fmw6k=?=", ("Café",)),
+        # folded onto a second line
+        (b"X-Gmail-Labels: Inbox,\r\n Clients/Acme", ("INBOX", "Clients/Acme")),
+        # not UTF-8: read as Latin-1 rather than lost
+        (b"X-Gmail-Labels: Caf\xe9", ("Café",)),
+    ],
+)
+def test_labels_are_read_from_the_header_bytes(header, expected):
+    entry = header + b"\r\nSubject: x\r\n\r\nbody with X-Gmail-Labels: no\r\n"
+    assert mbox.labels(entry) == expected
+
+
+def test_an_export_mbox_round_trips_non_ascii_labels():
+    from mailcellar.restore.export import labels_header
+
+    entry = labels_header(("Café", "Москва"), b"\r\n") + b"Subject: x\r\n\r\nbody\r\n"
+    assert mbox.labels(entry) == ("Café", "Москва")
+
+
 def test_labels_come_from_the_x_gmail_labels_header():
     entry = b'X-Gmail-Labels: Inbox,"Clients, Acme",Opened\nSubject: x\n\nbody\n'
     assert mbox.labels(entry) == ("INBOX", "Clients, Acme")
