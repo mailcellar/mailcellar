@@ -50,7 +50,9 @@ def _recreate_match_tables(con: sqlite3.Connection) -> None:
 # Steps that upgrade schema version N to N+1, applied in order by open_db.
 # A step is an SQL statement or a function taking the connection.
 MIGRATIONS = {
-    "1": ["ALTER TABLE messages ADD COLUMN forwarded_from TEXT NOT NULL DEFAULT ''"],
+    "1": [
+        lambda con: _add_columns(con, "messages", {"forwarded_from": "TEXT NOT NULL DEFAULT ''"})
+    ],
     "2": [_migrate_relative_paths],
     # Filled by the re-parse index does after the parser version changes.
     "3": [
