@@ -267,7 +267,7 @@ def main(argv=None, prog: str | None = None) -> int:
         sys.exit(f"error: {exc}")
 
     write_log(Path(args.log), results, mode, account, target if other else "")
-    report(results, mode, account, target)
+    report(results, mode, account, target, label=args.label or restored_label())
     print(f"Log → {args.log}")
     return 1 if any(r.outcome in ("failed", "skipped") for r in results) else 0
 
@@ -338,12 +338,14 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
         sys.exit(f"error: {exc}")
 
     write_log(Path(args.log), results, mode, account, target if target != account else "")
-    report(results, mode, account, target, where)
+    report(results, mode, account, target, where, label=args.label or restored_label())
     print(f"Log → {args.log}")
     return 1 if any(r.outcome in ("failed", "skipped") for r in results) else 0
 
 
-def report(results, mode: str, account: str, target: str, source: str = "") -> None:
+def report(
+    results, mode: str, account: str, target: str, source: str = "", label: str = ""
+) -> None:
     counts = Counter(r.outcome for r in results)
     into = f" → {target}" if target != account else ""
     origin = f" from {source}" if source else ""
@@ -369,6 +371,6 @@ def report(results, mode: str, account: str, target: str, source: str = "") -> N
         done = sum(counts[o] for o in DONE)
         if done:
             print(
-                f"Restored {done:,} at {time.strftime('%H:%M')}; they carry a restored/ label "
-                "in Gmail."
+                f"Restored {done:,} at {time.strftime('%H:%M')}; they carry the label "
+                f"{label or 'restored/'!r} in Gmail."
             )
