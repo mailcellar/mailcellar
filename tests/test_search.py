@@ -85,6 +85,13 @@ def test_a_query_must_look_for_something(query):
         fts_query(query)
 
 
+def test_a_nul_in_a_query_is_a_space():
+    # Found by Hypothesis (#36): FTS5 read the NUL as the end of the query
+    # and refused the quoted phrase as unterminated.
+    assert fts_query("0\x00") == '"0"'
+    assert fts_query("invoice\x002024") == '"invoice" AND "2024"'
+
+
 def test_a_quote_inside_a_word_cannot_break_out_of_the_phrase():
     con = sqlite3.connect(":memory:")
     con.execute("CREATE VIRTUAL TABLE t USING fts5(sender, recipients, subject, body)")

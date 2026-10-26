@@ -52,6 +52,8 @@ in beta, so commands and options may still change before 1.0.
   `mailcellar` directly.
 
 ### Fixed
+- `search` no longer stops with an SQLite error on a query containing a NUL
+  character; the NUL counts as a space. Found by the new property tests.
 - `offload apply` and `dedup apply` no longer stop the whole run when Gmail
   won't answer for a few messages: those are skipped, with the reason in the
   log, and the next run tries them again. Gmail's transient 400

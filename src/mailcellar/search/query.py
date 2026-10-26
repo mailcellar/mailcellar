@@ -47,6 +47,7 @@ def _phrase(value: str, column: str) -> str | None:
 
 def fts_query(query: str) -> str:
     """The FTS5 MATCH expression for a query (see the module docstring). Raises QueryError."""
+    query = query.replace("\x00", " ")  # FTS5 reads a NUL as the end of the query
     groups: list[list[str]] = []  # every group must match; any phrase within one will do
     excluded: list[str] = []
     join = False
