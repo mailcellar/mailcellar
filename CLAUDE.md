@@ -15,6 +15,7 @@ uv run pytest                          # all tests; no network
 uv run pytest --cov                    # with branch coverage; a guide, no minimum
 uv run ruff format && uv run ruff check   # format, then lint; both must pass
 uv run mailcellar config               # where the config and data are; each account's state
+uv run mailcellar setup [ADDRESS] [--client FILE] [--name N] [--no-auth] [--force]   # add an account
 uv run mailcellar <backup|count|meta|verify> [ACCOUNT ...] [options]   # all accounts by default
 uv run mailcellar auth [ACCOUNT ...] [--scope readonly|modify] [--renew]   # `dedup auth` still works
 uv run mailcellar schedule <install|remove|status>   # the unattended backup job

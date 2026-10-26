@@ -29,6 +29,7 @@ gyb's fixed format, but commands and options may still change before 1.0.
 It runs on macOS and Linux and needs Python 3.14, which uv installs for you.
 
 ```
+mailcellar setup   [ADDRESS]       add an account from a downloaded OAuth client
 mailcellar backup  [ACCOUNT ...]   incremental backups in gyb's format
 mailcellar count   [ACCOUNT ...]   compare Gmail with the backup
 mailcellar meta    [ACCOUNT ...]   fill the per-message sidecar for older mail
@@ -93,9 +94,17 @@ Google account.
    account's folder. The step-by-step version, including *Testing* versus
    *In production* (Testing tokens expire after 7 days), is
    [Setting up Google Cloud](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/google-cloud.md).
-3. **Configure the account.** Save the JSON as
-   `~/.config/mailcellar/<name>/client_secrets.json` and list the account
-   in `~/.config/mailcellar/accounts.toml` (see
+3. **Add the account.** `mailcellar setup` takes the downloaded JSON,
+   checks that it is a Desktop app client, saves it as
+   `~/.config/mailcellar/<name>/client_secrets.json`, lists the account in
+   `accounts.toml` and signs in, read-only. It asks for what you don't give:
+   ```bash
+   mailcellar setup alex@example.org --client ~/Downloads/client_secret_*.json
+   ```
+   It changes nothing in Gmail, and a second run for the same account is
+   harmless (`--name` chooses the config name, `--no-auth` skips the
+   sign-in, `--force` replaces a different client). To do it by hand,
+   save the JSON and list the account yourself (see
    [Configuration](#configuration)):
    ```toml
    work = "alex@example.org"
@@ -105,10 +114,10 @@ Google account.
    ```toml
    data_dir = "/Volumes/Archive/mailcellar"
    ```
-4. **Check, then back up.**
+4. **Check, then back up.** (After `setup` you are already signed in.)
    ```bash
    mailcellar config         # the config and data folders; the account's client and tokens
-   mailcellar backup work    # opens a browser once for Google's consent screen
+   mailcellar backup work    # opens a browser once for Google's consent screen, if not yet
    mailcellar count work     # what Gmail has against what the backup has
    ```
 

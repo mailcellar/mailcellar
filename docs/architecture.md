@@ -2,6 +2,9 @@
 
 One command, `mailcellar`, over one Python package, `src/mailcellar/`:
 
+- **`mailcellar setup`** adds an account from a downloaded OAuth client:
+  checks the file, copies it into the config folder, lists the account in
+  `accounts.toml` and signs in read-only.
 - **`mailcellar backup | count | meta`** keeps a local backup of each Gmail
   account, in Got-Your-Back's (gyb) on-disk format; **`verify`** checks,
   read-only, that its files are still intact; **`schedule`** runs backups
@@ -73,6 +76,7 @@ Who touches what:
 
 | Command | Reads | Writes | Gmail |
 |---|---|---|---|
+| `setup` | the client JSON you name; `accounts.toml` | the account's `client_secrets.json`, `accounts.toml`, a readonly token | read-only sign-in |
 | `backup` | Gmail | the backup | read-only |
 | `schedule install`, `remove` | the config folder | the launchd agent (macOS) or nothing (a cron line is printed); `logs/backup.log` when it runs | none |
 | `schedule status` | the backups' `runs`, the token files | nothing | none |
@@ -93,10 +97,11 @@ mailcellar` and `python -m mailcellar` both work.
 
 | Module | Role |
 |---|---|
-| `cli.py` | The `mailcellar` command: dispatches `backup`, `count`, `meta` (every configured account by default), `verify`, `auth`, `schedule`, `dedup`, `offload`, `restore`, `export`, `search`, `report` (plus `senders`), and `config`, which shows paths and each account's state without printing secrets; sets up logging (stderr; `-v`/`-q` anywhere on the line) |
+| `cli.py` | The `mailcellar` command: dispatches `setup`, `backup`, `count`, `meta` (every configured account by default), `verify`, `auth`, `schedule`, `dedup`, `offload`, `restore`, `export`, `search`, `report` (plus `senders`), and `config`, which shows paths and each account's state without printing secrets; sets up logging (stderr; `-v`/`-q` anywhere on the line) |
 | `paths.py` | Where things are: `config_root()`, `data_root()` and where each was set, `backup_folder()`, `find_backups()`, `pruned_folder()` |
 | `gmailapi.py` | Accounts (`<config>/accounts.toml`), OAuth tokens and scopes, `GmailAccount`: adaptive batching, retries with backoff, listing, history, labels, trash and untrash, batched Message-ID searches, `messages.import` |
 | `message.py` | Message parsing: `parse_message()`, `content_hash()`, `header_key()`, `extract_address()`, `PARSER_VERSION` |
+| `setup/cli.py` | `setup`: from a downloaded OAuth client to a configured, signed-in account. `check_client`, `accounts_entries`, `pick_name`, `add_account`, `latest_download` are pure; `accounts.toml` is only appended to, the client is written owner-only, and the sign-in is `mailcellar auth`'s read-only one |
 | `backup/commands.py` | `backup` (history-based or full listing), `count`, `meta` (sidecar backfill), `sync`; the runs log |
 | `backup/gyb.py` | gyb's format: writes `msg-db.sqlite` and `<y>/<m>/<d>/<id>.eml`, reads them back (`iter_backup`, `backup_account`), `prune` for `--sync` |
 | `backup/schedule.py` | `schedule`: installs `backup --unattended` as a launchd agent on macOS (a cron line elsewhere), `status` from the sidecars' runs and the token files, `remove`. The decisions (`describe`, `launchd_plist`, `cron_line`, `overdue`) are pure |

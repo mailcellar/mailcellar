@@ -33,8 +33,9 @@ disk. mailcellar is in beta; it runs on macOS and Linux and needs Python
 
 1. [Set up Google Cloud](guide/google-cloud.md): the project and OAuth
    client mailcellar signs in with. About ten minutes, once.
-2. Follow the [quick start](https://github.com/mailcellar/mailcellar#quick-start)
-   to configure an account and make the first backup.
+2. Run `mailcellar setup` with the OAuth client's JSON, then follow the
+   [quick start](https://github.com/mailcellar/mailcellar#quick-start)
+   to make the first backup.
 3. [Schedule backups](guide/scheduling.md), so they happen at least every
    four weeks.
 4. When you are ready to free space, [offload old mail](guide/offloading.md),
