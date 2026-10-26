@@ -20,7 +20,9 @@ Beyond what gyb does, each leaving a valid gyb folder:
   add_copy()  indexes a restored message under its new Gmail ID, sharing
               the old ID's .eml file
   prune()     moves a message's file out of the backup and deletes its
-              rows (backup --prune); gyb itself never removes anything
+              rows (backup --prune, offload forget); gyb itself never
+              removes anything
+  unprune()   puts back what prune() moved out (offload forget --undo)
 """
 
 import base64
@@ -188,12 +190,18 @@ def add_copy(
 PRUNE_MANIFEST = "pruned.csv"
 
 
-def prune(con: sqlite3.Connection, folder: Path, gmail_ids, dest: Path) -> list[dict]:
+def prune(
+    con: sqlite3.Connection,
+    folder: Path,
+    gmail_ids,
+    dest: Path,
+    manifest_name: str = PRUNE_MANIFEST,
+) -> list[dict]:
     """
     Remove messages from the backup: move each .eml to the same relative
     path under `dest`, then delete its messages / uids / labels rows. Index
     entries whose file is already missing just lose their rows. Writes
-    dest/pruned.csv and commits. Returns the manifest rows.
+    dest/<manifest_name> and commits. Returns the manifest rows.
     """
     manifest = []
     for gmail_id in gmail_ids:
@@ -234,11 +242,44 @@ def prune(con: sqlite3.Connection, folder: Path, gmail_ids, dest: Path) -> list[
 
     if manifest:
         dest.mkdir(parents=True, exist_ok=True)
-        with (dest / PRUNE_MANIFEST).open("w", newline="", encoding="utf-8") as fh:
+        with (dest / manifest_name).open("w", newline="", encoding="utf-8") as fh:
             w = csv.DictWriter(fh, fieldnames=list(manifest[0]))
             w.writeheader()
             w.writerows(manifest)
     return manifest
+
+
+def unprune(con: sqlite3.Connection, folder: Path, src: Path, manifest_name: str) -> list[str]:
+    """
+    Put back what prune() moved into `src`: each file to its path in the
+    backup, and its messages / uids / labels rows from the manifest. A
+    message the backup has again meanwhile is left as it is. Commits.
+    Returns the Gmail IDs put back.
+    """
+    with (src / manifest_name).open(newline="", encoding="utf-8") as fh:
+        manifest = list(csv.DictReader(fh))
+    back = []
+    for row in manifest:
+        gmail_id, rel = row["gmail_id"], row["path"]
+        if con.execute("SELECT 1 FROM uids WHERE uid = ?", (gmail_id,)).fetchone():
+            continue
+        moved = src / rel
+        if moved.is_file():
+            target = folder / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(moved, target)
+        cur = con.execute(
+            "INSERT INTO messages (message_filename, message_internaldate) VALUES (?, ?)",
+            (rel, row["internal_date"]),
+        )
+        con.execute("REPLACE INTO uids (message_num, uid) VALUES (?, ?)", (cur.lastrowid, gmail_id))
+        con.executemany(
+            "INSERT OR IGNORE INTO labels (message_num, label) VALUES (?, ?)",
+            ((cur.lastrowid, label) for label in filter(None, row["labels"].split(";"))),
+        )
+        back.append(gmail_id)
+    con.commit()
+    return back
 
 
 def replace_labels(con: sqlite3.Connection, gmail_id: str, labels: list[str]) -> bool:

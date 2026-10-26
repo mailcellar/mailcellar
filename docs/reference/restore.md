@@ -54,6 +54,9 @@ itself: name `--all`, `--offloaded`, `--batch`, `--rule` or `--id` too.
   dedup labels. The upload keeps the original date; Gmail threads it by
   its headers.
 
+Mail deleted from the backup by `offload forget` can't be restored; a
+selection that includes some says so.
+
 Restored messages lose the offload label and gain `restored/<date>`
 (`--label NAME` to choose another), so a restore can be found and undone.
 The backup indexes each new Gmail ID, sharing the existing `.eml`, so the

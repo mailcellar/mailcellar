@@ -12,6 +12,7 @@ connection, with temp views that combine the accounts.
   all_runs            account + runs (backup, count and prune runs)
   all_state           account + meta (name, value: schema_version, history_id)
   all_offloaded       account + offloaded (removed from Gmail, kept in the backup)
+  all_forgotten       account + forgotten (offloaded, then deleted from the backup)
   all_index           account, gmail_id, filename: gyb's index (msg-db.sqlite)
 """
 
@@ -45,6 +46,7 @@ def open_sidecars(folders: list[Path]) -> tuple[sqlite3.Connection, list[str]]:
             "runs": [],
             "state": [],
             "offloaded": [],
+            "forgotten": [],
             "index": [],
         }
         for i, folder in enumerate(folders):
@@ -76,6 +78,7 @@ def open_sidecars(folders: list[Path]) -> tuple[sqlite3.Connection, list[str]]:
             selects["runs"].append(f"SELECT {a} AS account, * FROM s{i}.runs")
             selects["state"].append(f"SELECT {a} AS account, * FROM s{i}.meta")
             selects["offloaded"].append(f"SELECT {a} AS account, * FROM s{i}.offloaded")
+            selects["forgotten"].append(f"SELECT {a} AS account, * FROM s{i}.forgotten")
             selects["index"].append(
                 f"""SELECT {a} AS account, u.uid AS gmail_id, m.message_filename AS filename
                     FROM g{i}.uids u JOIN g{i}.messages m USING (message_num)"""

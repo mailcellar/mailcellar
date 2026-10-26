@@ -637,12 +637,13 @@ def count(gmail, account: str, folder: Path) -> dict:
     if not (folder / gyb.DB_NAME).is_file():
         raise gyb.FormatError(f"{folder} has no {gyb.DB_NAME}")
     has_meta = sidecar.meta_path(folder).is_file()
-    offloaded, kept, restored = set(), set(), 0
+    offloaded, kept, restored, forgotten = set(), set(), 0, 0
     if has_meta:
         mcon = sidecar.open_meta(folder)
         offloaded = sidecar.offloaded_ids(mcon)  # offloaded now
         kept = sidecar.kept_ids(mcon)  # also those restored since
         restored = mcon.execute("SELECT count(*) FROM restored WHERE target = ''").fetchone()[0]
+        forgotten = len(sidecar.forgotten_ids(mcon))
         mcon.close()
     con = gyb.open_backup(folder, account)
     try:
@@ -671,6 +672,7 @@ def count(gmail, account: str, folder: Path) -> dict:
         "gone_from_server": len(gone),
         "offloaded": len(offloaded & indexed),
         "offloaded_in_gmail": len(offloaded & indexed) - len(offloaded & set(gone_kept)),
+        "forgotten": forgotten,
         "restored": restored,
         "file_missing": len(indexed - backed_up),
     }
@@ -712,6 +714,7 @@ def cmd_count(args) -> int:
         ("Offloaded (kept in backup)", c["offloaded"]),
         ("  of which still in Gmail (Trash)", c["offloaded_in_gmail"]),
         ("Restored to Gmail", c["restored"]),
+        ("Forgotten (deleted from the backup)", c["forgotten"]),
         ("Indexed but .eml missing", c["file_missing"]),
     ]
     print(account)

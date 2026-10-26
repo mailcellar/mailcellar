@@ -26,6 +26,7 @@ from mailcellar.restore.apply import (
     apply,
     candidates,
     dry_run,
+    forgotten_in,
     matches,
     plan,
     restored_label,
@@ -227,6 +228,12 @@ def main(argv=None, prog: str | None = None) -> int:
         )
     except sidecar.MetaError as exc:
         sys.exit(f"error: {exc}")
+    gone_for_good = forgotten_in(folder, set(args.batch), set(args.rule), set(args.id))
+    if gone_for_good and (args.batch or args.rule or args.id):
+        logger.warning(
+            f"{gone_for_good:,} selected messages were deleted from the backup by "
+            "'offload forget' and can't be restored from it."
+        )
     if args.limit is not None:
         cands = cands[: args.limit]
     if not cands:

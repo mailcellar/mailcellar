@@ -231,6 +231,8 @@ def candidates(
     include_restored (for an export, which is not a restore) keeps messages
     already restored, but always leaves out the old IDs of messages restored
     under new ones, so none is listed twice.
+    Messages deleted from the backup by offload forget are never candidates
+    (see forgotten_in).
     """
     con = _open_current(folder)
     try:
@@ -246,6 +248,7 @@ def candidates(
             )
         }
         done = set() if include_restored else sidecar.restored_ids(con, target)
+        done |= sidecar.forgotten_ids(con)  # deleted from the backup: nothing to restore from
     finally:
         con.close()
     whole = everything or (bool(ids) and not offloaded_only)
@@ -280,6 +283,21 @@ def candidates(
     if narrow:
         chosen = (c for c in chosen if matches(c, narrow))
     return sorted(chosen, key=lambda c: (c.internal_date, c.source_id))
+
+
+def forgotten_in(folder: Path, batches=(), rules=(), ids=()) -> int:
+    """How many forgotten messages a selection by batch, rule or ID would have taken."""
+    con = _open_current(folder)
+    try:
+        rows = con.execute("SELECT gmail_id, batch, rule FROM forgotten").fetchall()
+    finally:
+        con.close()
+    return sum(
+        (not ids or gid in ids)
+        and (not batches or batch in batches)
+        and (not rules or rule in rules)
+        for gid, batch, rule in rows
+    )
 
 
 def check_backup(c: Candidate) -> tuple[str, Copy | None]:

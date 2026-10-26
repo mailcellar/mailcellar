@@ -324,10 +324,11 @@ def batch_rows(raw: list[tuple]) -> list[tuple]:
     """
     The offload-batches table from its query's rows: (account, batch, rules,
     messages, restored, emptied, freed bytes, in Trash, in-Trash bytes, first
-    trashed ms, last trashed ms). Pure.
+    trashed ms, last trashed ms, forgotten). Pure.
     """
     rows = []
-    for account, batch, rules, n, restored, emptied, freed, waiting, held, _first, last in raw:
+    for row in raw:
+        account, batch, rules, n, restored, emptied, freed, waiting, held, _, last, gone = row
         empties_by = day(last + TRASH_DAYS * DAY_MS) if waiting else ""
         rows.append(
             (
@@ -341,6 +342,7 @@ def batch_rows(raw: list[tuple]) -> list[tuple]:
                 waiting,
                 held or 0,
                 empties_by,
+                gone or 0,
             )
         )
     return rows
@@ -357,7 +359,9 @@ def offload_batches(con) -> Table:
                sum(o.restored_ms IS NULL AND o.gone_ms IS NULL),
                sum(CASE WHEN o.restored_ms IS NULL AND o.gone_ms IS NULL
                         THEN m.size_estimate END),
-               min(o.trashed_ms), max(o.trashed_ms)
+               min(o.trashed_ms), max(o.trashed_ms),
+               (SELECT count(*) FROM all_forgotten f
+                WHERE f.account = o.account AND f.batch = o.batch)
         FROM all_offloaded o LEFT JOIN all_messages m USING (account, gmail_id)
         GROUP BY o.account, o.batch ORDER BY min(o.trashed_ms), o.account, o.batch""").fetchall()
     return Table(
@@ -374,13 +378,15 @@ def offload_batches(con) -> Table:
             ("Still in Trash", "int"),
             ("Not yet freed", "size"),
             ("Trash empties by", "text"),
+            ("Forgotten", "int"),
         ],
         batch_rows(raw),
         notes=[
             "Gmail frees an offloaded message's space only when its Trash is emptied, "
             f"{TRASH_DAYS} days after the move (or sooner, by hand). Trash emptied: messages "
             "the last backup or count found gone from Gmail; run one for current figures. "
-            "Restored messages are back in Gmail and count in neither size. Sizes are Gmail's "
+            "Restored messages are back in Gmail and count in neither size. Forgotten: deleted "
+            "from the backup too (offload forget). Sizes are Gmail's "
             "estimates; Gmail's own storage figure isn't available through its API."
         ],
         limit=False,

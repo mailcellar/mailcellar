@@ -1,6 +1,6 @@
 """
 Command line for mailcellar offload: argparse and one cmd_* per
-subcommand (plan, apply).
+subcommand (plan, apply, forget).
 """
 
 import argparse
@@ -12,9 +12,11 @@ from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
+from mailcellar.backup import sidecar
 from mailcellar.backup.gyb import backup_account
 from mailcellar.dedup.apply import apply_plan, unusable_label, write_apply_log
 from mailcellar.dedup.report import report_apply
+from mailcellar.offload import forget
 from mailcellar.offload.apply import (
     APPLY_LOG_COLUMNS,
     OFFLOAD_LABEL,
@@ -201,6 +203,141 @@ def cmd_apply(args) -> None:
         print(f"Manifest → {manifest_path(offload_dir(), batch)}")
 
 
+def confirm_count(n: int, what: str) -> bool:
+    """Ask for the count to be typed: for the steps that can't be undone by a click."""
+    answer = input(f"{what} Type {n} to go ahead: ").strip().replace(",", "")
+    return answer == str(n)
+
+
+def gmail_state(account: str, config: Path, ids: list[str]):
+    """Gmail's labels for each ID (None: gone), and the lookups that failed. Read-only."""
+    from mailcellar import gmailapi
+    from mailcellar.progress import Progress
+
+    folder = gmailapi.find_config_folder(config, account)
+    gmail = gmailapi.GmailAccount(account, gmailapi.load_credentials(folder, account, "readonly"))
+    failures: list[str] = []
+    with Progress(f"{account}: asking Gmail", len(ids)):
+        live = gmail.message_labels(ids, failures)
+    return live, dict(f.split(": ", 1) for f in failures)
+
+
+def cmd_forget(args) -> None:
+    try:
+        folders = resolve_folders(args.accounts)
+    except AnalyticsError as exc:
+        sys.exit(f"error: {exc}")
+    if args.undo:
+        return forget_undo(folders, args.undo)
+    if args.empty:
+        return forget_empty(folders, args.yes)
+    if not (args.batch or args.rule):
+        sys.exit("error: say which offloaded mail: --batch or --rule (or --empty, --undo RUN)")
+    run = datetime.now().strftime(forget.RUN_FORMAT)
+    for folder in folders:
+        account = backup_account(folder)
+        sidecar.open_meta(folder).close()  # brings an older meta.sqlite up to date
+        found = forget.candidates(folder, set(args.batch or ()), set(args.rule or ()))
+        if not found:
+            continue
+        gone = [c.gmail_id for c in found if c.gone_ms is not None]
+        live, unread = gmail_state(account, Path(args.config), gone) if gone else ({}, {})
+        choice = forget.choose(found, live, unread)
+        print(f"Forget — {account}: {len(found):,} offloaded messages selected")
+        print(f"  can be forgotten                {len(choice.forget):>8,}")
+        if choice.not_gone:
+            print(
+                f"  not yet gone from Gmail         {len(choice.not_gone):>8,}  (in its Trash, or "
+                "not seen gone: run a backup after Gmail empties its Trash)"
+            )
+        if choice.in_gmail:
+            print(
+                f"  Gmail has them again            {len(choice.in_gmail):>8,}  (restored, or "
+                "moved back from Trash; left alone)"
+            )
+        if choice.unchecked:
+            print(
+                f"  couldn't be checked with Gmail  {len(choice.unchecked):>8,}  "
+                f"(e.g. {choice.unchecked[0][1]}; tried again next run)"
+            )
+        if not choice.forget:
+            continue
+        print(
+            "\nForgetting deletes them from this backup: their files move to "
+            f"{forget.runs_dir(account)}/ for {forget.HOLD_DAYS} days (undo with --undo), and "
+            "their sender, subject and text leave the indexes, plans, logs and manifests. "
+            "Copies elsewhere keep them, and mailcellar can't reach those: any export you made, "
+            "any second copy of the data root, and backups of this computer:"
+        )
+        for line in second_copy_report(data_root(), None):
+            print(f"  {line}")
+        if not args.yes:
+            print("\nDry run: nothing was changed. Run again with --yes to forget them.")
+            continue
+        if not confirm_count(len(choice.forget), f"Forget {len(choice.forget):,} messages?"):
+            print("Nothing forgotten.")
+            continue
+        moved = forget.forget(folder, account, list(choice.forget), run, int(time.time() * 1000))
+        ids = [c.gmail_id for c in choice.forget]
+        indexes = forget.scrub_indexes(account, ids)
+        files = forget.scrub_files({(account, g) for g in ids})
+        until = forget.held_until(run)
+        print(
+            f"Forgot {moved:,} messages (run {run}): held in {forget.runs_dir(account) / run} "
+            f"until {until:%Y-%m-%d}, then 'offload forget --empty' deletes them for good. "
+            f"Taken out of the search index ({indexes['search']:,}) and the dedup catalogue "
+            f"({indexes['dedup']:,}); sender and subject blanked in {len(files):,} files"
+            + (
+                f" and {files['review pages']:,} review pages deleted"
+                if "review pages" in files
+                else ""
+            )
+            + "."
+        )
+
+
+def forget_empty(folders: list[Path], yes: bool) -> None:
+    """offload forget --empty: delete runs past the hold, for good."""
+    now = datetime.now()
+    for folder in folders:
+        account = backup_account(folder)
+        runs = forget.held_runs(account)
+        due = forget.due(runs, now)
+        waiting = [r for r in runs if r not in due]
+        for run in waiting:
+            print(f"{account}: run {run} is held until {forget.held_until(run):%Y-%m-%d}")
+        if not due:
+            continue
+        print(
+            f"{account}: {len(due):,} runs held {forget.HOLD_DAYS} days or more: {', '.join(due)}"
+        )
+        if not yes:
+            print("Dry run: nothing deleted. Run again with --yes to delete them for good.")
+            continue
+        if not confirm_count(len(due), f"Delete {len(due):,} runs for good?"):
+            print("Nothing deleted.")
+            continue
+        n = forget.empty(folder, account, due, int(time.time() * 1000))
+        print(f"{account}: deleted {n:,} forgotten messages for good.")
+
+
+def forget_undo(folders: list[Path], run: str) -> None:
+    """offload forget --undo RUN: put a held run back."""
+    done = False
+    for folder in folders:
+        account = backup_account(folder)
+        if run not in forget.held_runs(account):
+            continue
+        n = forget.undo(folder, account, run)
+        done = True
+        print(
+            f"{account}: put {n:,} messages back from run {run}. Run 'mailcellar meta {account}' "
+            "to re-parse them; the next search and 'dedup index' take them in again."
+        )
+    if not done:
+        sys.exit(f"error: no held forget run {run!r} (emptied, undone, or never made)")
+
+
 def main(argv=None, prog: str | None = None) -> None:
     here = offload_dir()
     rules, plan, log = (
@@ -275,6 +412,37 @@ def main(argv=None, prog: str | None = None) -> None:
     )
     ap.add_argument("--log", default=str(log), help=f"Apply log, appended to (default: {log})")
     ap.set_defaults(func=cmd_apply)
+
+    fg = sub.add_parser(
+        "forget",
+        help="Delete offloaded mail Gmail no longer has from the backup, held "
+        f"{forget.HOLD_DAYS} days first",
+    )
+    fg.add_argument(
+        "accounts", nargs="*", help="Only these accounts' backups (default: all of them)"
+    )
+    fg.add_argument(
+        "--batch", action="append", help="Offloaded messages of this batch (repeatable)"
+    )
+    fg.add_argument("--rule", action="append", help="Offloaded messages of this rule (repeatable)")
+    fg.add_argument(
+        "--yes",
+        action="store_true",
+        help="Forget (or with --empty, delete) after the count is typed; without it, a dry run",
+    )
+    fg.add_argument(
+        "--empty",
+        action="store_true",
+        help=f"Delete forget runs held {forget.HOLD_DAYS} days or more, for good",
+    )
+    fg.add_argument("--undo", metavar="RUN", help="Put a held forget run back into the backup")
+    fg.add_argument(
+        "--config",
+        default=str(config_root()),
+        help="Config folder: accounts.toml, settings.toml, one folder per account "
+        f"(default: {config_root()})",
+    )
+    fg.set_defaults(func=cmd_forget)
 
     args = p.parse_args(argv)
     try:

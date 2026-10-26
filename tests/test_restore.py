@@ -332,7 +332,7 @@ def test_v7_and_v8_sidecars_gain_the_restore_record_repeatably(tmp_path):
             ("g9", "", "n9")
         ]
         assert con.execute("SELECT value FROM meta WHERE name = 'schema_version'").fetchone() == (
-            "9",
+            sidecar.SCHEMA_VERSION,
         )
         con.close()
 

@@ -406,6 +406,7 @@ def test_count(tmp_path):
         "gone_from_server": 1,
         "offloaded": 0,
         "offloaded_in_gmail": 0,
+        "forgotten": 0,
         "restored": 0,
         "file_missing": 1,
     }

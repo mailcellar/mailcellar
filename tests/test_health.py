@@ -40,7 +40,9 @@ def test_v4_sidecar_gains_runs_and_offloaded_tables_repeatably(tmp_path):
     for _ in range(2):
         sidecar.open_meta(folder).close()
     con = sqlite3.connect(folder / "meta.sqlite")
-    assert con.execute("SELECT value FROM meta WHERE name = 'schema_version'").fetchone() == ("9",)
+    assert con.execute("SELECT value FROM meta WHERE name = 'schema_version'").fetchone() == (
+        sidecar.SCHEMA_VERSION,
+    )
     assert con.execute("SELECT count(*) FROM runs").fetchone() == (0,)
     assert con.execute("SELECT count(*) FROM offloaded").fetchone() == (0,)
     assert "offloaded" in {row[1] for row in con.execute("PRAGMA table_info(runs)")}
