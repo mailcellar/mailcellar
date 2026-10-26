@@ -1,0 +1,107 @@
+# Restoring mail: restore
+
+`restore` puts backed-up mail back into Gmail: offloaded messages, or a
+whole backup, into its own account or another configured one. Without
+`--yes` it is a dry run, which checks the backup and Gmail and says what
+it would do.
+
+```bash
+mailcellar restore personal --batch 2026-01-15-093000   # dry run of one offload batch
+mailcellar restore personal --batch 2026-01-15-093000 --yes
+mailcellar restore personal --rule "old work mail" --limit 100 --yes
+mailcellar restore personal --id 18c0ffee0000abcd --yes
+mailcellar restore personal --offloaded                 # everything offloaded
+mailcellar restore personal --all                       # the whole backup
+mailcellar restore work --all --to personal --label-prefix work   # into another account
+```
+
+Batch names are the folders in `<data root>/offload/batches/`. `--limit`
+takes the oldest messages first, and repeated runs carry on where the
+last one stopped.
+
+**Narrowing a selection.** Any of the selections above can be narrowed, so
+"last year's mail from one sender" needs no ID lookup first:
+
+```bash
+mailcellar restore personal --all --after 2025-01-01 --before 2026-01-01 --sender @example.com
+mailcellar restore personal --offloaded --has-label projects --sender alex@example.org
+```
+
+- `--before DATE` keeps mail older than the date, `--after DATE` mail from
+  that date on. A date is `YYYY-MM-DD` (UTC) or a number of years ago.
+- `--has-label NAME` keeps mail with that user label, by name, ignoring case
+  (system labels such as `INBOX` don't count). It is not `--label`, which
+  names the label that restored mail gets.
+- `--sender` keeps mail from an address, or from any address at a `@domain`,
+  ignoring case; it goes by the From address, so a relayed message counts as
+  from its relay. `--has-label` and `--sender` can be repeated: mail matching
+  any one of the values stays.
+
+Everything given has to hold at once, and none of them is a selection by
+itself: name `--all`, `--offloaded`, `--batch`, `--rule` or `--id` too.
+
+**How each message comes back** (the first that applies):
+- **still in Gmail's Trash** (within 30 days of the offload): moved out,
+  keeping its ID, labels and thread;
+- **offloaded, but already out of Trash** (moved by hand): recorded and
+  relabelled;
+- **never offloaded and still in Gmail** (with `--all`): left alone;
+- **gone, but Gmail has the same Message-ID and content** under another
+  ID: recorded as that message;
+- **gone:** uploaded from the backup with its labels, apart from those
+  Gmail won't take (Trash, Spam, chat, superstars) and the offload and
+  dedup labels. The upload keeps the original date; Gmail threads it by
+  its headers.
+
+Restored messages lose the offload label and gain `restored/<date>`
+(`--label NAME` to choose another), so a restore can be found and undone.
+The backup indexes each new Gmail ID, sharing the existing `.eml`, so the
+next backup doesn't download it again. A message whose Message-ID Gmail
+already holds with *other* content is skipped: Gmail would match the
+upload to that message instead of storing this one.
+
+**Into another account** (`--to`): every message is looked up by
+Message-ID there, and new IDs go into that account's backup. It needs
+modify access to that account (`mailcellar auth ACCOUNT --scope
+modify`). `--label-prefix P` nests the backed-up user labels under `P/`;
+`--strip-labels` restores none, so the messages arrive archived with only
+the `restored/` label.
+
+**How long it takes:** the dry run checks every `.eml` file and looks each
+message up in Gmail, so on a large backup it takes minutes. Uploads run at
+about 6 a second, so the dry run's estimate for 4,500 messages is about 13
+minutes and for 50,000 over two hours. Progress lines go to stderr (`-q` turns them off); run
+large restores in the background.
+
+Runs are logged in `<data root>/restore/restore-log.csv`, and each
+restored message is recorded in its backup's `meta.sqlite`. How it works:
+[docs/architecture.md](../architecture.md#restore).
+
+**From elsewhere.** Three other sources hold mail that isn't in a backup's
+index. Each restores every message it holds, narrowed by `--id`, `--before`,
+`--after`, `--has-label`, `--sender` and `--limit`, with the same dry run
+and `--yes`:
+
+```bash
+mailcellar restore personal --from-pruned 2026-03-01-120000   # what backup --sync moved out
+mailcellar restore personal --from-mbox ~/Takeout/Mail/All.mbox --yes
+mailcellar restore personal --from-folder /Volumes/old/GYB-GMail-Backup-old@example.org
+```
+
+- `--from-pruned BATCH`: mail that `backup --sync` moved into
+  `<data root>/_pruned/<email>/BATCH/`, with the labels in its `pruned.csv`.
+  It goes back into that account, or another with `--to`.
+- `--from-mbox FILE`: a Google Takeout export, or a file `mailcellar export`
+  wrote, into ACCOUNT. Labels come from each message's `X-Gmail-Labels`
+  header (Takeout's names such as `Inbox` or `Category Updates` become
+  Gmail's own; its `Opened` and `Archived` markers are not labels), and that
+  header and `X-GM-THRID` are taken off before upload. In the log the
+  messages are `mbox-1`, `mbox-2`, … in file order.
+- `--from-folder DIR`: a gyb backup folder from elsewhere (another
+  machine, an old account), into ACCOUNT. It is only read.
+
+None of these has Gmail IDs that mean anything in the account restored
+into, so each message is looked up there by Message-ID and content, as
+with `--to`: recorded if Gmail has it, uploaded otherwise. Nothing is
+recorded in a backup or indexed: a run again finds what was restored by
+its Message-ID, and the next `backup` downloads it.

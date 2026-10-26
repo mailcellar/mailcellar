@@ -146,7 +146,7 @@ mail, which has no other source). It changes nothing.
   folder per run; `mailcellar restore ACCOUNT --from-pruned BATCH` puts it
   back into Gmail. A Google Takeout export, or another gyb folder, can be
   restored the same way with `--from-mbox` or `--from-folder` (see
-  [Restoring mail](https://github.com/mailcellar/mailcellar#restoring-mail)).
+  [Restoring mail](../reference/restore.md)).
 - Plans and logs are only working files. Make a new plan with `dedup plan`
   or `offload plan`.
 

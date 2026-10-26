@@ -45,7 +45,7 @@ gyb's `<email>.cfg` and credential files are **not read**. mailcellar signs
 in with an OAuth client of the same kind gyb uses, but stores its own
 tokens in its own config folder. List the account in
 `~/.config/mailcellar/accounts.toml` and put the client where
-[the README](https://github.com/mailcellar/mailcellar#configuration) says:
+[the README](../reference/configuration.md) says:
 
 ```toml
 personal = "alex@example.com"
@@ -109,7 +109,7 @@ before you delete the original gyb folder.
   never touches mail you have offloaded.
 - **Restore.** `mailcellar restore` replaces `gyb --action restore`. It only
   adds, skips what Gmail already has, and takes a batch, rule, ID or
-  everything; see [Restoring mail](https://github.com/mailcellar/mailcellar#restoring-mail). A
+  everything; see [Restoring mail](../reference/restore.md). A
   restored message is indexed in the folder under its new Gmail ID, so gyb's
   own view of the folder stays valid.
 - **Per-message data.** Parsed fields, attachments and recipients live in

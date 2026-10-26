@@ -1,0 +1,16 @@
+# Command reference
+
+Every command and option. For a task from start to finish, see the
+[guides](../guide/google-cloud.md); for the design, [How it works](../architecture.md).
+
+| Page | Commands |
+| --- | --- |
+| [Backups](backup.md) | `backup`, `count`, `meta`, `verify` |
+| [Configuration](configuration.md) | the config folder, `accounts.toml`, `settings.toml` |
+| [What changes Gmail](what-changes-gmail.md) | the few commands that write to Gmail |
+| [Removing duplicates](dedup.md) | `dedup` |
+| [Offloading old mail](offload.md) | `offload`, and the rule keys |
+| [Restoring mail](restore.md) | `restore` |
+| [Exporting mail](export.md) | `export` |
+| [Searching mail](search.md) | `search` |
+| [Reports](report.md) | `report` |

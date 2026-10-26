@@ -4,7 +4,7 @@ mailcellar's backup is a copy of Gmail on your disk. It is what lets you
 take old mail out of Gmail, so it matters more than any other part of the
 setup. This page covers how to run it, how to check it, and how to keep a
 second copy of it. The README has the reference for each command
-([Backups](https://github.com/mailcellar/mailcellar#backups)).
+([Backups](../reference/backup.md)).
 
 ## What the backup does, and what it never does
 
