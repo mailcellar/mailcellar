@@ -50,6 +50,7 @@ nav:
       - Scheduled backups: guide/scheduling.md
       - Migrating from gyb: guide/from-gyb.md
       - Offloading old mail safely: guide/offloading.md
+      - Removing duplicate mail: guide/dedup.md
       - Exporting mail: guide/exporting.md
       - Recovering when something goes wrong: guide/recovery.md
       - Troubleshooting and FAQ: guide/troubleshooting.md
