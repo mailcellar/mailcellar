@@ -96,7 +96,8 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
   (`-v` DEBUG, `-q` WARNING). Gmail's retries log at DEBUG, waits of
   `LONG_WAIT` seconds or more at INFO.
 - Standard library first; the only runtime dependencies are the Google
-  API client and OAuth libraries.
+  API client and OAuth libraries, plus a floor on certifi (the CA bundle
+  they trust) to keep out a bundle with distrusted roots.
 - Code is formatted by `ruff format` (line length 100, config in
   `pyproject.toml`). With Python 3.14 as the target it writes
   `except A, B:` without parentheses (PEP 758); that is intended.

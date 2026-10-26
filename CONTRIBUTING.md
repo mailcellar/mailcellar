@@ -57,7 +57,8 @@ CI runs the same three checks on every push and pull request
 - **Output:** `print` for results and prompts; `logging` (a module-level
   `logger`) for progress, warnings and diagnostics, which `-v`/`-q` control.
 - **Dependencies:** standard library first. The only runtime dependencies
-  are Google's API client and OAuth libraries; adding one needs a reason.
+  are Google's API client and OAuth libraries, plus a minimum version of
+  certifi, the CA bundle they trust; adding one needs a reason.
 - **Evidence:** a change to matching, offload rules or restore behaviour
   says in the pull request why, and what it was checked against
   (synthetic examples, or counts from real backups without the mail
@@ -93,7 +94,7 @@ Co-Authored-By: <model or agent> <address>   (only if AI helped)
   every commit.
 - **Changelog:** a change a user would notice adds a line under
   `## Unreleased` in [`CHANGELOG.md`](CHANGELOG.md), in the same commit,
-  under Added, Changed, Fixed or Removed. Internal changes (tests, CI,
+  under Added, Changed, Fixed, Removed or Security. Internal changes (tests, CI,
   refactors) don't.
 - **AI assistance,** if any, is disclosed with a `Co-Authored-By:` trailer
   naming the model or agent; leave it out when none was used. It records how the change was made, and doesn't change who
