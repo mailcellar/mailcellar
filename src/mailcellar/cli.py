@@ -269,7 +269,10 @@ VERBOSE, QUIET = ("-v", "--verbose"), ("-q", "--quiet")
 
 
 class _Stderr(logging.StreamHandler):
-    """A handler that writes to whatever sys.stderr is at the time (tests capture it)."""
+    """
+    A handler that writes to whatever sys.stderr is at the time (tests
+    capture it), on a line of its own when a progress line is showing.
+    """
 
     @property
     def stream(self):
@@ -278,6 +281,12 @@ class _Stderr(logging.StreamHandler):
     @stream.setter
     def stream(self, _value):
         pass
+
+    def emit(self, record):
+        from mailcellar import progress
+
+        progress.clear_line()
+        super().emit(record)
 
 
 class _Format(logging.Formatter):

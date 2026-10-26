@@ -18,6 +18,11 @@ in beta, so commands and options may still change before 1.0.
   a recipe.
 
 ### Changed
+- Long steps show their progress the same way everywhere: how many of how
+  many, the rate, the time so far and about how long is left, on one line
+  that a terminal rewrites in place, or logged about once a minute when
+  stderr isn't a terminal. Reading Gmail before an apply and trashing,
+  which showed nothing before, now show it too; `-q` turns it off.
 - `restore --id` and `export --id` find a message anywhere in the backup,
   not only among offloaded mail; before, a message that was never offloaded
   needed `--all` as well. `--offloaded --id` still looks only at offloaded

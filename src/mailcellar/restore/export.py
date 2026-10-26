@@ -35,6 +35,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from mailcellar.backup import sidecar
+from mailcellar.progress import Progress
 from mailcellar.report.cli import resolve_folders
 from mailcellar.report.db import AnalyticsError
 from mailcellar.report.output import human_size
@@ -45,7 +46,6 @@ logger = logging.getLogger(__name__)
 
 INDEX_COLUMNS = ["date", "sender", "subject", "labels", "gmail_id", "file"]
 INDEX_NAME = "index.csv"
-PROGRESS_EVERY = 1000  # messages between progress lines
 
 
 # ── decisions ────────────────────────────────────────────────────────────────
@@ -174,16 +174,16 @@ def write_mbox(cands: list[Candidate], out) -> tuple[int, int, list[str]]:
     """Write the messages to the open binary file: (messages, bytes, IDs whose file is missing)."""
     written = size = 0
     skipped = []
-    for n, c in enumerate(cands, 1):
-        raw = read_eml(c)
-        if raw is None:
-            skipped.append(c.source_id)
-            continue
-        entry = mbox_entry(raw, c.internal_date, c.labels)
-        out.write(entry)
-        written, size = written + 1, size + len(entry)
-        if n % PROGRESS_EVERY == 0:
-            logger.info(f"Exported {n:,} of {len(cands):,}")
+    with Progress("Exporting", len(cands)) as exporting:
+        for c in cands:
+            exporting.advance()
+            raw = read_eml(c)
+            if raw is None:
+                skipped.append(c.source_id)
+                continue
+            entry = mbox_entry(raw, c.internal_date, c.labels)
+            out.write(entry)
+            written, size = written + 1, size + len(entry)
     return written, size, skipped
 
 
@@ -194,8 +194,12 @@ def write_zip(
     written = size = 0
     skipped = []
     rows = []
-    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
-        for n, c in enumerate(cands, 1):
+    with (
+        zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf,
+        Progress("Exporting", len(cands)) as exporting,
+    ):
+        for c in cands:
+            exporting.advance()
             raw = read_eml(c)
             if raw is None:
                 skipped.append(c.source_id)
@@ -209,8 +213,6 @@ def write_zip(
             sender, subject = details.get(c.source_id, ("", ""))
             rows.append(index_row(c, sender, subject, name))
             written, size = written + 1, size + len(raw)
-            if n % PROGRESS_EVERY == 0:
-                logger.info(f"Exported {n:,} of {len(cands):,}")
         text = io.StringIO(newline="")
         writer = csv.DictWriter(text, fieldnames=INDEX_COLUMNS)
         writer.writeheader()

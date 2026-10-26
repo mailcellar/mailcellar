@@ -233,7 +233,7 @@ def main(argv=None, prog: str | None = None) -> int:
         sys.exit("Nothing to do: no matching messages left to restore.")
 
     mode = "restore" if args.yes else "dry-run"
-    progress = timer()
+    progress = logger.info
     try:
         gmail = gmailapi.GmailAccount(
             target,
@@ -305,7 +305,7 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
         sys.exit("Nothing to do: no matching messages.")
 
     mode = "restore" if args.yes else "dry-run"
-    progress = timer()
+    progress = logger.info
     try:
         gmail = gmailapi.GmailAccount(
             target,
@@ -334,17 +334,6 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
     report(results, mode, account, target, where)
     print(f"Log → {args.log}")
     return 1 if any(r.outcome in ("failed", "skipped") for r in results) else 0
-
-
-def timer():
-    """A progress callback logging each message with the time since it was made."""
-    start = time.monotonic()
-
-    def progress(message: str) -> None:
-        minutes, seconds = divmod(int(time.monotonic() - start), 60)
-        logger.info(f"[{minutes:02d}:{seconds:02d}] {message}")
-
-    return progress
 
 
 def report(results, mode: str, account: str, target: str, source: str = "") -> None:

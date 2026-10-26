@@ -198,8 +198,7 @@ def test_dry_run_says_what_it_would_do_and_changes_nothing(env, capsys):
     captured = capsys.readouterr()
     assert "Nothing in Gmail or the backup was changed" in captured.out
     # Progress lines go to stderr, unless --quiet.
-    assert captured.err.startswith("[00:00] ")
-    assert "Checked 5 backup copies" in captured.err
+    assert captured.err.startswith("Checked 5 backup copies")
     assert "Searching Gmail for the Message-IDs" in captured.err
     run("--batch", BATCH, "--quiet")
     assert capsys.readouterr().err == ""
@@ -724,12 +723,17 @@ def test_a_new_id_gmail_cannot_describe_is_recorded_but_not_indexed(env):
     assert new_id not in sidecar.current_fields(env.folder)  # the next backup fetches it
 
 
-def test_progress_is_reported_while_checking_many_copies(env, monkeypatch):
-    monkeypatch.setattr(restore, "PROGRESS_EVERY", 2)
+def test_progress_is_reported_while_checking_many_copies(env, monkeypatch, capsys):
+    from mailcellar import progress
+
+    monkeypatch.setattr(progress, "DELAY", 0)
+    monkeypatch.setattr(progress, "LOG_EVERY", 0)
     messages = []
     restore.plan(env, restore.candidates(env.folder), progress=messages.append)
-    assert "Checking backup copies: 2 of 5" in messages
-    assert "Checking backup copies: 4 of 5" in messages
+    err = capsys.readouterr().err  # not a terminal: progress is logged
+    assert "Checking backup copies: 2 of 5 (40%)" in err
+    assert "Checking backup copies: 5 of 5 in 0:00" in err
+    assert messages[0] == "Checked 5 backup copies; 0 unusable"
 
 
 # ── narrowing by date, label and sender ──────────────────────────────────────

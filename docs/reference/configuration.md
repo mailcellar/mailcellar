@@ -124,3 +124,17 @@ nothing and prints no credentials. It takes no options.
 `-v` shows Gmail's retries and rate-limit waits, `-q` only warnings and
 errors, and `--help` the command's options. `-v` and `-q` can go anywhere on
 the line.
+
+**Progress.** A step that takes more than a couple of seconds (downloading,
+reading Gmail's state before an apply, trashing, verifying, indexing for
+`search`, exporting, restoring) shows how far it has got on stderr:
+
+```
+work@example.org: checking: 1,610 of 56,136 (2%), 201/s, 0:08 so far, about 4:31 left
+```
+
+On a terminal the line is rewritten in place and ends with how long the
+step took. When stderr isn't a terminal (a scheduled run, or output sent to
+a file) the line is logged about once a minute instead. The rate and the
+time left go by the last half minute, since Gmail's pace changes. `-q`
+turns progress off.
