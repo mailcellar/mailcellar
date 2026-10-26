@@ -1,9 +1,10 @@
 # CLAUDE.md
 
-mailcellar: Gmail backups (`backup/`), deduplication (`dedup/`),
-offloading old mail out of Gmail (`offload/`) and back (`restore/`), and
-reports (`report/`) for the configured accounts, all in one package,
-`src/mailcellar/`, behind one `mailcellar` command (`cli.py`).
+mailcellar: Gmail backups, with verify and scheduling (`backup/`),
+account setup (`setup/`), deduplication (`dedup/`), offloading old mail out
+of Gmail (`offload/`) and back, with export (`restore/`), search
+(`search/`), and reports (`report/`) for the configured accounts, all in
+one package, `src/mailcellar/`, behind one `mailcellar` command (`cli.py`).
 Read [docs/architecture.md](docs/architecture.md) first.
 User-facing usage: [README.md](README.md); every command and option is in
 [docs/reference/](docs/reference/index.md).
@@ -15,6 +16,7 @@ uv sync                                # after any pyproject.toml change: the co
 uv run pytest                          # all tests; no network
 uv run pytest --cov                    # with branch coverage; a guide, no minimum
 uv run ruff format && uv run ruff check   # format, then lint; both must pass
+uvx --from mkdocs==1.6.1 --with mkdocs-material==9.7.7 mkdocs build -d <scratchpad>/site   # docs, strict
 uv run mailcellar config               # where the config and data are; each account's state
 uv run mailcellar setup [ADDRESS] [--client FILE] [--name N] [--no-auth] [--force]   # add an account
 uv run mailcellar <backup|count|meta|verify> [ACCOUNT ...] [options]   # all accounts by default
@@ -34,8 +36,7 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
 - The data root (mail, derived databases, plans, logs) and the config
   folder (OAuth clients, tokens) live outside the repo: `$MAILCELLAR_DATA`,
   `data_dir` in settings.toml or `~/mailcellar`, and `$MAILCELLAR_CONFIG` or
-  `~/.config/mailcellar`; `mailcellar config` shows where. The old
-  in-repo `data/` and `config/` stay gitignored.
+  `~/.config/mailcellar`; `mailcellar config` shows where.
 - Mail is personal data. Show message details to the user when they ask,
   but never write them, or the user's addresses, names, contacts or
   setup, into anything committed: code, tests, docs, commit messages.
@@ -70,9 +71,14 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
   pins the data root and config folder to each test's directory, so no
   test can reach the real backups or tokens; keep it that way.
 - All code lives in `src/mailcellar/`. Each command's module exposes
-  `main(argv, prog)` (`backup/commands.py`, `dedup/cli.py`,
-  `offload/cli.py`, `restore/cli.py`, `report/cli.py`) and the top-level
-  `cli.py` dispatches to it. Add no top-level modules or other entry points.
+  `main(argv, prog)` and the top-level `cli.py` dispatches to it (its
+  `_dedup`, `_search`, … functions list them). Add no top-level
+  modules or other entry points.
+- Docs: every option of a command goes in its page under `docs/reference/`
+  (`tests/test_reference_docs.py` fails when `--help` lists one the page
+  doesn't name); a new guide goes in `docs/guide/`, `mkdocs.yml`'s `nav` and
+  the README's Documentation list. The README stays a landing page. Build in
+  strict mode (a broken link fails) with the command above.
 - Commits: Conventional Commits, `type(scope): summary` (types and scopes
   in CONTRIBUTING.md); the body says why and what it was checked against,
   real data as counts only; one logical change per commit, passing ruff
