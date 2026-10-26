@@ -84,6 +84,26 @@ Takes `--folder` and `--config`, as `backup` does.
 | --- | --- |
 | `--offloaded` | Only offloaded mail, the copies with no other source |
 | `--sample N` | Check N messages chosen at random (of the offloaded ones, with `--offloaded`) |
+| `--chain` | Also check the backup against its hash chain and the anchor in the config folder (not with `--sample` or `--offloaded`) |
 | `--top N` | Problems listed per account (default 50) |
 
 `verify` takes account names and finds the backups in the data root.
+
+**The hash chain.** Each backup folder has a `chain.jsonl`, which gyb
+ignores: one line, or link, per `backup`, `restore`, `--prune` and
+`offload forget` (and its `--undo` and `--empty`), listing the messages it
+added to or removed from the backup with the SHA-256 of each `.eml`, and
+the hash of the link before. The latest link's number and hash are also
+kept in the config folder (`anchors/<email>.json`), and `report health`
+shows them. The first `backup` after upgrading starts the chain by hashing
+every file once.
+
+`verify --chain` replays the chain and reads every file. It fails on a
+file changed since it was recorded, a recorded message missing from the
+backup, a message in the backup no link added, a chain that was edited,
+or an anchor that names another link, so a change shows even if
+`meta.sqlite` was rewritten to match. It warns, without failing, when
+there is no anchor (a copy of the backup on another machine) or the
+anchor is behind the chain. Something running as you could rewrite the
+chain and the anchor together; keep the head hash `report health` shows
+somewhere else as well.

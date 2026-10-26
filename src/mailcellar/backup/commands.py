@@ -44,6 +44,7 @@ a prune stopped at its guard (backup), or the backup is missing messages
 
 import argparse
 import base64
+import hashlib
 import logging
 import sys
 import time
@@ -51,7 +52,7 @@ from datetime import datetime
 from pathlib import Path
 
 from mailcellar import gmailapi
-from mailcellar.backup import gyb, sidecar
+from mailcellar.backup import chain, gyb, sidecar
 from mailcellar.message import PARSER_VERSION, parse_eml, parse_message
 from mailcellar.paths import backup_folder, config_root, pruned_folder
 from mailcellar.progress import Progress
@@ -207,7 +208,7 @@ def backup(
         "deleted_backed_up": 0,
     }
     try:
-        _backup(gmail, con, mcon, folder, query, refresh_labels, stats)
+        _backup(gmail, account, con, mcon, folder, query, refresh_labels, stats)
     except Exception:
         _record_backup(con, mcon, started, stats, "error")
         raise
@@ -238,11 +239,21 @@ def _record_backup(con, mcon, started: int, stats: dict, status: str) -> None:
     )
 
 
-def _backup(gmail, con, mcon, folder: Path, query, refresh_labels: bool, stats: dict) -> None:
+def _backup(
+    gmail, account: str, con, mcon, folder: Path, query, refresh_labels: bool, stats: dict
+) -> None:
     """The body of backup(): updates stats as it goes."""
     sidecar.replace_label_catalogue(mcon, gmail.label_catalogue())
     logger.info(f"Using backup folder {folder}")
     have = gyb.backed_up_ids(con, folder)
+    recorded = chain.start(folder, account)  # the hash chain, begun if there is none
+    pending: dict[str, list] = {"backup": [], "refetch": []}
+
+    def record():
+        """Append the links for what is about to be committed, then forget them."""
+        for op, pairs in pending.items():
+            chain.append(folder, account, op, pairs)
+            pairs.clear()
 
     start = None
     if not stats["reason"]:
@@ -281,15 +292,19 @@ def _backup(gmail, con, mcon, folder: Path, query, refresh_labels: bool, stats: 
             stats["chats"] += 1
             return
         gyb.write_message(con, folder, response, gmail.label_names(label_ids))
+        sha = hashlib.sha256(base64.urlsafe_b64decode(response["raw"])).hexdigest()
+        pending["refetch" if response["id"] in recorded else "backup"].append((response["id"], sha))
         write_meta(mcon, response)
         stats["downloaded"] += 1
         if stats["downloaded"] % COMMIT_EVERY == 0:
+            record()
             con.commit()
             mcon.commit()
 
     if todo:
         with Progress("Downloading", len(todo)):
             stats["failed"] = gmail.get_raw(todo, on_message)
+        record()
         con.commit()
         mcon.commit()
 
@@ -346,7 +361,9 @@ def prune(
     offloaded = sidecar.kept_ids(mcon)
     mcon.close()
     try:
-        result, status = _prune(con, gmail, folder, offloaded, confirm, force, max_fraction)
+        result, status = _prune(
+            con, gmail, account, folder, offloaded, confirm, force, max_fraction
+        )
         return result
     except PruneAborted:
         status = "aborted"
@@ -372,7 +389,14 @@ def prune(
 
 
 def _prune(
-    con, gmail, folder: Path, offloaded: set[str], confirm, force: bool, max_fraction: float
+    con,
+    gmail,
+    account: str,
+    folder: Path,
+    offloaded: set[str],
+    confirm,
+    force: bool,
+    max_fraction: float,
 ) -> tuple[dict, str]:
     """The body of prune(): (result, run status)."""
     gone, total, gone_offloaded = gone_from_server(gmail, con, offloaded)
@@ -409,6 +433,7 @@ def _prune(
     if not confirm(f"Move them out of the backup to {dest}?"):
         print("Prune: nothing pruned.")
         return {"pruned": 0, "dest": None}, "declined"
+    chain.append(folder, account, "prune", removed=chain.removal(folder, gone))
     manifest = gyb.prune(con, folder, gone, dest)
     mcon = sidecar.open_meta(folder)
     try:

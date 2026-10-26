@@ -53,6 +53,15 @@ catches a failing disk, a sync tool that rewrote files, or an accidental
 delete. Run the full `mailcellar verify` occasionally: it parses every
 message, so on a large backup it takes a while.
 
+`verify --chain` also catches a change made on purpose. Every `backup`,
+`restore`, `--prune` and `offload forget` records what it added or removed,
+with a hash of each file, in a chain whose latest link is also kept in
+the config folder; the check fails on anything changed, missing or added
+outside those commands, even if `meta.sqlite` was changed to agree. Note
+the head hash `report health` shows somewhere else now and then: that is
+what shows the chain itself wasn't rewritten. See the
+[reference](../reference/backup.md#verify).
+
 ## The second copy
 
 The backup is on one disk. Keep a second copy of the **data root**, the

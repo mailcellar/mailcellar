@@ -44,7 +44,7 @@ from dataclasses import dataclass, replace
 from email.parser import BytesHeaderParser
 from pathlib import Path
 
-from mailcellar.backup import gyb, sidecar
+from mailcellar.backup import chain, gyb, sidecar
 from mailcellar.dedup.apply import DEDUP_LABEL
 from mailcellar.dedup.rules import is_user_label
 from mailcellar.message import PARSER_VERSION, parse_message
@@ -647,6 +647,7 @@ def _index_new_ids(gmail, tcon, folder, imported: list[Result], fields: dict) ->
     with Progress("Reading the imported messages", len(imported)):
         details = gmail.message_details([r.new_id for r in imported])
     con = gyb.open_backup(folder, gmail.account)
+    added = []
     try:
         for r in imported:
             d = details.get(r.new_id)
@@ -654,7 +655,8 @@ def _index_new_ids(gmail, tcon, folder, imported: list[Result], fields: dict) ->
                 continue
             ms = int(d["internalDate"])
             names = gmail.label_names(d.get("labelIds", []))
-            gyb.add_copy(con, folder, r.new_id, ms, names, r.decision.candidate.path)
+            rel = gyb.add_copy(con, folder, r.new_id, ms, names, r.decision.candidate.path)
+            added.append((r.new_id, chain.file_hash(folder / rel) or ""))
             sidecar.upsert_message(
                 tcon,
                 r.new_id,
@@ -664,6 +666,7 @@ def _index_new_ids(gmail, tcon, folder, imported: list[Result], fields: dict) ->
                 fields=fields[r.source_id],
                 label_ids=d.get("labelIds", []),
             )
+        chain.append(folder, gmail.account, "restore", added)
         con.commit()
         tcon.commit()
     finally:

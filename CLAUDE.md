@@ -68,6 +68,9 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
   a minute), most of it reading each message back.
 - Keep the backup format byte-compatible with gyb (`backup/gyb.py`);
   new per-message data goes in `meta.sqlite`, never `msg-db.sqlite`.
+- Anything that adds messages to a backup or removes them appends a link
+  to its hash chain first (`chain.append`, `backup/chain.py`), so
+  `verify --chain` can tell it from tampering.
 - Schema changes go through `SCHEMA_VERSION` + `MIGRATIONS`
   (`dedup/db.py`, `backup/sidecar.py`); migrations must be safe to repeat.
 - Bump `message.PARSER_VERSION` whenever `parse_message()` output changes.

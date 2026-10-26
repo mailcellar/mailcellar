@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from mailcellar.backup import gyb, sidecar
+from mailcellar.backup import chain, gyb, sidecar
 from mailcellar.paths import data_root
 
 HOLD_DAYS = 30  # like Gmail's Trash
@@ -212,6 +212,8 @@ def forget(folder: Path, account: str, chosen: list[Offloaded], run: str, now_ms
     rows in msg-db.sqlite and meta.sqlite, and record them as forgotten.
     Returns how many were moved out. The caller scrubs the rest.
     """
+    ids = [c.gmail_id for c in chosen]
+    chain.append(folder, account, "forget", removed=chain.removal(folder, ids))
     con = gyb.open_backup(folder, account)
     try:
         manifest = gyb.prune(
@@ -305,6 +307,7 @@ def empty(folder: Path, account: str, runs: list[str], now_ms: int) -> int:
             src = runs_dir(account) / run
             with (src / MANIFEST).open(newline="", encoding="utf-8") as fh:
                 ids = [row["gmail_id"] for row in csv.DictReader(fh)]
+            chain.append(folder, account, "empty", removed=[(gid, "") for gid in ids])
             shutil.rmtree(src)
             mcon.executemany(
                 "UPDATE forgotten SET emptied_ms = ? WHERE gmail_id = ? AND run = ?",
@@ -317,6 +320,18 @@ def empty(folder: Path, account: str, runs: list[str], now_ms: int) -> int:
     return deleted
 
 
+def returning(folder: Path, src: Path) -> list[tuple[str, str]]:
+    """(Gmail ID, sha256) of what undo puts back: the held run's files the backup lacks."""
+    with (src / MANIFEST).open(newline="", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    have = chain.index_paths(folder)
+    return [
+        (row["gmail_id"], chain.file_hash(src / row["path"]) or "")
+        for row in rows
+        if row["gmail_id"] not in have
+    ]
+
+
 def undo(folder: Path, account: str, run: str) -> int:
     """
     Put a held run back into the backup and stop counting it as forgotten.
@@ -324,6 +339,7 @@ def undo(folder: Path, account: str, run: str) -> int:
     `mailcellar meta`, the next search and `dedup index`. Returns how many.
     """
     src = runs_dir(account) / run
+    chain.append(folder, account, "undo", returning(folder, src))
     con = gyb.open_backup(folder, account)
     try:
         back = gyb.unprune(con, folder, src, MANIFEST)
