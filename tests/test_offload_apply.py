@@ -145,10 +145,10 @@ def test_label_then_trash_records_offloaded(env, capsys):
     con = sqlite3.connect(env.folder / "meta.sqlite")
     assert {b for (b,) in con.execute("SELECT DISTINCT batch FROM offloaded")} == {batch}
 
-    # once Gmail empties its Trash, --sync keeps them in the backup
+    # once Gmail empties its Trash, --prune keeps them in the backup
     for gid in ("w2", "w3", "w4"):
         del env.source.messages[gid]
-    result = commands.sync(env.source, A, env.folder, confirm=lambda p: True)
+    result = commands.prune(env.source, A, env.folder, confirm=lambda p: True)
     assert result["pruned"] == 0
     assert all(next(env.folder.rglob(f"{g}.eml"), None) for g in ("w2", "w3", "w4"))
 

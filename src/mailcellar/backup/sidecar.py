@@ -10,16 +10,16 @@ message is parsed once:
   attachments     every non-body part: file name, type, size, hash
   recipients      To / Cc / Bcc addresses and names
   labels          the account's label ID → name catalogue
-  runs            one row per backup, count and sync run: mode, counts,
+  runs            one row per backup, count and prune run: mode, counts,
                   outcome (for the health report)
   offloaded       messages removed from Gmail on purpose and kept here;
-                  --sync never prunes them
+                  --prune never moves them
   restored        messages put back into Gmail by restore (into this
                   account or another), and the ID each has there now
   meta            schema_version, and history_id: where the next
                   history-based backup starts
 
-backup writes it on download, label refresh and --sync, and `meta` fills
+backup writes it on download, label refresh and --prune, and `meta` fills
 it for older mail; offload apply and restore record what they did. dedup
 index and the reports read it instead of parsing .eml files. gyb ignores
 the file; msg-db.sqlite is never touched here.
@@ -195,7 +195,7 @@ CREATE TABLE IF NOT EXISTS runs (
     run_id           INTEGER PRIMARY KEY,
     started_ms       INTEGER NOT NULL,    -- ms since epoch, UTC
     finished_ms      INTEGER NOT NULL,
-    command          TEXT NOT NULL,       -- 'backup' | 'count' | 'sync'
+    command          TEXT NOT NULL,       -- 'backup' | 'count' | 'sync' (= --prune)
     mode             TEXT NOT NULL DEFAULT '',  -- backup: 'history' | 'full'
     reason           TEXT NOT NULL DEFAULT '',  -- why full: 'no-history' | 'expired' |
                                                 -- 'full' | 'search' | 'refresh-labels';
@@ -209,12 +209,12 @@ CREATE TABLE IF NOT EXISTS runs (
     labels_changed   INTEGER,
     skipped          INTEGER,             -- backup: in Spam/Trash/Chat
     deleted_in_gmail INTEGER,             -- backup: backed-up messages deleted in Gmail
-    pruned           INTEGER,             -- sync: messages moved out of the backup
+    pruned           INTEGER,             -- prune: messages moved out of the backup
     in_gmail         INTEGER,             -- count
     missing          INTEGER,             -- count: in Gmail, not backed up
     only_in_backup   INTEGER,             -- count: excluding offloaded messages
     messages         INTEGER,             -- messages in the backup afterwards
-    offloaded        INTEGER              -- count, sync: offloaded messages in the backup
+    offloaded        INTEGER              -- count, prune: offloaded messages in the backup
 );
 
 -- Messages removed from Gmail on purpose (offload apply), kept in the backup.
@@ -440,7 +440,7 @@ def replace_label_catalogue(con: sqlite3.Connection, labels: list[dict]) -> None
 
 
 def delete_messages(con: sqlite3.Connection, gmail_ids) -> None:
-    """Forget messages (pruned by --sync). No commit."""
+    """Forget messages (moved out of the backup by --prune). No commit."""
     ids = list(gmail_ids)
     for table in ("message_labels", "attachments", "recipients"):
         con.executemany(f"DELETE FROM {table} WHERE gmail_id = ?", ((g,) for g in ids))
@@ -512,7 +512,7 @@ def offloaded_ids(con: sqlite3.Connection) -> set[str]:
 
 def kept_ids(con: sqlite3.Connection) -> set[str]:
     """
-    Gmail IDs --sync never prunes and count doesn't call "only in backup":
+    Gmail IDs --prune never moves out and count doesn't call "only in backup":
     every message ever offloaded, restored or not. A message restored under
     a new ID keeps its old ID in the backup.
     """

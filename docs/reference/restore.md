@@ -86,12 +86,12 @@ index. Each restores every message it holds, narrowed by `--id`, `--before`,
 and `--yes`:
 
 ```bash
-mailcellar restore personal --from-pruned 2026-03-01-120000   # what backup --sync moved out
+mailcellar restore personal --from-pruned 2026-03-01-120000   # what backup --prune moved out
 mailcellar restore personal --from-mbox ~/Takeout/Mail/All.mbox --yes
 mailcellar restore personal --from-folder /Volumes/old/GYB-GMail-Backup-old@example.org
 ```
 
-- `--from-pruned BATCH`: mail that `backup --sync` moved into
+- `--from-pruned BATCH`: mail that `backup --prune` moved into
   `<data root>/_pruned/<email>/BATCH/`, with the labels in its `pruned.csv`.
   It goes back into that account, or another with `--to`.
 - `--from-mbox FILE`: a Google Takeout export, or a file `mailcellar export`
@@ -137,7 +137,7 @@ account restored into. Without `--yes` it is a dry run.
 
 | Option | What it reads |
 | --- | --- |
-| `--from-pruned BATCH` | Mail `backup --sync` moved into `<data root>/_pruned/<email>/BATCH/` |
+| `--from-pruned BATCH` | Mail `backup --prune` moved into `<data root>/_pruned/<email>/BATCH/` |
 | `--from-mbox FILE` | An mbox file: a Google Takeout export, or one `export` wrote |
 | `--from-folder DIR` | A gyb backup folder from elsewhere, read as it is |
 

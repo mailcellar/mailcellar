@@ -6,7 +6,7 @@ mailcellar backup personal         # one account
 mailcellar count                   # compare Gmail with the backups
 mailcellar backup personal --full  # list every message instead of using history
 mailcellar backup --unattended     # for scheduled runs: never opens a browser
-mailcellar backup personal --sync  # also move mail permanently deleted from Gmail
+mailcellar backup personal --prune  # also move mail permanently deleted from Gmail
                                           # (not offloaded mail) into <data root>/_pruned/
 mailcellar meta                    # fill meta.sqlite for older mail
 mailcellar verify                  # are the backup's files still intact?
@@ -15,7 +15,7 @@ mailcellar verify                  # are the backup's files still intact?
 **Exit status** (for scripts and schedulers): 0 when everything worked.
 Otherwise 1, in any of these cases:
 - an account failed (with several accounts, the others still run);
-- downloads failed (the next run fetches them), or `--sync` stopped at its
+- downloads failed (the next run fetches them), or `--prune` stopped at its
   guard;
 - `count` found mail missing from the backup;
 - `verify` found a problem.
@@ -58,9 +58,9 @@ with none named, every account in `accounts.toml`.
 | Option | What it does |
 | --- | --- |
 | `--full` | List every message instead of reading Gmail's history since the last run |
-| `--sync` | Then move mail permanently deleted from Gmail out of the backup, into `<data root>/_pruned/<email>/`; never offloaded mail |
-| `--yes` | With `--sync`: don't ask before moving |
-| `--force` | With `--sync`: allow moving more than 10% of the backup |
+| `--prune` | Then move mail permanently deleted from Gmail out of the backup, into `<data root>/_pruned/<email>/`; never offloaded mail |
+| `--yes` | With `--prune`: don't ask before moving |
+| `--force` | With `--prune`: allow moving more than 10% of the backup |
 | `--unattended` | For scheduled runs: never open a browser. A token that needs signing in fails that account's run, with the command to fix it |
 | `--refresh-labels` | Also re-sync the labels of messages already backed up. Gmail lists them label by label, 500 messages per call, so about a minute for 50,000 messages |
 | `--search QUERY` | Only consider messages matching this Gmail search |

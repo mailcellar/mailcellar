@@ -126,10 +126,10 @@ rebuilds it from the backups.
 One thing an older copy cannot know: mail you offloaded **after** the copy
 was made. Those messages are in the backup (they were downloaded earlier)
 but not recorded as offloaded, so once Gmail has emptied its Trash,
-`backup --sync` would offer to move them out of the backup as if Gmail had
+`backup --prune` would offer to move them out of the backup as if Gmail had
 lost them. Do not confirm that. Read what
 `backup` and `count` say, and compare against the batch manifests if you
-kept them, before using `--sync`.
+kept them, before using `--prune`.
 
 **Only some files are damaged.** `mailcellar verify` lists them: files that
 are missing, do not parse or no longer match their recorded content hash,
@@ -146,7 +146,7 @@ mail, which has no other source). It changes nothing.
   the file from a copy if you have one.
 - A damaged `msg-db.sqlite`, the gyb index, is the hardest case. Restore it
   from a copy together with its `.eml` files.
-- Mail that `backup --sync` moved out is in `<data root>/_pruned/`, one
+- Mail that `backup --prune` moved out is in `<data root>/_pruned/`, one
   folder per run; `mailcellar restore ACCOUNT --from-pruned BATCH` puts it
   back into Gmail. A Google Takeout export, or another gyb folder, can be
   restored the same way with `--from-mbox` or `--from-folder` (see

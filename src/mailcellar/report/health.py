@@ -1,11 +1,11 @@
 """
 health: is each backup complete and current, and how have runs gone?
 
-From the sidecar's runs table (every backup, count and sync run since
+From the sidecar's runs table (every backup, count and prune run since
 meta.sqlite schema 5), plus checks that need no run history: index
 entries without an .eml file, sidecar rows missing or parsed by an older
 parser, whether a history start point is stored, the newest message,
-mail offloaded from Gmail and kept in the backup, and the batches --sync
+mail offloaded from Gmail and kept in the backup, and the batches --prune
 moved to <data root>/_pruned/.
 
 Gmail keeps mailbox history for about 28 days; a backup whose start
@@ -116,7 +116,7 @@ def state(con, folders: list[Path], opts: Options, now: int) -> Table:
             "No .eml: indexed in msg-db.sqlite but the file is missing (backup re-fetches it). "
             "Not in sidecar / Older parser: run mailcellar meta. Offloaded: removed from "
             "Gmail on purpose and kept in the backup; in Trash until Gmail empties it (30 "
-            "days), as last seen by count, sync or a backup. Start point: a stored "
+            "days), as last seen by count, a prune or a backup. Start point: a stored "
             "history ID; its age is the time since the last backup that stored one. Times "
             "are UTC."
         ],
@@ -162,7 +162,7 @@ def runs(con) -> Table:
             "backup that could not sign in (status error; renew with mailcellar auth). "
             "Deleted in Gmail: backed-up "
             "messages permanently deleted there (backup, count), offloaded mail apart. Offloaded: "
-            "offloaded messages in the backup (count, sync). Missing / Only in backup: count's "
+            "offloaded messages in the backup (count, prune). Missing / Only in backup: count's "
             "comparison (only in backup includes mail in Trash or Spam, not offloaded mail)."
         ],
     )
@@ -203,7 +203,7 @@ def by_month(con) -> Table:
     rows = con.execute(f"""
         SELECT strftime('%Y-%m', started_ms / 1000, 'unixepoch') AS month, account,
                sum(command = 'backup'), sum({FULL_LISTING}),
-               sum(command = 'count'), sum(command = 'sync'),
+               sum(command = 'count'), sum(command = 'sync'),  -- prunes: see sidecar.runs
                coalesce(sum(downloaded), 0), coalesce(sum(labels_changed), 0),
                coalesce(sum(pruned), 0), sum(status IN ({failed}))
         FROM all_runs GROUP BY month, account ORDER BY month DESC, account""").fetchall()
@@ -216,14 +216,14 @@ def by_month(con) -> Table:
             ("Backups", "int"),
             ("Full listings", "int"),
             ("Counts", "int"),
-            ("Syncs", "int"),
+            ("Prunes", "int"),
             ("Downloaded", "int"),
             ("Label updates", "int"),
             ("Pruned", "int"),
             ("Failed runs", "int"),
         ],
         rows,
-        notes=["Failed runs: download failures, errors, or a sync aborted by its guard."],
+        notes=["Failed runs: download failures, errors, or a prune stopped by its guard."],
     )
 
 
@@ -240,7 +240,7 @@ def pruned(folders: list[Path]) -> Table:
         "Pruned batches (<data root>/_pruned/)",
         [("Account", "text"), ("Batch", "text"), ("Messages", "int")],
         rows,
-        notes=["Messages moved out of the backup by --sync, one folder per run (local time)."],
+        notes=["Messages moved out of the backup by --prune, one folder per run (local time)."],
         limit=False,
     )
 

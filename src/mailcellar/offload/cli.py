@@ -195,8 +195,8 @@ def cmd_apply(args) -> None:
     trashed = sum(e.outcome in ("trashed", "recorded") for e in log)
     if trashed:
         print(
-            f"Recorded {trashed:,} offloaded messages (batch {batch}); --sync keeps them in the "
-            "backup. Gmail frees their space when it empties its Trash."
+            f"Recorded {trashed:,} offloaded messages (batch {batch}); 'backup --prune' "
+            "keeps them in the backup. Gmail frees their space when it empties its Trash."
         )
         print(f"Manifest → {manifest_path(offload_dir(), batch)}")
 

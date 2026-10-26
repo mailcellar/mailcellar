@@ -103,8 +103,8 @@ mailcellar` and `python -m mailcellar` both work.
 | `gmailapi.py` | Accounts (`<config>/accounts.toml`), OAuth tokens and scopes, `GmailAccount`: adaptive batching, retries with backoff, listing, history, labels, trash and untrash, batched Message-ID searches, `messages.import` |
 | `message.py` | Message parsing: `parse_message()`, `content_hash()`, `header_key()`, `extract_address()`, `PARSER_VERSION` |
 | `setup/cli.py` | `setup`: from a downloaded OAuth client to a configured, signed-in account. `check_client`, `accounts_entries`, `pick_name`, `add_account`, `latest_download` are pure; `accounts.toml` is only appended to, the client is written owner-only, and the sign-in is `mailcellar auth`'s read-only one |
-| `backup/commands.py` | `backup` (history-based or full listing), `count`, `meta` (sidecar backfill), `sync`; the runs log |
-| `backup/gyb.py` | gyb's format: writes `msg-db.sqlite` and `<y>/<m>/<d>/<id>.eml`, reads them back (`iter_backup`, `backup_account`), `prune` for `--sync` |
+| `backup/commands.py` | `backup` (history-based or full listing), `count`, `meta` (sidecar backfill), `prune`; the runs log |
+| `backup/gyb.py` | gyb's format: writes `msg-db.sqlite` and `<y>/<m>/<d>/<id>.eml`, reads them back (`iter_backup`, `backup_account`), `prune` for `--prune` |
 | `backup/schedule.py` | `schedule`: installs `backup --unattended` as a launchd agent on macOS (a cron line elsewhere), `status` from the sidecars' runs and the token files, `remove`. The decisions (`describe`, `launchd_plist`, `cron_line`, `overdue`) are pure |
 | `backup/verify.py` | `verify`: for each backup, every indexed message's `.eml` exists, parses and matches the content hash in `meta.sqlite`; the two databases agree on which messages exist (`--offloaded`, `--sample`). Both are opened read-only; the decisions (`judge`, `select`, `disagreements`) are pure |
 | `backup/sidecar.py` | The per-account sidecar `meta.sqlite`: schema, migrations, runs, the offload record |
@@ -138,7 +138,7 @@ mailcellar` and `python -m mailcellar` both work.
     msg-db.sqlite            gyb index (db_version 6)
     <year>/<month>/<day>/<gmail_id>.eml
     meta.sqlite              sidecar (schema v9)
-  _pruned/<email>/<timestamp>/  messages moved out by backup --sync, + pruned.csv
+  _pruned/<email>/<timestamp>/  messages moved out by backup --prune, + pruned.csv
   logs/
     backup.log               output of the scheduled backup (schedule install); not rotated
   offload/
@@ -163,7 +163,7 @@ mailcellar` and `python -m mailcellar` both work.
 | Database | Owner | Contents | Versioning |
 |---|---|---|---|
 | `msg-db.sqlite` | `backup/gyb.py` | gyb's exact schema: `messages`, `uids`, `labels` (names), `settings` | fixed (gyb `db_version` 6) — never extended |
-| `meta.sqlite` | `backup/sidecar.py` | per message: parsed fields (incl. sender name, Reply-To, content hash, header key, list headers, In-Reply-To), thread ID, UTC date, size, `parser_version`; attachments (name, type, size, hash) and recipients; label IDs; label catalogue; `history_id`; a `runs` log of every backup, count and sync; `offloaded`, mail removed from Gmail on purpose; `restored`, mail put back and its ID now | `SCHEMA_VERSION` + `MIGRATIONS`; rows go stale by `parser_version` |
+| `meta.sqlite` | `backup/sidecar.py` | per message: parsed fields (incl. sender name, Reply-To, content hash, header key, list headers, In-Reply-To), thread ID, UTC date, size, `parser_version`; attachments (name, type, size, hash) and recipients; label IDs; label catalogue; `history_id`; a `runs` log of every backup, count and prune; `offloaded`, mail removed from Gmail on purpose; `restored`, mail put back and its ID now | `SCHEMA_VERSION` + `MIGRATIONS`; rows go stale by `parser_version` |
 | `search.sqlite` | `search/db.py` | per message: account, Gmail ID, path, size, date, sender, subject, `text_version`; an FTS5 index of sender, recipients, subject and body that stores no text (`contentless_delete`, SQLite 3.43+) | `SCHEMA_VERSION` + `MIGRATIONS`; `index.TEXT_VERSION` forces a re-read, independent of `PARSER_VERSION` |
 | `dedup.sqlite` | `dedup/db.py` | all accounts' messages (paths relative to `backups.folder`), labels, match groups | `SCHEMA_VERSION` + `MIGRATIONS`; `meta.parser_version` forces a re-parse |
 
@@ -184,7 +184,7 @@ no room for goes in `meta.sqlite`.
   with no failures.
 - **Parse once:** each downloaded message is parsed and written to
   `meta.sqlite` in the same pass; `meta` backfills older mail.
-- **Never deletes**, except `backup --sync`: messages permanently gone from
+- **Never deletes**, except `backup --prune`: messages permanently gone from
   Gmail (Trash and Spam count as present) are moved to
   `<data root>/_pruned/<email>/`, behind confirmation and a 10% guard. Messages
   recorded in `offloaded` always stay, and count neither toward the guard
@@ -245,7 +245,7 @@ since the plan. Removing the label in Gmail vetoes a message.
 Gmail matches an import to the message already holding its Message-ID, so
 a retried upload returns the same message rather than a copy. The old ID
 of an imported message stays in the backup: `sidecar.kept_ids()` protects
-it from `--sync`, and `superseded_ids()` keeps it out of reports and
+it from `--prune`, and `superseded_ids()` keeps it out of reports and
 dedup. With `--to`, restored rows carry the target account and leave the
 source's offload record alone.
 
@@ -271,7 +271,7 @@ that is pure.
   serves read-only requests. It isn't revoked at Google afterwards, since
   that would revoke the read-only token too.
 - Nothing is ever permanently deleted from Gmail (no `batchDelete`), and
-  the backup keeps everything unless `--sync` is asked for. Restore only
+  the backup keeps everything unless `--prune` is asked for. Restore only
   adds, and skips what Gmail already has.
 - Every account call checks it reached the expected mailbox.
 

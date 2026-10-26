@@ -112,7 +112,7 @@ def test_refresh_labels_updates_meta_label_ids(tmp_path):
 def test_sync_removes_meta_rows(tmp_path):
     gmail, folder = backed_up(tmp_path, {f"g{i}": raw_response(f"g{i}") for i in range(20)})
     del gmail.messages["g0"]
-    commands.sync(gmail, ACCOUNT, folder, confirm=lambda p: True)
+    commands.prune(gmail, ACCOUNT, folder, confirm=lambda p: True)
     m = meta_rows(folder)
     assert "g0" not in m["messages"] and len(m["messages"]) == 19
     assert not any(gid == "g0" for gid, _ in m["labels"])

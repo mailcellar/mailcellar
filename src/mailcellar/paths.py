@@ -4,7 +4,7 @@ data root (backups and everything derived from them) are.
 
   <config>/accounts.toml, settings.toml, <name>/  ← config_root()
   <data>/<email>/                                 ← one backup per account (gyb's format)
-  <data>/_pruned/<email>/<timestamp>/             ← messages moved out by backup --sync
+  <data>/_pruned/<email>/<timestamp>/             ← messages moved out by backup --prune
   <data>/dedup/, offload/, restore/               ← plans, logs, indexes
 
 config_root(): $MAILCELLAR_CONFIG, else ~/.config/mailcellar, else ./config.
@@ -24,7 +24,7 @@ CONFIG_ENV = "MAILCELLAR_CONFIG"
 SETTINGS_NAME = "settings.toml"  # in the config folder: data_dir = "~/data/mailcellar"
 SETTINGS_KEYS = {"data_dir", "token_warn_days", "keep_modify_token"}
 TOKEN_WARN_DAYS = 5  # days after consent when a token starts to be reported as ageing
-PRUNED_DIR = "_pruned"  # <data>/_pruned/<email>/<timestamp>/, written by --sync
+PRUNED_DIR = "_pruned"  # <data>/_pruned/<email>/<timestamp>/, written by --prune
 
 
 def _path(value: str) -> Path:
@@ -144,7 +144,7 @@ def backup_folder(account: str, data: Path | None = None) -> Path:
 
 
 def pruned_folder(backup_dir: Path) -> Path:
-    """Where `backup --sync` moves a backup's pruned messages: <data>/_pruned/<email>/."""
+    """Where `backup --prune` moves a backup's pruned messages: <data>/_pruned/<email>/."""
     return backup_dir.parent / PRUNED_DIR / backup_dir.name
 
 

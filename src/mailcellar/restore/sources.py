@@ -1,7 +1,7 @@
 """
 sources: mail to restore from somewhere other than the backup's own index.
 
-  pruned   what `backup --sync` moved into <data root>/_pruned/<email>/<batch>/,
+  pruned   what `backup --prune` moved into <data root>/_pruned/<email>/<batch>/,
            with the labels and dates in its pruned.csv
   mbox     a Google Takeout export, or a file written by `mailcellar export`,
            with labels from each message's X-Gmail-Labels header
@@ -84,7 +84,7 @@ def unreadable(
 
 
 def pruned_batches(folder: Path) -> list[str]:
-    """The batches `backup --sync` moved out of a backup, oldest first."""
+    """The batches `backup --prune` moved out of a backup, oldest first."""
     root = pruned_folder(folder)
     return sorted(d.name for d in root.glob("*") if (d / gyb.PRUNE_MANIFEST).is_file())
 

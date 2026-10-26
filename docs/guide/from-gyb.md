@@ -105,7 +105,7 @@ before you delete the original gyb folder.
 
 - **Nothing is removed unless you ask.** Mail permanently deleted from Gmail
   stays in the backup, and `backup` says how many such messages there are.
-  `backup --sync` moves them into `<data root>/_pruned/`, after asking, and
+  `backup --prune` moves them into `<data root>/_pruned/`, after asking, and
   never touches mail you have offloaded.
 - **Restore.** `mailcellar restore` replaces `gyb --action restore`. It only
   adds, skips what Gmail already has, and takes a batch, rule, ID or

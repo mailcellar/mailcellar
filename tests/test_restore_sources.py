@@ -129,7 +129,7 @@ def test_sources_that_are_not_there_say_so(tmp_path):
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     """
-    A's backup of p1, p2, p3 and k1; backup --sync has pruned p1, p2 and p3
+    A's backup of p1, p2, p3 and k1; backup --prune has pruned p1, p2 and p3
     (gone from Gmail), and Gmail still has p3 under another ID (q3). k1 stays.
     """
     monkeypatch.chdir(tmp_path)

@@ -17,7 +17,7 @@ invented.
 | Put back everything offloaded | `--offloaded` |
 | Rebuild an account that lost its mail | `--all` |
 | Copy an account's mail into another | `--all --to ACCOUNT` |
-| Recover mail `backup --sync` moved out | `--from-pruned` |
+| Recover mail `backup --prune` moved out | `--from-pruned` |
 | Load a Takeout export or an old gyb folder | `--from-mbox`, `--from-folder` |
 
 Restoring needs modify access to the account the mail goes into. A
@@ -120,8 +120,8 @@ The new messages are indexed in the target account's backup too, so the next
 Three sources hold mail that no backup lists. Each restores every message it
 holds, narrowed by the same options, with the same dry run and `--yes`.
 
-**Pruned mail** is what `backup --sync` moved out of the backup
-([Backing up](backing-up.md#mail-deleted-from-gmail-sync)). The batch name is
+**Pruned mail** is what `backup --prune` moved out of the backup
+([Backing up](backing-up.md#mail-deleted-from-gmail-prune)). The batch name is
 the folder under `<data root>/_pruned/<email>/`:
 
 ```bash
