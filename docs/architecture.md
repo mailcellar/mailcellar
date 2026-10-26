@@ -74,6 +74,8 @@ Who touches what:
 | Command | Reads | Writes | Gmail |
 |---|---|---|---|
 | `backup` | Gmail | the backup | read-only |
+| `schedule install`, `remove` | the config folder | the launchd agent (macOS) or nothing (a cron line is printed); `logs/backup.log` when it runs | none |
+| `schedule status` | the backups' `runs`, the token files | nothing | none |
 | `count` | Gmail, the backup | nothing (a line in `runs`) | read-only |
 | `meta` | the `.eml` files; Gmail, for label and thread details | `meta.sqlite` | read-only |
 | `verify`, `export`, `report` | the backup | `export`: the file you name; the others, nothing | none |
@@ -91,7 +93,7 @@ mailcellar` and `python -m mailcellar` both work.
 
 | Module | Role |
 |---|---|
-| `cli.py` | The `mailcellar` command: dispatches `backup`, `count`, `meta` (every configured account by default), `dedup`, `offload`, `restore`, `report` (plus `senders`), and `config`, which shows paths and each account's state without printing secrets; sets up logging (stderr; `-v`/`-q` anywhere on the line) |
+| `cli.py` | The `mailcellar` command: dispatches `backup`, `count`, `meta` (every configured account by default), `verify`, `auth`, `schedule`, `dedup`, `offload`, `restore`, `export`, `search`, `report` (plus `senders`), and `config`, which shows paths and each account's state without printing secrets; sets up logging (stderr; `-v`/`-q` anywhere on the line) |
 | `paths.py` | Where things are: `config_root()`, `data_root()` and where each was set, `backup_folder()`, `find_backups()`, `pruned_folder()` |
 | `gmailapi.py` | Accounts (`<config>/accounts.toml`), OAuth tokens and scopes, `GmailAccount`: adaptive batching, retries with backoff, listing, history, labels, trash and untrash, batched Message-ID searches, `messages.import` |
 | `message.py` | Message parsing: `parse_message()`, `content_hash()`, `header_key()`, `extract_address()`, `PARSER_VERSION` |
@@ -131,6 +133,8 @@ mailcellar` and `python -m mailcellar` both work.
     <year>/<month>/<day>/<gmail_id>.eml
     meta.sqlite              sidecar (schema v9)
   _pruned/<email>/<timestamp>/  messages moved out by backup --sync, + pruned.csv
+  logs/
+    backup.log               output of the scheduled backup (schedule install); not rotated
   offload/
     rules.toml               offload rules (user-written)
     offload-plan.csv         the latest offload plan, input of offload apply
@@ -176,7 +180,7 @@ no room for goes in `meta.sqlite`.
   `meta.sqlite` in the same pass; `meta` backfills older mail.
 - **Never deletes**, except `backup --sync`: messages permanently gone from
   Gmail (Trash and Spam count as present) are moved to
-  `data/_pruned/<email>/`, behind confirmation and a 10% guard. Messages
+  `<data root>/_pruned/<email>/`, behind confirmation and a 10% guard. Messages
   recorded in `offloaded` always stay, and count neither toward the guard
   nor as deleted in `count` or a backup run.
 
