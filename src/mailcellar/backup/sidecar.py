@@ -25,10 +25,15 @@ index and the reports read it instead of parsing .eml files. gyb ignores
 the file; msg-db.sqlite is never touched here.
 """
 
+import logging
+import os
+import shutil
 import sqlite3
 from pathlib import Path
 
 from mailcellar.message import PARSER_VERSION
+
+logger = logging.getLogger(__name__)
 
 META_NAME = "meta.sqlite"
 SCHEMA_VERSION = "10"
@@ -277,9 +282,48 @@ def meta_path(folder: Path) -> Path:
     return folder / META_NAME
 
 
+def copy_before_migrating(path: Path) -> Path | None:
+    """
+    Copy an existing meta.sqlite that is about to be migrated to
+    <name>.pre-v<SCHEMA_VERSION> next to it, before anything touches it, so
+    the version before survives a migration that goes wrong (and an older
+    mailcellar can still read it). A copy already there is kept: it is the
+    first, true pre-migration state. Returns the copy, or None.
+    """
+    if not path.is_file() or path.stat().st_size == 0:
+        return None
+    src = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        try:
+            row = src.execute("SELECT value FROM meta WHERE name = 'schema_version'").fetchone()
+        except sqlite3.Error:
+            return None  # not a sidecar mailcellar knows how to migrate
+        if row is None or row[0] == SCHEMA_VERSION or row[0] not in MIGRATIONS:
+            return None
+        dest = path.with_name(f"{path.name}.pre-v{SCHEMA_VERSION}")
+        if dest.exists():
+            return None
+        part = dest.with_name(f".{dest.name}.part")
+        out = sqlite3.connect(part)
+        try:
+            src.backup(out)
+        finally:
+            out.close()
+        shutil.copymode(path, part)
+        os.replace(part, dest)
+    finally:
+        src.close()
+    logger.info(f"Copied {path.name} (schema {row[0]}) to {dest} before migrating it")
+    return dest
+
+
 def open_meta(folder: Path) -> sqlite3.Connection:
-    """Open (creating if needed) the backup folder's meta.sqlite for writing."""
+    """
+    Open (creating if needed) the backup folder's meta.sqlite for writing,
+    migrating an older schema after copying it aside (copy_before_migrating).
+    """
     folder.mkdir(parents=True, exist_ok=True)
+    copy_before_migrating(meta_path(folder))
     con = sqlite3.connect(meta_path(folder))
     try:
         con.executescript(_SCHEMA)

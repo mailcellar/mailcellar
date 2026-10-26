@@ -220,3 +220,63 @@ def test_cli_meta_offline(tmp_path, monkeypatch, capsys):
     assert commands.main(["meta", "a", "--offline", "--config", str(config)]) == 0
     assert "2 added" in capsys.readouterr().out
     assert len(meta_rows(folder)["messages"]) == 2
+
+
+# ── copying aside before a migration ─────────────────────────────────────────
+
+
+def older_sidecar(tmp_path):
+    """A backed-up message's sidecar, set back to schema 9 (before the forgotten table)."""
+    folder = tmp_path / "data" / ACCOUNT
+    commands.backup(FakeGmail({"g1": raw_response("g1")}), ACCOUNT, folder)
+    con = sqlite3.connect(folder / "meta.sqlite")
+    con.execute("DROP TABLE forgotten")
+    con.execute("UPDATE meta SET value = '9' WHERE name = 'schema_version'")
+    con.commit()
+    con.close()
+    return folder
+
+
+def schema_and_tables(path):
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        (version,) = con.execute("SELECT value FROM meta WHERE name = 'schema_version'").fetchone()
+        tables = {n for (n,) in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        return version, tables
+    finally:
+        con.close()
+
+
+def test_an_older_sidecar_is_copied_aside_untouched_before_migrating(tmp_path, caplog):
+    folder = older_sidecar(tmp_path)
+    (folder / "meta.sqlite").chmod(0o600)
+    sidecar.open_meta(folder).close()
+    copy = folder / f"meta.sqlite.pre-v{sidecar.SCHEMA_VERSION}"
+    version, tables = schema_and_tables(copy)
+    assert version == "9" and "forgotten" not in tables  # as it was, not half-migrated
+    assert schema_and_tables(folder / "meta.sqlite")[0] == sidecar.SCHEMA_VERSION
+    assert copy.stat().st_mode & 0o777 == 0o600  # as private as the original
+    assert "before migrating it" in caplog.text
+    assert not list(folder.glob(".*.part"))
+
+
+def test_a_copy_already_there_is_kept_and_a_current_sidecar_is_not_copied(tmp_path):
+    folder = older_sidecar(tmp_path)
+    copy = folder / f"meta.sqlite.pre-v{sidecar.SCHEMA_VERSION}"
+    copy.write_bytes(b"the first copy")
+    sidecar.open_meta(folder).close()
+    assert copy.read_bytes() == b"the first copy"  # the true pre-migration state stays
+    copy.unlink()
+    sidecar.open_meta(folder).close()  # current now: nothing to copy
+    assert not copy.exists()
+
+
+def test_a_sidecar_from_a_newer_mailcellar_is_neither_copied_nor_opened(tmp_path):
+    folder = older_sidecar(tmp_path)
+    con = sqlite3.connect(folder / "meta.sqlite")
+    con.execute("UPDATE meta SET value = '99' WHERE name = 'schema_version'")
+    con.commit()
+    con.close()
+    with pytest.raises(sidecar.MetaError, match="has schema 99"):
+        sidecar.open_meta(folder)
+    assert list(folder.glob("meta.sqlite.pre-v*")) == []

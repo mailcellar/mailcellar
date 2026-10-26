@@ -7,6 +7,11 @@ in beta, so commands and options may still change before 1.0.
 
 ## Unreleased
 
+**Upgrading from 0.10.0:** each backup's `meta.sqlite` moves to schema 10
+the first time any command opens it, and 0.10.0 can't read schema 10.
+mailcellar copies the old file to `meta.sqlite.pre-v10` next to it first;
+to go back to 0.10.0, put that copy back.
+
 ### Added
 - `offload forget` deletes offloaded mail from the backup once Gmail has
   deleted it too, for mail that shouldn't be kept at all. It takes only
@@ -25,6 +30,9 @@ in beta, so commands and options may still change before 1.0.
   a recipe.
 
 ### Changed
+- Before a schema migration, `meta.sqlite` is copied to `meta.sqlite.pre-vN`
+  next to it, untouched, so the old version survives a migration that goes
+  wrong. An existing copy is never overwritten.
 - `backup --sync` is now `backup --prune`, which says what it does: move mail
   permanently deleted from Gmail out of the backup, into `_pruned/`, the name
   `restore --from-pruned` already used. `--sync` is no longer accepted.
