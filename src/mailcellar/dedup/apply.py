@@ -18,6 +18,7 @@ from pathlib import Path
 
 from mailcellar.dedup.plan import PLAN_COLUMNS
 from mailcellar.dedup.rules import STAR_LABELS, is_user_label
+from mailcellar.progress import Progress
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +172,8 @@ def act(
         return after_label(results)
     if not confirm(f"Move {len(ids):,} messages in {account} to Trash?"):
         return after_declined(results)
-    failures = dict(f.split(": ", 1) for f in client.trash(ids))
+    with Progress(f"{account}: moving to Trash", len(ids)):
+        failures = dict(f.split(": ", 1) for f in client.trash(ids))
     done = after_trash(results, failures)
     if on_trashed is not None:
         on_trashed(account, [r.row for r in done if r.outcome == "trashed"])
@@ -237,7 +239,9 @@ def apply_plan(
     for account in sorted(remove_accounts) + sorted(set(wanted) - remove_accounts):
         ids = sorted(wanted[account])
         logger.info(f"Reading {len(ids):,} messages from {account} …")
-        for gid, labels in client(account).message_labels(ids).items():
+        with Progress(f"{account}: reading", len(ids)):
+            labels_by_id = client(account).message_labels(ids)
+        for gid, labels in labels_by_id.items():
             live[(account, gid)] = labels
 
     results = [

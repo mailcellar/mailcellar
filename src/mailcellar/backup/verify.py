@@ -32,12 +32,12 @@ from pathlib import Path
 from mailcellar.backup import sidecar
 from mailcellar.backup.gyb import DB_NAME, backup_account
 from mailcellar.message import PARSER_VERSION, parse_eml
+from mailcellar.progress import Progress
 from mailcellar.report.cli import resolve_folders
 from mailcellar.report.db import AnalyticsError
 
 logger = logging.getLogger(__name__)
 
-PROGRESS_EVERY = 5000  # messages between progress lines
 
 OK, UNCHECKED = "ok", "unchecked"
 MISSING = "file missing"
@@ -220,17 +220,17 @@ def verify_backup(
     findings = disagreements({e.gmail_id for e in entries}, set(stored) if full else set(), scope)
 
     checked = unchecked = 0
-    for n, entry in enumerate(chosen, 1):
-        read = read_eml(folder / entry.path)
-        verdict = judge(read, stored.get(entry.gmail_id))
-        if verdict == OK:
-            checked += 1
-        elif verdict == UNCHECKED:
-            unchecked += 1
-        else:
-            findings.append(Finding(entry.gmail_id, verdict, read.detail or entry.path))
-        if n % PROGRESS_EVERY == 0:
-            logger.info(f"{account}: checked {n:,} of {len(chosen):,}")
+    with Progress(f"{account}: checking", len(chosen)) as checking:
+        for entry in chosen:
+            read = read_eml(folder / entry.path)
+            verdict = judge(read, stored.get(entry.gmail_id))
+            if verdict == OK:
+                checked += 1
+            elif verdict == UNCHECKED:
+                unchecked += 1
+            else:
+                findings.append(Finding(entry.gmail_id, verdict, read.detail or entry.path))
+            checking.advance()
     return Report(account, len(entries), checked, unchecked, tuple(findings), note)
 
 

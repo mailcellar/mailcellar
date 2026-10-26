@@ -54,6 +54,7 @@ from mailcellar import gmailapi
 from mailcellar.backup import gyb, sidecar
 from mailcellar.message import PARSER_VERSION, parse_eml, parse_message
 from mailcellar.paths import backup_folder, config_root, pruned_folder
+from mailcellar.progress import Progress
 
 logger = logging.getLogger(__name__)
 
@@ -76,29 +77,6 @@ def connect(args) -> tuple[str, Path, gmailapi.GmailAccount]:
     return account, folder, gmailapi.GmailAccount(account, creds)
 
 
-_progress_open = False
-
-
-def progress(message: str) -> None:
-    """Overwrite the current progress line on stderr (not with -q)."""
-    global _progress_open
-    if not logger.isEnabledFor(logging.INFO):
-        return
-    print(f"\r{message:<70}", end="", file=sys.stderr, flush=True)
-    _progress_open = True
-
-
-def end_progress() -> None:
-    """Finish the progress line, so the next output starts on its own line."""
-    global _progress_open
-    if _progress_open:
-        print(file=sys.stderr, flush=True)
-        _progress_open = False
-
-
-# ── backup ───────────────────────────────────────────────────────────────────
-
-
 def write_meta(mcon, response: dict, raw: bytes | None = None) -> bool:
     """
     Record one downloaded message in meta.sqlite. Returns False (with a
@@ -110,7 +88,6 @@ def write_meta(mcon, response: dict, raw: bytes | None = None) -> bool:
             raw if raw is not None else base64.urlsafe_b64decode(response["raw"])
         )
     except Exception as exc:
-        end_progress()
         logger.warning(f"Cannot parse {gid} for meta.sqlite: {exc}")
         return False
     size = response.get("sizeEstimate")
@@ -152,7 +129,9 @@ def history_plan(
     gone = deleted & have
     lookup = sorted((touched - deleted) | (indexed - have))
     todo = []
-    for gid, d in gmail.message_details(lookup).items():
+    with Progress("Reading changed messages", len(lookup)):
+        details = gmail.message_details(lookup)
+    for gid, d in details.items():
         if d is None:  # deleted since the history was read
             if gid in have:
                 gone.add(gid)
@@ -296,19 +275,19 @@ def _backup(gmail, con, mcon, folder: Path, query, refresh_labels: bool, stats: 
         if stats["downloaded"] % COMMIT_EVERY == 0:
             con.commit()
             mcon.commit()
-            progress(f"downloaded {stats['downloaded']:,} of {len(todo):,}")
 
     if todo:
-        stats["failed"] = gmail.get_raw(todo, on_message)
+        with Progress("Downloading", len(todo)):
+            stats["failed"] = gmail.get_raw(todo, on_message)
         con.commit()
         mcon.commit()
-        progress(f"downloaded {stats['downloaded']:,} of {len(todo):,}")
-        end_progress()
 
     if refresh_labels:
         existing = sorted(have)
         print(f"Refreshing labels of {len(existing):,} messages …")
-        for gid, details in gmail.message_details(existing).items():
+        with Progress("Reading labels", len(existing)):
+            refreshed = gmail.message_details(existing)
+        for gid, details in refreshed.items():
             if details is not None:
                 stats["labels_changed"] += apply_labels(
                     con, mcon, gmail, gid, details.get("labelIds", [])
@@ -543,40 +522,39 @@ def backfill(gmail, account: str, folder: Path) -> dict:
         known = dict(mcon.execute("SELECT gmail_id, parser_version FROM messages"))
         stats["backed_up"] = len(backed_up)
 
-        for gid, rel, local_date in backed_up:
-            if known.get(gid) == PARSER_VERSION:
-                stats["current"] += 1
-                continue
-            path = folder / rel
-            if not path.is_file():
-                stats["file_missing"] += 1
-                continue
-            try:
-                fields = parse_eml(path)
-            except Exception as exc:
-                end_progress()
-                logger.warning(f"Cannot parse {path}: {exc}")
-                stats["errors"] += 1
-                continue
-            if gid in known:
-                sidecar.update_fields(mcon, gid, fields)
-                stats["reparsed"] += 1
-            else:
-                sidecar.upsert_message(
-                    mcon,
-                    gid,
-                    thread_id="",
-                    internal_date=local_to_ms(local_date),
-                    size_estimate=None,
-                    fields=fields,
-                )
-                stats["added"] += 1
-            done = stats["added"] + stats["reparsed"]
-            if done % COMMIT_EVERY == 0:
-                mcon.commit()
-                progress(f"parsed {done:,}")
+        with Progress("Parsing", len(backed_up)) as parsing:
+            for gid, rel, local_date in backed_up:
+                parsing.advance()
+                if known.get(gid) == PARSER_VERSION:
+                    stats["current"] += 1
+                    continue
+                path = folder / rel
+                if not path.is_file():
+                    stats["file_missing"] += 1
+                    continue
+                try:
+                    fields = parse_eml(path)
+                except Exception as exc:
+                    logger.warning(f"Cannot parse {path}: {exc}")
+                    stats["errors"] += 1
+                    continue
+                if gid in known:
+                    sidecar.update_fields(mcon, gid, fields)
+                    stats["reparsed"] += 1
+                else:
+                    sidecar.upsert_message(
+                        mcon,
+                        gid,
+                        thread_id="",
+                        internal_date=local_to_ms(local_date),
+                        size_estimate=None,
+                        fields=fields,
+                    )
+                    stats["added"] += 1
+                done = stats["added"] + stats["reparsed"]
+                if done % COMMIT_EVERY == 0:
+                    mcon.commit()
         mcon.commit()
-        end_progress()
 
         if gmail is not None:
             sidecar.replace_label_catalogue(mcon, gmail.label_catalogue())
@@ -586,28 +564,24 @@ def backfill(gmail, account: str, folder: Path) -> dict:
                     "SELECT gmail_id FROM messages WHERE thread_id = '' ORDER BY gmail_id"
                 )
             ]
-            for start in range(0, len(need), DETAILS_CHUNK):
-                chunk = need[start : start + DETAILS_CHUNK]
-                for gid, d in gmail.message_details(chunk, stats["detail_failures"]).items():
-                    if d is None:
-                        stats["gone_from_gmail"] += 1
-                        continue
-                    size = d.get("sizeEstimate")
-                    sidecar.update_gmail_details(
-                        mcon,
-                        gid,
-                        thread_id=d.get("threadId", ""),
-                        internal_date=int(d["internalDate"]),
-                        size_estimate=int(size) if size is not None else None,
-                    )
-                    sidecar.set_message_labels(mcon, gid, d.get("labelIds", []))
-                    stats["details"] += 1
-                mcon.commit()
-                progress(
-                    f"fetched details for {min(start + DETAILS_CHUNK, len(need)):,} "
-                    f"of {len(need):,}"
-                )
-            end_progress()
+            with Progress("Fetching details", len(need)):
+                for start in range(0, len(need), DETAILS_CHUNK):
+                    chunk = need[start : start + DETAILS_CHUNK]
+                    for gid, d in gmail.message_details(chunk, stats["detail_failures"]).items():
+                        if d is None:
+                            stats["gone_from_gmail"] += 1
+                            continue
+                        size = d.get("sizeEstimate")
+                        sidecar.update_gmail_details(
+                            mcon,
+                            gid,
+                            thread_id=d.get("threadId", ""),
+                            internal_date=int(d["internalDate"]),
+                            size_estimate=int(size) if size is not None else None,
+                        )
+                        sidecar.set_message_labels(mcon, gid, d.get("labelIds", []))
+                        stats["details"] += 1
+                    mcon.commit()
         mcon.commit()
         return stats
     finally:
@@ -676,7 +650,9 @@ def count(gmail, account: str, folder: Path) -> dict:
     # gyb never stores chats, so they always look missing; separate them out.
     chats = set()
     if missing:
-        for gid, labels in gmail.message_labels(missing).items():
+        with Progress("Reading labels of messages not backed up", len(missing)):
+            labels_by_id = gmail.message_labels(missing)
+        for gid, labels in labels_by_id.items():
             if labels and gyb.is_chat(labels):
                 chats.add(gid)
     result = {
@@ -841,7 +817,6 @@ def main(argv=None, prog: str | None = None) -> int:
         try:
             status = max(status, args.func(argparse.Namespace(**vars(args), account=account)))
         except (gmailapi.GmailError, gyb.FormatError, sidecar.MetaError) as exc:
-            end_progress()
             if len(accounts) == 1:
                 sys.exit(f"error: {exc}")
             logger.error(f"{account}: {exc}")

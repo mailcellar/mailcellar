@@ -49,6 +49,7 @@ from mailcellar.dedup.apply import DEDUP_LABEL
 from mailcellar.dedup.rules import is_user_label
 from mailcellar.message import PARSER_VERSION, parse_message
 from mailcellar.offload.apply import OFFLOAD_LABEL, upgrade_log
+from mailcellar.progress import Progress
 
 # System labels messages.import accepts (tested against Gmail); CHAT fails the whole import.
 IMPORT_SYSTEM_LABELS = {"INBOX", "UNREAD", "STARRED", "IMPORTANT", "SENT", "DRAFT"}
@@ -60,7 +61,6 @@ IMPORT_CHUNK = 200
 # (500 IDs a call) rather than one lookup per message: a whole backup of
 # 56,000 took over 20 minutes of quota waits looked up one by one.
 LISTING_THRESHOLD = 1000
-PROGRESS_EVERY = 5000  # messages between progress lines in plan()
 # Measured against Gmail: about 6 imports a second in batches of 10.
 IMPORTS_PER_SECOND = 6
 LOG_COLUMNS = [
@@ -388,13 +388,13 @@ def plan(
     Read what deciding needs — each backup copy, Gmail's state, matching
     Message-IDs — and decide() each candidate's way back. Reads only.
     `gmail` is the account restored into. progress(message) is told each
-    stage, and every PROGRESS_EVERY messages of the long ones.
+    stage; the long ones also show a Progress.
     """
     checks = []
-    for i, c in enumerate(cands, 1):
-        if i % PROGRESS_EVERY == 0:
-            progress(f"Checking backup copies: {i:,} of {len(cands):,}")
-        checks.append(check_backup(c))
+    with Progress("Checking backup copies", len(cands)) as checking:
+        for c in cands:
+            checks.append(check_backup(c))
+            checking.advance()
     usable = [c for c, (problem, _copy) in zip(cands, checks, strict=True) if not problem]
     progress(f"Checked {len(cands):,} backup copies; {len(cands) - len(usable):,} unusable")
 
@@ -410,7 +410,9 @@ def plan(
     if gone:
         progress(f"Searching Gmail for the Message-IDs of {len(gone):,} messages it doesn't have")
     with_id = {c.source_id: copies[c.source_id].message_id for c in gone}
-    searched = gmail.find_message_ids({k: m for k, m in with_id.items() if m})
+    wanted = {k: m for k, m in with_id.items() if m}
+    with Progress("Searching for Message-IDs", len(wanted)):
+        searched = gmail.find_message_ids(wanted)
     # In its own account a message's own ID isn't another copy; elsewhere any ID is.
     hits = {
         c.source_id: [
@@ -422,10 +424,13 @@ def plan(
     hashes: dict[str, str] = {}
     if others:
         progress(f"Comparing content with {len(others):,} messages that share a Message-ID")
-        gmail.get_raw(
-            others,
-            lambda r: hashes.__setitem__(r["id"], parse_message(_decode(r["raw"]))["content_hash"]),
-        )
+        with Progress("Reading messages that share a Message-ID", len(others)):
+            gmail.get_raw(
+                others,
+                lambda r: hashes.__setitem__(
+                    r["id"], parse_message(_decode(r["raw"]))["content_hash"]
+                ),
+            )
     return [
         decide(
             c,
@@ -447,7 +452,8 @@ def gmail_state(gmail, ids: list[str]) -> dict[str, set[str] | None]:
     selections are answered from listings; only TRASH matters to decide().
     """
     if len(ids) <= LISTING_THRESHOLD:
-        return gmail.message_labels(ids) if ids else {}
+        with Progress("Reading Gmail's state", len(ids)):
+            return gmail.message_labels(ids) if ids else {}
     present = set(gmail.list_message_ids(include_spam_trash=True))
     trash = set(gmail.list_message_ids("in:trash", include_spam_trash=True))
     return {gid: ({"TRASH"} if gid in trash else set()) if gid in present else None for gid in ids}
@@ -519,7 +525,9 @@ def apply(
         failed = {}
         if to_untrash:
             progress(f"Moving {len(to_untrash):,} messages out of Trash")
-            failed = {f.split(":", 1)[0]: f for f in gmail.untrash([d.new_id for d in to_untrash])}
+            with Progress("Moving out of Trash", len(to_untrash)):
+                untrashed = gmail.untrash([d.new_id for d in to_untrash])
+            failed = {f.split(":", 1)[0]: f for f in untrashed}
         how = {UNTRASH: "untrashed", FOUND: "found", IN_GMAIL: "in gmail"}
         for d in by_way.get(UNTRASH, []) + found + by_way.get(IN_GMAIL, []):
             if d.new_id in failed:
@@ -568,12 +576,13 @@ def _import(
     tcon = sidecar.open_meta(target_folder) if target_folder else mcon
     results: list[Result] = []
     try:
-        for start in range(0, len(imports), IMPORT_CHUNK):
-            progress(f"Importing: {start:,} of {len(imports):,} done")
-            chunk = imports[start : start + IMPORT_CHUNK]
-            results += _import_chunk(
-                gmail, tcon, index_folder, chunk, record, system, prefix, strip
-            )
+        progress(f"Importing {len(imports):,} messages")
+        with Progress("Importing", len(imports)):
+            for start in range(0, len(imports), IMPORT_CHUNK):
+                chunk = imports[start : start + IMPORT_CHUNK]
+                results += _import_chunk(
+                    gmail, tcon, index_folder, chunk, record, system, prefix, strip
+                )
     finally:
         if target_folder:
             tcon.close()
@@ -616,7 +625,9 @@ def _index_new_ids(gmail, tcon, folder, imported: list[Result], fields: dict) ->
     Index the new IDs in the backup, sharing the old IDs' files where they are
     on one volume, so the next backup doesn't download them again.
     """
-    details = gmail.message_details([r.new_id for r in imported])
+    # Its own Progress, innermost, so these lookups don't count as imports.
+    with Progress("Reading the imported messages", len(imported)):
+        details = gmail.message_details([r.new_id for r in imported])
     con = gyb.open_backup(folder, gmail.account)
     try:
         for r in imported:

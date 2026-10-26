@@ -21,6 +21,7 @@ from pathlib import Path
 from mailcellar.backup import sidecar
 from mailcellar.backup.gyb import backup_account, iter_backup
 from mailcellar.message import decode_header_value, recipients, strip_mbox_from_lines
+from mailcellar.progress import Progress
 
 logger = logging.getLogger(__name__)
 
@@ -173,39 +174,41 @@ def update(con: sqlite3.Connection, folder: Path) -> Stats:
     dates = meta_dates(folder) if todo.index else {}
 
     indexed = errors = 0
-    for n, gid in enumerate(todo.index, 1):
-        bm = backup[gid]
-        try:
-            doc = document(bm.path.read_bytes())
-        except Exception as exc:
-            logger.warning(f"Cannot read {bm.path}: {exc}")
-            errors += 1
-            continue
-        _remove(con, account, gid)
-        path, size = current[gid]
-        cur = con.execute(
-            """INSERT INTO docs (account, gmail_id, path, size, internal_date, sender,
-                                 subject, text_version)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                account,
-                gid,
-                path,
-                size,
-                dates.get(gid) or local_date_ms(bm.internal_date),
-                doc.sender,
-                doc.subject,
-                TEXT_VERSION,
-            ),
-        )
-        con.execute(
-            "INSERT INTO text (rowid, sender, recipients, subject, body) VALUES (?, ?, ?, ?, ?)",
-            (cur.lastrowid, doc.sender, doc.recipients, doc.subject, doc.body),
-        )
-        indexed += 1
-        if n % COMMIT_EVERY == 0:
-            con.commit()
-            logger.info(f"  …{n:,} of {len(todo.index):,}")
+    with Progress(f"{account}: indexing", len(todo.index)) as indexing:
+        for n, gid in enumerate(todo.index, 1):
+            indexing.advance()
+            bm = backup[gid]
+            try:
+                doc = document(bm.path.read_bytes())
+            except Exception as exc:
+                logger.warning(f"Cannot read {bm.path}: {exc}")
+                errors += 1
+                continue
+            _remove(con, account, gid)
+            path, size = current[gid]
+            cur = con.execute(
+                """INSERT INTO docs (account, gmail_id, path, size, internal_date, sender,
+                                     subject, text_version)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    account,
+                    gid,
+                    path,
+                    size,
+                    dates.get(gid) or local_date_ms(bm.internal_date),
+                    doc.sender,
+                    doc.subject,
+                    TEXT_VERSION,
+                ),
+            )
+            con.execute(
+                "INSERT INTO text (rowid, sender, recipients, subject, body) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (cur.lastrowid, doc.sender, doc.recipients, doc.subject, doc.body),
+            )
+            indexed += 1
+            if n % COMMIT_EVERY == 0:
+                con.commit()
     for gid in todo.remove:
         _remove(con, account, gid)
     con.commit()

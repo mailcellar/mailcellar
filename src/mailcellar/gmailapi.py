@@ -29,6 +29,7 @@ from collections import Counter, deque
 from datetime import UTC, datetime
 from pathlib import Path
 
+from mailcellar import progress
 from mailcellar.paths import TOKEN_WARN_DAYS, keep_modify_token, token_warn_days, write_private
 
 SCOPES = {
@@ -424,6 +425,7 @@ class GmailAccount:
         Send make_request(id) for every id in batches. on_result(id, response,
         exception) is called once per id with its final outcome; retryable
         failures are re-sent first, up to BATCH_ATTEMPTS attempts per id.
+        Each final outcome advances the open Progress, if the caller made one.
 
         Gmail answers 429 "Too many concurrent requests" when a batch runs
         too many calls at once, and a batch's calls run concurrently. So the
@@ -456,6 +458,7 @@ class GmailAccount:
                         attempts[request_id],
                     )
                 on_result(request_id, response, exception)
+                progress.advance()
 
             # A failure of the batch request itself means no callbacks ran;
             # rebuild and resend the whole chunk.
@@ -853,6 +856,7 @@ class GmailAccount:
                 on_result(key, self._execute(request(key, media=True)), None)
             except Exception as exc:
                 on_result(key, None, exc)
+            progress.advance()
         return failed
 
     def trash(self, gmail_ids: list[str]) -> list[str]:
