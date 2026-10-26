@@ -46,6 +46,7 @@ nav:
   - Home: index.md
   - Guides:
       - Setting up Google Cloud: guide/google-cloud.md
+      - Backing up, and keeping the backup safe: guide/backing-up.md
       - Scheduled backups: guide/scheduling.md
       - Migrating from gyb: guide/from-gyb.md
       - Offloading old mail safely: guide/offloading.md
