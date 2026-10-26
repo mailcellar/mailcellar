@@ -36,7 +36,7 @@ or waives `labels`. A rule without `query` doesn't contact Gmail.
 
 For a rule that selects thousands of messages, `--review` also writes one
 HTML page per rule to `<data root>/offload/review/` (open it in a browser):
-the summary tables, a random sample of what the rule would offload and of
+what the rule selects, in one line, the summary tables, a random sample of what the rule would offload and of
 what each protection keeps, the largest messages, the threads with the most
 messages in the offload, and attachment types by size. It shows senders
 and subjects, never message bodies, and is for you alone: keep it on your

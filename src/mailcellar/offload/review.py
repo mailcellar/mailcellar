@@ -2,7 +2,7 @@
 review: one local HTML page per rule, for deciding whether to label what
 `offload plan` selected, when its CSV is too long to read.
 
-Each page has the rule's summary tables, a random sample of the messages it
+Each page has what the rule selects, its summary tables, a random sample of the messages it
 would offload and of those each protection keeps, the largest messages, the
 threads with the most messages in the offload, and attachment types by
 size. Senders and subjects only, never bodies; the pages are written to
@@ -22,7 +22,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from mailcellar.offload.plan import Message, RuleResult, summary
-from mailcellar.offload.rules import PROTECTIONS
+from mailcellar.offload.rules import PROTECTIONS, Rule
 from mailcellar.report.output import Table, day, human_size
 
 SAMPLE = 50  # messages of the offload shown at random
@@ -83,6 +83,23 @@ def message_rows(messages: list[Message]) -> list[tuple]:
         (day(m.internal_date), m.account, m.sender, m.subject, m.size, ", ".join(m.labels))
         for m in messages
     ]
+
+
+def _keys(scope: dict[str, list]) -> str:
+    """Scope keys as a rule writes them: label "work" · sender "@a.com" or "@b.com"."""
+
+    def value(v) -> str:
+        if isinstance(v, bool):
+            return "true" if v else "false"
+        return str(v) if isinstance(v, int | float) else f'"{v}"'
+
+    return " · ".join(f"{key} " + " or ".join(map(value, vs)) for key, vs in scope.items())
+
+
+def rule_text(rule: Rule) -> str:
+    """What the rule selects, in one line: its scope, cut-off and exception."""
+    text = f"{_keys(rule.scope)} · before {day(rule.before_ms)}"
+    return text + (f" · except {_keys(rule.exceptions)}" if rule.exceptions else "")
 
 
 def kept_reason(protection: str) -> str:
@@ -203,6 +220,7 @@ def page(r: RuleResult, accounts: list[str], attachments: list[tuple], generated
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         f"<title>{html.escape(title)}</title><style>{STYLE}</style></head><body>"
         f"<h1>{html.escape(title)}</h1>"
+        f'<p class="meta">Selects: {html.escape(rule_text(r.rule))}</p>'
         f'<p class="meta">{html.escape(", ".join(accounts))} · generated {generated} · '
         f"{len(r.selected):,} messages, {human_size(sum(m.size for m in r.selected))}</p>"
         '<p class="warn">This page shows senders and subjects from your mail. It is for you '
