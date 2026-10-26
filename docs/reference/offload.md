@@ -8,7 +8,7 @@ The keys are documented in `src/mailcellar/offload/rules.py`:
 name = "old work mail"
 account = "work"
 label = "work"           # or sender, list, forwarded_from, category, subject, to_me,
-                         # larger_than_mb; different keys must all match
+                         # larger_than_mb, query; different keys must all match
 before = "2022-01-01"    # or a number of years ago, e.g. "5"
 # except = { subject = "contract", to_me = true }   # keep what matches any of these
 # waive = ["thread"]     # drop default protections (sent, starred, thread, replied, labels)
@@ -24,6 +24,15 @@ mailcellar offload plan --review           # also a review page per rule
 `plan` changes nothing. It prints what each rule would offload (by year and
 sender) and what its protections keep. To keep particular messages, add a
 user label in Gmail and run a backup.
+
+`query` is a Gmail search, written as in Gmail's search box
+(`query = "has:attachment filename:pdf"`). It narrows a rule like the other
+keys, and works in `except` too. `plan` asks Gmail which messages each
+search finds, with read-only access, and selects only those the backup
+has; it says how many it found that the backup lacks (run a backup, then
+plan again). `before`, `except` and the protections still apply, so a
+search that finds labelled mail keeps it unless the rule names the label
+or waives `labels`. A rule without `query` doesn't contact Gmail.
 
 For a rule that selects thousands of messages, `--review` also writes one
 HTML page per rule to `<data root>/offload/review/` (open it in a browser):
@@ -115,6 +124,7 @@ mailcellar offload forget --empty --yes                      # delete runs held 
 | `--top N` | Senders per rule in the summary (default 15) |
 | `--csv DIR` | Also write the summary tables as CSV in DIR |
 | `--review` | Also write a review page per rule to `<data root>/offload/review/` |
+| `--config CONFIG` | Config folder, for rules with a `query` (Gmail is searched, read-only) |
 
 ### `offload apply`
 

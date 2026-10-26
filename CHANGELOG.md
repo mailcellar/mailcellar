@@ -8,6 +8,11 @@ in beta, so commands and options may still change before 1.0.
 ## Unreleased
 
 ### Added
+- Offload rules take `query`, a Gmail search written as in Gmail's search
+  box (`"has:attachment filename:pdf"`). `offload plan` asks Gmail which
+  messages it finds, read-only, and selects those the backup has; the
+  rule's cut-off, exceptions and protections still apply. `offload plan`
+  takes `--config` for it ([#73](https://github.com/mailcellar/mailcellar/issues/73)).
 - `report health` lists the forget runs held in `_forgotten/`, with when
   each hold ends and which are due for `offload forget --empty`; `offload
   forget` says when runs are due, so held mail isn't kept by oversight.

@@ -1,7 +1,8 @@
 """
 plan: select the messages each rule takes out of Gmail, and summarise
 what it takes and what its protections keep. Read-only: works on the
-sidecars (meta.sqlite) and gyb's index, attached by report.db.
+sidecars (meta.sqlite) and gyb's index, attached by report.db, and, for
+rules with a `query`, the IDs Gmail's search found, which the caller gets.
 
 Rules apply in file order; a message taken by one rule is not offered to
 the next. Never selected, whatever the rule: messages already offloaded,
@@ -58,9 +59,37 @@ class Message:
     thread_id: str = ""  # '' when unknown (gone from Gmail)
 
 
-def prepare(con: sqlite3.Connection, accounts: list[str]) -> None:
-    """TEMP pm: every message with what selection, protections and the plan need."""
+Hits = dict[tuple[str, str], list[str]]  # (account, Gmail search) → message IDs found
+
+
+def searches(rules: list[Rule], accounts: list[str]) -> dict[str, list[str]]:
+    """account → the Gmail searches its rules need, each once, in rule order. Pure."""
+    out: dict[str, list[str]] = {}
+    for rule in rules:
+        for account in accounts:
+            if rule.accounts and account not in rule.accounts:
+                continue
+            for q in rule.queries:
+                if q not in out.setdefault(account, []):
+                    out[account].append(q)
+    return {a: qs for a, qs in out.items() if qs}
+
+
+def prepare(con: sqlite3.Connection, accounts: list[str], hits: Hits) -> None:
+    """
+    TEMP pm: every message with what selection, protections and the plan
+    need; TEMP query_hits: what each Gmail search found.
+    """
     con.create_function("fold", 1, fold, deterministic=True)
+    con.executescript("""
+        DROP TABLE IF EXISTS temp.query_hits;
+        CREATE TEMP TABLE query_hits (account, query, gmail_id,
+                                      PRIMARY KEY (account, query, gmail_id));
+    """)
+    con.executemany(
+        "INSERT OR IGNORE INTO query_hits VALUES (?, ?, ?)",
+        ((a, q, gid) for (a, q), ids in hits.items() for gid in ids),
+    )
     bulk.prepare_messages(con, accounts)
     bulk.prepare_engagement(con)
     con.executescript(f"""
@@ -156,6 +185,12 @@ def _conditions(scope: dict[str, list], params: list) -> list[str]:
     if "larger_than_mb" in scope:
         conds.append("pm.size > ?")
         params.append(int(scope["larger_than_mb"][0] * 1024 * 1024))
+    if "query" in scope:
+        conds.append(
+            "EXISTS (SELECT 1 FROM query_hits q WHERE q.account = pm.account "
+            f"AND q.gmail_id = pm.gmail_id AND q.query IN ({','.join('?' * len(scope['query']))}))"
+        )
+        params += scope["query"]
     return conds
 
 
@@ -239,10 +274,17 @@ class RuleResult:
 
 
 def build_plan(
-    con: sqlite3.Connection, rules: list[Rule], accounts: list[str], folders: dict[str, str]
+    con: sqlite3.Connection,
+    rules: list[Rule],
+    accounts: list[str],
+    folders: dict[str, str],
+    hits: Hits | None = None,
 ) -> list[RuleResult]:
-    """Apply the rules in order. folders: account → backup folder (for plan paths)."""
-    prepare(con, accounts)
+    """
+    Apply the rules in order. folders: account → backup folder (for plan
+    paths); hits: what each rule's Gmail searches found (see searches()).
+    """
+    prepare(con, accounts, hits or {})
     taken: set[tuple] = set()
     results = []
     for rule in rules:
@@ -269,6 +311,20 @@ def build_plan(
             r.selected.append(m)
         results.append(r)
     return results
+
+
+def not_backed_up(con: sqlite3.Connection) -> dict[tuple[str, str], int]:
+    """
+    (account, Gmail search) → messages it found that the backup doesn't have,
+    which no rule can offload. After build_plan.
+    """
+    return {
+        (a, q): n
+        for a, q, n in con.execute("""
+            SELECT q.account, q.query, count(*) FROM query_hits q
+            LEFT JOIN pm ON pm.account = q.account AND pm.gmail_id = q.gmail_id
+            WHERE pm.gmail_id IS NULL GROUP BY q.account, q.query""")
+    }
 
 
 def plan_rows(results: list[RuleResult], planned_ms: int) -> list[dict]:
