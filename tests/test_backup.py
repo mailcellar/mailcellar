@@ -555,13 +555,14 @@ def test_cli_prune_yes_and_aborted(tmp_path, cli):
     assert len(rows(folder)["uids"]) == 10
 
 
-def test_cli_sync_still_prunes_with_a_warning(tmp_path, cli, caplog):
+def test_cli_sync_is_gone(tmp_path, cli, capsys):
     state, run = cli
     gmail, folder = synced(tmp_path)
     state.update(gmail=gmail, folder=folder)
-    assert run("backup", "a", "--sync", "--yes") == 0
-    assert "g0" not in rows(folder)["uids"]  # pruned, as with --prune
-    assert "'backup --sync' is now 'backup --prune'" in caplog.text
+    with pytest.raises(SystemExit) as exc:
+        run("backup", "a", "--sync", "--yes")
+    assert exc.value.code == 2 and "unrecognized arguments: --sync" in capsys.readouterr().err
+    assert "g0" in rows(folder)["uids"]  # nothing pruned
 
 
 def test_cli_help_renders_and_lists_prune_not_sync(capsys):
