@@ -44,9 +44,8 @@ exit status, `--limit` and the filters are the same as for the default
 In `tsv`, tabs and line breaks in the sender and subject become spaces; in
 `json` they are kept, escaped. The readable columns come first so a picker
 can show the whole line, and `cut -f` takes what a script needs from the
-end. The account and Gmail ID are what `restore` and `export` take:
-`--id` alone selects among offloaded mail, and `--all --id` among the whole
-backup. A recipe with fzf is in
+end. The account and Gmail ID are what `restore ACCOUNT --id` and
+`export ACCOUNT --id` take, offloaded or not. A recipe with fzf is in
 [Finding mail](../guide/finding-and-sizing.md#picking-results-with-fzf).
 
 The index is `<data root>/search/search.sqlite`. Each search first adds new

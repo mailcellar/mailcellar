@@ -622,9 +622,21 @@ def test_selection_narrows_by_batch_rule_and_id(env):
 def test_selecting_everything_adds_mail_that_was_never_offloaded(env):
     assert "k1" in ids_of(restore.candidates(env.folder, everything=True))
     assert ids_of(restore.candidates(env.folder, everything=True, ids=("k1",))) == ["k1"]
-    assert restore.candidates(env.folder, ids=("k1",)) == []  # not without everything
     k1 = restore.candidates(env.folder, everything=True, ids=("k1",))[0]
     assert (k1.offloaded, k1.batch, k1.rule) == (False, "", "")
+
+
+def test_an_id_is_looked_for_in_the_whole_backup_unless_offloaded_only(env):
+    assert sorted(ids_of(restore.candidates(env.folder, ids=("k1", "g1")))) == ["g1", "k1"]
+    assert ids_of(restore.candidates(env.folder, ids=("k1", "g1"), offloaded_only=True)) == ["g1"]
+    assert restore.candidates(env.folder, ids=("x1",)) == []  # never backed up
+
+
+def test_restoring_an_id_never_offloaded_leaves_it_alone_while_gmail_has_it(env):
+    run("--id", "k1")
+    assert log()["k1"][0] == "already in Gmail"
+    with pytest.raises(SystemExit, match="Nothing to do"):
+        run("--id", "k1", "--offloaded")
 
 
 def test_the_oldest_messages_come_first(env):

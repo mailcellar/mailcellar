@@ -269,6 +269,7 @@ def main(argv=None, prog: str | None = None) -> int:
             everything=args.all,
             narrow=narrowing,
             include_restored=True,
+            offloaded_only=args.offloaded,
         )
     except sidecar.MetaError as exc:
         sys.exit(f"error: {exc}")

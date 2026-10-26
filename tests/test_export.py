@@ -300,6 +300,8 @@ def test_the_selection_and_narrowing_are_restores(backup, tmp_path):
     assert ids("--all", "--after", "2023-12-05", "--before", "2023-12-25") == ["m3", "m4"]
     assert ids("--all", "--has-label", "WORK") == ["m1", "m2", "m4"]
     assert ids("--all", "--id", "m3", "--id", "m5") == ["m3", "m5"]
+    assert ids("--id", "m1", "--id", "m3") == ["m1", "m3"]  # m1 was never offloaded
+    assert ids("--offloaded", "--id", "m1", "--id", "m3") == ["m3"]
     assert ids("--offloaded", "--limit", "2") == ["m2", "m3"]  # the oldest first
 
 

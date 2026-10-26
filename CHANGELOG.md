@@ -18,6 +18,10 @@ in beta, so commands and options may still change before 1.0.
   a recipe.
 
 ### Changed
+- `restore --id` and `export --id` find a message anywhere in the backup,
+  not only among offloaded mail; before, a message that was never offloaded
+  needed `--all` as well. `--offloaded --id` still looks only at offloaded
+  mail. Mail Gmail still has is left alone, as with `--all`.
 - The README is now a landing page: a short quick start, with the guides and
   the command reference on the documentation site.
 - `report --help` lists `senders`, which it left out before.
