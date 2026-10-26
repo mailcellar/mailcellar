@@ -166,6 +166,21 @@ def cmd_health(args) -> None:
         emit(args, "Backup health report", "health", accounts, tables)
 
 
+def cmd_senders(argv: list[str]) -> None:
+    """report senders ACCOUNT [options]: the senders report on that account's backup."""
+    from mailcellar.report import senders
+
+    if not argv or argv[0].startswith("-"):
+        if argv[:1] in (["-h"], ["--help"]):
+            senders.main(["--help"], prog="mailcellar report senders ACCOUNT")
+        sys.exit("usage: mailcellar report senders ACCOUNT [--top N] [...]; see --help")
+    try:
+        (folder,) = resolve_folders([argv[0]])
+    except AnalyticsError as exc:
+        sys.exit(f"error: {exc}")
+    senders.main(["--folder", str(folder), *argv[1:]], prog="mailcellar report senders")
+
+
 def add_common(parser) -> None:
     parser.add_argument(
         "accounts",
@@ -190,6 +205,8 @@ def main(argv=None, prog: str | None = None) -> None:
         prog=prog or "mailcellar report", description="Reports over the backups in the data root."
     )
     sub = p.add_subparsers(dest="command", required=True)
+    # Listed so `report --help` shows it; it takes its own arguments (cmd_senders).
+    sub.add_parser("senders", help="Top senders and domains in one account's backup")
 
     s = sub.add_parser("storage", help="What takes up space, and what could go")
     add_common(s)
@@ -262,6 +279,10 @@ def main(argv=None, prog: str | None = None) -> None:
     )
     h.set_defaults(func=cmd_health)
 
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["senders"]:
+        cmd_senders(argv[1:])
+        return
     args = p.parse_args(argv)
     try:
         args.func(args)

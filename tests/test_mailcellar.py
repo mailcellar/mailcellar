@@ -120,6 +120,9 @@ def test_dispatch_to_the_other_tools(setup, capsys):
     assert "Top" in capsys.readouterr().out
     with pytest.raises(SystemExit, match="usage: mailcellar report senders"):
         cli.main(["report", "senders"])
+    with pytest.raises(SystemExit) as done:
+        cli.main(["report", "--help"])
+    assert done.value.code == 0 and "senders" in capsys.readouterr().out
 
 
 def test_config_root_precedence(tmp_path, monkeypatch):

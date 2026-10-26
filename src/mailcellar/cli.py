@@ -103,29 +103,9 @@ def _search(argv: list[str]) -> int:
 
 
 def _report(argv: list[str]) -> int:
-    if argv[:1] == ["senders"]:
-        return _senders(argv[1:])
     from mailcellar.report.cli import main
 
     main(argv, prog="mailcellar report")
-    return 0
-
-
-def _senders(argv: list[str]) -> int:
-    """report senders ACCOUNT [options]: mailcellar report senders on that account's backup."""
-    from mailcellar.report import senders
-    from mailcellar.report.cli import resolve_folders
-    from mailcellar.report.db import AnalyticsError
-
-    if not argv or argv[0].startswith("-"):
-        if argv[:1] in (["-h"], ["--help"]):
-            senders.main(["--help"], prog="mailcellar report senders ACCOUNT")
-        sys.exit("usage: mailcellar report senders ACCOUNT [--top N] [...]; see --help")
-    try:
-        (folder,) = resolve_folders([argv[0]])
-    except AnalyticsError as exc:
-        sys.exit(f"error: {exc}")
-    senders.main(["--folder", str(folder), *argv[1:]], prog="mailcellar report senders")
     return 0
 
 
