@@ -1,25 +1,32 @@
 name: PII scan
 
-# Issues and their comments are public, and this project's main rule is that
-# no real mail or credentials go in anything public. This flags what looks
-# like personal data or a credential in a new or edited issue or comment: it
-# adds the `needs-redaction` label and asks the author, once, to edit it. It
-# can't prevent a post, only catch it quickly, and it can be wrong; names,
-# subjects and message text can't be detected. The comment names the kinds of
-# thing found, never the text, so the warning doesn't repeat it.
+# Issues, discussions and their comments are public, and this project's main
+# rule is that no real mail or credentials go in anything public. This flags
+# what looks like personal data or a credential in a new or edited issue,
+# discussion or comment: it adds the `needs-redaction` label and asks the
+# author, once, to edit it. It can't prevent a post, only catch it quickly, and
+# it can be wrong; names, subjects and message text can't be detected. The
+# comment names the kinds of thing found, never the text, so the warning
+# doesn't repeat it.
 #
-# The issue text is only read from the event file by a script: it is never
-# put in a shell command, and nothing from the repository is checked out.
-# Pull requests are left to review.
+# The text is only read from the event file by a script: it is never put in a
+# shell command, and nothing from the repository is checked out. Pull requests
+# are left to review. Issues are labelled and answered through the REST API,
+# discussions through GraphQL, the only API that can do either for them.
 
 on:
   issues:
     types: [opened, edited]
-  issue_comment:
+  issue_comment: # zizmor: ignore[dangerous-triggers] nothing is checked out or run from it
+    types: [created, edited]
+  discussion:
+    types: [created, edited]
+  discussion_comment:
     types: [created, edited]
 
 permissions:
-  issues: write
+  issues: write # label and answer issues; create the label
+  discussions: write # label and answer discussions
 
 jobs:
   scan:
@@ -79,6 +86,26 @@ jobs:
               return found
 
 
+          def target(event):
+              """
+              (kind, number, node ID, where, text, url) of the post an event is about, or
+              None for a pull request or a bot. kind is "issue" or "discussion".
+              """
+              kind = "discussion" if "discussion" in event else "issue"
+              thread = event[kind]
+              if "pull_request" in thread:
+                  return None  # pull requests are reviewed before anything is merged
+              comment = event.get("comment")
+              if (comment or thread)["user"]["type"] == "Bot":
+                  return None
+              if comment:
+                  where, text, url = "a comment", comment["body"], comment["html_url"]
+              else:
+                  where = f"the {kind}"
+                  text, url = f"{thread['title']}\n{thread['body'] or ''}", thread["html_url"]
+              return kind, thread["number"], thread["node_id"], where, text, url
+
+
           def api(method, path, body=None):
               request = urllib.request.Request(
                   f"https://api.github.com{path}",
@@ -94,55 +121,88 @@ jobs:
                   return json.load(response)
 
 
+          def graphql(query, **variables):
+              result = api("POST", "/graphql", {"query": query, "variables": variables})
+              if result.get("errors"):
+                  raise RuntimeError(f"GraphQL: {result['errors']}")
+              return result["data"]
+
+
+          def label_and_ask(kind, repo, number, node_id, label_id, body):
+              """Add the label, and the comment unless one was posted before."""
+              if kind == "issue":
+                  api("POST", f"/repos/{repo}/issues/{number}/labels", {"labels": [LABEL]})
+                  comments, page = [], 1
+                  while chunk := api(
+                      "GET", f"/repos/{repo}/issues/{number}/comments?per_page=100&page={page}"
+                  ):
+                      comments += [c["body"] for c in chunk]
+                      page += 1
+                  if not any(MARKER in c for c in comments):
+                      api("POST", f"/repos/{repo}/issues/{number}/comments", {"body": body})
+                  return
+              graphql(
+                  "mutation($id: ID!, $label: ID!) { addLabelsToLabelable("
+                  "input: {labelableId: $id, labelIds: [$label]}) { clientMutationId } }",
+                  id=node_id,
+                  label=label_id,
+              )
+              comments, after = [], None
+              while True:
+                  page = graphql(
+                      "query($id: ID!, $after: String) { node(id: $id) { ... on Discussion {"
+                      " comments(first: 100, after: $after) { nodes { body }"
+                      " pageInfo { hasNextPage endCursor } } } } }",
+                      id=node_id,
+                      after=after,
+                  )["node"]["comments"]
+                  comments += [c["body"] for c in page["nodes"]]
+                  if not page["pageInfo"]["hasNextPage"]:
+                      break
+                  after = page["pageInfo"]["endCursor"]
+              if not any(MARKER in c for c in comments):
+                  graphql(
+                      "mutation($id: ID!, $body: String!) { addDiscussionComment("
+                      "input: {discussionId: $id, body: $body}) { clientMutationId } }",
+                      id=node_id,
+                      body=body,
+                  )
+
+
           def main():
               with open(os.environ["GITHUB_EVENT_PATH"]) as fh:
                   event = json.load(fh)
-              issue = event["issue"]
-              if "pull_request" in issue:
-                  return  # pull requests are reviewed before anything is merged
-              comment = event.get("comment")
-              author = (comment or issue)["user"]
-              if author["type"] == "Bot":
+              post = target(event)
+              if post is None:
                   return
-              if comment:
-                  where, text, url = "a comment", comment["body"], comment["html_url"]
-              else:
-                  where, text, url = "the issue", f"{issue['title']}\n{issue['body'] or ''}", issue["html_url"]
+              kind, number, node_id, where, text, url = post
               found = scan(text)
               if not found:
                   return
 
-              repo, number = os.environ["GITHUB_REPOSITORY"], issue["number"]
+              repo = os.environ["GITHUB_REPOSITORY"]
               try:
-                  api("POST", f"/repos/{repo}/labels", {"name": LABEL, "color": "d93f0b",
+                  label = api("POST", f"/repos/{repo}/labels", {"name": LABEL, "color": "d93f0b",
                       "description": "May contain personal data or credentials; edit it out"})
               except urllib.error.HTTPError:
-                  pass  # the label exists
-              api("POST", f"/repos/{repo}/issues/{number}/labels", {"labels": [LABEL]})
-
-              comments, page = [], 1
-              while chunk := api("GET", f"/repos/{repo}/issues/{number}/comments?per_page=100&page={page}"):
-                  comments += chunk
-                  page += 1
-              if any(MARKER in c["body"] for c in comments):
-                  return  # asked once is enough
-              kinds = "\n".join(f"- {kind} ({n})" for kind, n in found.items())
-              api("POST", f"/repos/{repo}/issues/{number}/comments", {"body": f"""{MARKER}
+                  label = api("GET", f"/repos/{repo}/labels/{LABEL}")  # it exists
+              kinds = "\n".join(f"- {what} ({n})" for what, n in found.items())
+              label_and_ask(kind, repo, number, node_id, label["node_id"], f"""{MARKER}
           This looks like it may contain personal data or credentials, in {where} ({url}):
 
           {kinds}
 
-          Issues are public. Please edit it to replace real addresses, names, paths and tokens with
+          Issues and discussions are public. Please edit it to replace real addresses, names, paths and tokens with
           placeholders (`alex@example.com`), or describe the problem by its structure. This is an
           automatic check and can be wrong; if everything in it is a placeholder, ignore this.
 
           Editing hides the text from the page, but the earlier version stays visible in the edit
-          history, so a maintainer may delete the comment or issue instead. If a token or
+          history, so a maintainer may delete the comment or post instead. If a token or
           `client_secrets.json` was posted, revoke it now: see
           [SECURITY.md](https://github.com/{repo}/blob/main/SECURITY.md#if-a-token-may-have-leaked).
 
           ---
-          _Generated by an automatic check in `.github/workflows/pii-scan.yml`_"""})
+          _Generated by an automatic check in `.github/workflows/pii-scan.yml`_""")
 
 
           if __name__ == "__main__":
