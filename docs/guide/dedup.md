@@ -198,4 +198,4 @@ it lists before you confirm. See [Backing up](backing-up.md#mail-deleted-from-gm
   with `mailcellar restore ACCOUNT --id GMAIL_ID`; the ID is in the plan
   and in the apply log. A copy you removed was a duplicate of one that is
   still in Gmail, so this is rarely needed. See
-  [Restoring mail](../reference/restore.md).
+  [Restoring mail](restore.md).

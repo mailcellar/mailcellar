@@ -73,6 +73,8 @@ Also on the documentation site, <https://mailcellar.github.io/mailcellar/>.
   writing a rule to restoring.
 - [Removing duplicate mail](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/dedup.md): a worked example, from
   matching to trashing, with the same review stages as offloading.
+- [Restoring mail](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/restore.md): undo an offload, recover one message,
+  rebuild or copy an account, load a Takeout file.
 - [Exporting mail](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/exporting.md): copy mail out as an mbox or a zip, for a
   mail client or for someone else.
 - [Recovering when something goes wrong](https://github.com/mailcellar/mailcellar/blob/main/docs/guide/recovery.md): an expired token,
