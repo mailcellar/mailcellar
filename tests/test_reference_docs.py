@@ -40,14 +40,33 @@ COMMANDS = {
 }
 
 SKIPPED = {"--help"}
-OPTION_LINE = re.compile(r"^\s+(?:-\w(?: \S+)?, )?(--[a-z][\w-]*)", re.MULTILINE)
+# argparse indents an option by two spaces; wrapped usage and help text go
+# deeper, and can start with "--" where textwrap breaks a path at a hyphen.
+OPTION_LINE = re.compile(r"^  (?:-\w(?: \S+)?, )?(--[a-z][\w-]*)", re.MULTILINE)
+
+
+def options_in(help_text: str) -> set[str]:
+    return set(OPTION_LINE.findall(help_text)) - SKIPPED
 
 
 def listed_options(argv: tuple[str, ...], capsys) -> set[str]:
     with pytest.raises(SystemExit) as done:
         cli.main([*argv, "--help"])
     assert done.value.code == 0
-    return set(OPTION_LINE.findall(capsys.readouterr().out)) - SKIPPED
+    return options_in(capsys.readouterr().out)
+
+
+def test_only_option_lines_count_not_wrapped_text():
+    help_text = (
+        "usage: mailcellar backup [-h] [--prune]\n"
+        "                         [--folder FOLDER]\n"
+        "options:\n"
+        "  -h, --help            show this help message and exit\n"
+        "  --folder FOLDER       Backup folder (default: /tmp/a-Users-x-\n"
+        "                        --claude-spares-y/data)\n"
+        "  -q, --quiet           Less output\n"
+    )
+    assert options_in(help_text) == {"--folder", "--quiet"}
 
 
 @pytest.mark.parametrize("argv", COMMANDS, ids=" ".join)
