@@ -167,6 +167,28 @@ def test_label_ids_creates_parent_labels_for_nested_names():
     assert ids == [service.labels_[-1]["id"]]
 
 
+@pytest.mark.parametrize(
+    ("name", "existing", "expected"),
+    [
+        ("Muted", set(), "_Muted"),
+        ("archive/2019", set(), "_archive/2019"),  # the top level decides
+        ("Projects/Muted", set(), "Projects/Muted"),
+        ("Muted", {"Muted"}, "Muted"),  # the account has it already: use it
+        ("Mute", set(), "Mute"),
+    ],
+)
+def test_a_name_gmail_reserves_gets_a_leading_underscore(name, existing, expected):
+    assert gmailapi.creatable_name(name, existing) == expected
+
+
+def test_label_ids_creates_a_reserved_name_under_the_underscore(caplog):
+    service, gmail = mailbox()
+    ids = gmail.label_ids(["Todo/2026", "work"])
+    assert [name for name, _body in service.of("labels.create")] == ["_Todo", "_Todo/2026"]
+    assert ids == [service.labels_[-1]["id"], "Label_1"]
+    assert "Gmail reserves the label 'Todo/2026'; using '_Todo/2026'" in caplog.text
+
+
 def test_label_ids_does_not_recreate_an_existing_parent():
     service, gmail = mailbox(labels=[*SYSTEM, WORK, {"id": "Label_2", "name": "a", "type": "user"}])
     gmail.label_ids(["a/b"])

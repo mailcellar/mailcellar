@@ -5,6 +5,13 @@ What changed for users in each release. Releases and their dates are on the
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). mailcellar is
 in beta, so commands and options may still change before 1.0.
 
+## Unreleased
+
+### Fixed
+- `restore` creates a user label whose name Gmail reserves (`Muted`,
+  `Archive`, `Todo` and others) as `_Muted` and so on, as gyb does;
+  Gmail refuses those names (HTTP 400), as gyb's users found.
+
 ## 0.12.0 (2026-10-26)
 
 **Upgrading from 0.11.0:** nothing to do: no database's schema changes.
