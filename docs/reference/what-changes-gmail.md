@@ -16,10 +16,14 @@ or stages its changes:
   Gmail empties its Trash after 30 days; until then, a message can be moved
   back from Trash in Gmail.
 - **Backups only add.** `backup`, `count` and `meta` never delete anything.
-  The one exception is `--prune`, and it moves files to `_pruned/` rather
-  than deleting them, behind a confirmation and a 10% guard.
-- **Offloaded mail stays in the backup.** Once Gmail empties its Trash, the
-  backup is the only copy, and `restore` uploads it from there.
+  Two commands take mail out of the backup, and only when you ask:
+  `backup --prune` moves mail Gmail has deleted to `_pruned/`, behind a
+  confirmation and a 10% guard; `offload forget` deletes offloaded mail
+  Gmail has deleted too, after you type the count, holding it 30 days in
+  `_forgotten/` before `--empty` deletes it for good.
+- **Offloaded mail stays in the backup**, unless you forget it. Once Gmail
+  empties its Trash, the backup is the only copy, and `restore` uploads it
+  from there.
   `offload apply --trash` reports first whether Time Machine covers the
   data root. Keep a second copy of the data root.
 - **Restore only adds.** It deletes nothing, in Gmail or in the backup,

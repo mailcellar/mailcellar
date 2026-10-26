@@ -16,6 +16,10 @@ second copy of it. The README has the reference for each command
   `<data root>/_pruned/<email>/<batch>/`. It asks first, refuses to move
   more than a tenth of the backup unless you add `--force`, and never
   touches mail you have offloaded. The files move; nothing is erased.
+- **One command deletes, on purpose.** `offload forget` deletes offloaded
+  mail that Gmail has deleted too, for mail you shouldn't keep at all. It
+  asks you to type the count, and holds the files 30 days before
+  `--empty` deletes them; see [Offloading](offloading.md#deleting-offloaded-mail-for-good).
 - **It reads Gmail, never changes it.** A backup needs read-only access.
 
 Once you offload mail and Gmail empties its Trash (30 days later), the

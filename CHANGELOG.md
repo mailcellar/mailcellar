@@ -52,7 +52,6 @@ to go back to 0.10.0, put that copy back.
 - `report --help` lists `senders`, which it left out before.
 - `report senders --help` no longer lists `--folder`, which the command fills in
   from the account.
-
 - `offload apply --trash` and `dedup apply --trash` move messages to Trash a
   thousand per Gmail call (adding the `TRASH` label with `batchModify`)
   instead of one call per message, which Gmail held to about 5 a second.
