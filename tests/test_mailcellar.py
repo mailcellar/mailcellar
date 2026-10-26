@@ -91,7 +91,7 @@ def test_config_shows_how_long_ago_each_token_was_authorised(setup, capsys):
     from datetime import UTC, datetime, timedelta
 
     tmp_path, _connect = setup
-    token = tmp_path / "config" / "aa" / "dedup-token-readonly.json"
+    token = tmp_path / "config" / "aa" / "token-readonly.json"
     ago = (datetime.now(UTC) - timedelta(days=3)).isoformat()
     token.write_text(f'{{"token": "SECRET-TOKEN", "authorised_at": "{ago}"}}')
     assert cli.main(["config"]) == 0

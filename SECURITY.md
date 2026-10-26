@@ -12,7 +12,7 @@ not as a public issue or pull request. Say what is affected, how to
 reproduce it, and what an attacker could do with it.
 
 Never include, in a report or anywhere else:
-- tokens (`dedup-token-*.json`) or `client_secrets.json`;
+- tokens (`token-*.json`, or `dedup-token-*.json` from 0.9 and earlier) or `client_secrets.json`;
 - real mail: addresses, names, subjects, message content or attachments;
 - the paths or names of your own accounts.
 
