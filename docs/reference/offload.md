@@ -49,8 +49,9 @@ its Trash.
 
 **How long it takes:**
 - labelling is fast: thousands of messages a minute;
-- trashing takes one Gmail call per message, about 4 a second, so 4,500
-  messages take about 17 minutes;
+- trashing adds Gmail's `TRASH` label a thousand messages per call, then
+  reads each message back to confirm it is in Trash: 2,000 messages take
+  about a minute;
 - run large batches in the background, or in batches with `--limit`.
 
 Each trash run writes a manifest,

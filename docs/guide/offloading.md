@@ -192,8 +192,9 @@ yourself. It then asks, once per account, `Move N messages in <account> to
 Trash? [y/N]`. (`--yes` skips the question; use it only for batches you have
 reviewed.)
 
-Trashing takes one call per message, about four a second, so 4,500 messages
-take about 17 minutes. For a large batch, run it in the background, or in
+Trashing moves a thousand messages per Gmail call, then reads each one back
+and records it as offloaded only if Gmail shows it in Trash. 2,000 messages
+take about a minute. For a large batch, run it in the background, or in
 steps of a few thousand with `--limit`.
 
 What is recorded:

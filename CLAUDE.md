@@ -59,7 +59,8 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
 - Check changes against the real backups, read-only. Committed files
   (code, README, docs/) never quote figures from them.
 - Run live Gmail operations that take more than a couple of minutes in the
-  background. Trashing goes at about 4 messages a second.
+  background. Trashing goes at about 35 messages a second (2,000 in about
+  a minute), most of it reading each message back.
 - Keep the backup format byte-compatible with gyb (`backup/gyb.py`);
   new per-message data goes in `meta.sqlite`, never `msg-db.sqlite`.
 - Schema changes go through `SCHEMA_VERSION` + `MIGRATIONS`
