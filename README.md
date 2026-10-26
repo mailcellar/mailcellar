@@ -432,11 +432,10 @@ modify`). `--label-prefix P` nests the backed-up user labels under `P/`;
 `--strip-labels` restores none, so the messages arrive archived with only
 the `restored/` label.
 
-**How long it takes:** the dry run of a whole 56,000-message backup took
-about 6 minutes, mostly checking the `.eml` files; 8,000 messages into
-another account took about 3. Uploads run at about 6 a second, so the dry
-run's estimate for 4,500 messages is about 13 minutes and for 50,000 over
-two hours. Progress lines go to stderr (`-q` turns them off); run
+**How long it takes:** the dry run checks every `.eml` file and looks each
+message up in Gmail, so on a large backup it takes minutes. Uploads run at
+about 6 a second, so the dry run's estimate for 4,500 messages is about 13
+minutes and for 50,000 over two hours. Progress lines go to stderr (`-q` turns them off); run
 large restores in the background.
 
 Runs are logged in `<data root>/restore/restore-log.csv`, and each
