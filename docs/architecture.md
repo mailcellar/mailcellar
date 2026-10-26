@@ -97,7 +97,7 @@ mailcellar` and `python -m mailcellar` both work.
 
 | Module | Role |
 |---|---|
-| `cli.py` | The `mailcellar` command: dispatches `backup`, `count`, `meta` (every configured account by default), `verify`, `auth`, `schedule`, `dedup`, `offload`, `restore`, `export`, `search`, `report` (plus `senders`), and `config`, which shows paths and each account's state without printing secrets; sets up logging (stderr; `-v`/`-q` anywhere on the line) |
+| `cli.py` | The `mailcellar` command: dispatches `setup`, `backup`, `count`, `meta` (every configured account by default), `verify`, `auth`, `schedule`, `dedup`, `offload`, `restore`, `export`, `search`, `report` (plus `senders`), and `config`, which shows paths and each account's state without printing secrets; sets up logging (stderr; `-v`/`-q` anywhere on the line) |
 | `paths.py` | Where things are: `config_root()`, `data_root()` and where each was set, `backup_folder()`, `find_backups()`, `pruned_folder()` |
 | `gmailapi.py` | Accounts (`<config>/accounts.toml`), OAuth tokens and scopes, `GmailAccount`: adaptive batching, retries with backoff, listing, history, labels, trash and untrash, batched Message-ID searches, `messages.import` |
 | `message.py` | Message parsing: `parse_message()`, `content_hash()`, `header_key()`, `extract_address()`, `PARSER_VERSION` |
