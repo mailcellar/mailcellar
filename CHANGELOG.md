@@ -5,7 +5,7 @@ What changed for users in each release. Releases and their dates are on the
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). mailcellar is
 in beta, so commands and options may still change before 1.0.
 
-## Unreleased
+## 0.11.0 (2026-10-26)
 
 **Upgrading from 0.10.0:** each backup's `meta.sqlite` moves to schema 10
 the first time any command opens it, and 0.10.0 can't read schema 10.
