@@ -11,6 +11,9 @@ dist/
 # Internal notes, kept local
 docs/internal/
 
+# Hypothesis's database of the examples it found (tests/test_properties.py)
+.hypothesis/
+
 # Coverage data (uv run pytest --cov)
 .coverage
 htmlcov/

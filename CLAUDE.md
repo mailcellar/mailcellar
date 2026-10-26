@@ -15,6 +15,7 @@ User-facing usage: [README.md](README.md); every command and option is in
 uv sync                                # after any pyproject.toml change: the command is installed
 uv run pytest                          # all tests; no network
 uv run pytest --cov                    # with branch coverage; a guide, no minimum
+HYPOTHESIS_PROFILE=ci uv run pytest    # property tests at CI's 2,000 examples each
 uv run ruff format && uv run ruff check   # format, then lint; both must pass
 uvx --from mkdocs==1.6.1 --with mkdocs-material==9.7.7 mkdocs build -d <scratchpad>/site   # docs, strict
 uv run mailcellar config               # where the config and data are; each account's state
