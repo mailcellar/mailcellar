@@ -13,6 +13,7 @@ in `.python-version`.
 uv sync                                   # dependencies and the mailcellar command
 uv run pytest                             # all tests; no network
 uv run pytest --cov                       # with a branch-coverage report
+HYPOTHESIS_PROFILE=ci uv run pytest       # property tests with CI's 2,000 examples each
 uv run ruff format && uv run ruff check   # format, then lint; both must pass
 ```
 
@@ -25,6 +26,10 @@ CI runs the same three checks on every push and pull request
 - **Coverage is a guide, not a target.** Use `--cov` to find branches no
   test reaches, especially in code that changes Gmail; there is no
   minimum percentage.
+- **Property tests** (`tests/test_properties.py`, with Hypothesis) state a
+  rule for every input where mail or queries come from other people. A
+  failure Hypothesis finds also gets an ordinary example test, next to the
+  fix.
 - **Tests never touch Gmail or real data.** Use the fakes in `tests/`
   (`FakeGmail`, `FakeService`, `FakeBackup`). `tests/conftest.py` points
   the data root and config folder at each test's own directory; keep it

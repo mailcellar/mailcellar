@@ -25,3 +25,5 @@ jobs:
       - run: uv run ruff format --check
       - run: uv run ruff check
       - run: uv run pytest --cov
+        env:
+          HYPOTHESIS_PROFILE: ci  # more generated examples than a local run

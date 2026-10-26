@@ -1,16 +1,24 @@
 """Shared test setup."""
 
+import os
 import sqlite3
 import sys
 from pathlib import Path
 
 import pytest
+from hypothesis import settings
 
 from mailcellar import gmailapi
 from mailcellar.cli import configure_logging
 from mailcellar.paths import CONFIG_ENV, DATA_ENV
 
 TESTS = Path(__file__).parent
+
+# Property tests (test_properties.py): a modest count locally, more in CI
+# (HYPOTHESIS_PROFILE=ci). No deadline: a slow CI machine is not a failure.
+settings.register_profile("dev", max_examples=100, deadline=None)
+settings.register_profile("ci", max_examples=2_000, deadline=None)
+settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "dev"))
 
 
 @pytest.fixture(autouse=True)
