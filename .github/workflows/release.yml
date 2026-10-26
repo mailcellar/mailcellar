@@ -1,7 +1,8 @@
 name: Release
 
 # Pushing a tag vX.Y.Z publishes that version: the checks run again, the
-# package is built, uploaded to PyPI and attached to a GitHub release. PyPI
+# package is built, uploaded to PyPI and attached to a GitHub release whose
+# notes are the version's section of CHANGELOG.md. PyPI
 # trusts this workflow through trusted publishing (OpenID Connect), so no
 # token is stored anywhere; the publish job runs in the `pypi` environment,
 # which can require a reviewer's approval. Setting it up once is described in
@@ -34,6 +35,23 @@ jobs:
             echo "::error::tag $TAG does not match version $version in pyproject.toml"
             exit 1
           fi
+      - name: CHANGELOG.md has a section for this version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          # The text under "## X.Y.Z (date)", up to the next "## " heading.
+          version="${TAG#v}"
+          awk -v v="$version" '/^## /{p = ($2 == v); next} p' CHANGELOG.md \
+            | sed -e '/./,$!d' > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error::CHANGELOG.md has no section '## $version'"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: notes
+          path: notes.md
+          if-no-files-found: error
       - run: uv sync --locked
       - run: uv run ruff format --check
       - run: uv run ruff check
@@ -72,8 +90,12 @@ jobs:
         with:
           name: dist
           path: dist/
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: notes
+          path: notes/
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes --verify-tag
+        run: gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes-file notes/notes.md --verify-tag
