@@ -13,6 +13,9 @@ in beta, so commands and options may still change before 1.0.
   reference doesn't name.
 - Guides for backing up and keeping the backup safe, removing duplicate mail,
   restoring mail, and finding mail and deciding what to offload.
+- `search --format tsv|json` prints one line per result, with the account and
+  Gmail ID, for scripts and pickers such as fzf; the finding-mail guide has
+  a recipe.
 
 ### Changed
 - The README is now a landing page: a short quick start, with the guides and
