@@ -39,6 +39,12 @@ in beta, so commands and options may still change before 1.0.
   ([GHSA-6q48-6c7w-9gw2](https://github.com/certifi/python-certifi/security/advisories/GHSA-6q48-6c7w-9gw2)),
   which would let someone on the network impersonate Google. Upgrade an
   existing install with `uv tool upgrade mailcellar`.
+- Token files and `client_secrets.json` are owner-only from the moment they
+  are written. Before, a token was written with the umask's permissions,
+  often readable by other users, and made owner-only just after; replacing
+  a client kept the old file's permissions until then. Each is now written
+  to a new owner-only file and renamed into place, so an interrupted write
+  also leaves the old file whole.
 
 ## 0.10.0 (2026-10-26)
 

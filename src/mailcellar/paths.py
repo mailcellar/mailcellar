@@ -129,6 +129,26 @@ def pruned_folder(backup_dir: Path) -> Path:
     return backup_dir.parent / PRUNED_DIR / backup_dir.name
 
 
+def write_private(path: Path, data: bytes) -> None:
+    """
+    Write a file only its owner can read (mode 600), for tokens and OAuth
+    clients: a new file beside it, owner-only before the first byte is
+    written, renamed over `path`. Never readable by others, whatever the
+    umask or the old file's mode, and never left half-written.
+    """
+    import os
+
+    part = path.with_name(f".{path.name}.part")
+    try:
+        with open(os.open(part, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb") as fh:
+            os.fchmod(fh.fileno(), 0o600)  # O_CREAT's mode doesn't apply to a leftover .part
+            fh.write(data)
+        os.replace(part, path)
+    except BaseException:
+        part.unlink(missing_ok=True)
+        raise
+
+
 def find_backups(data: Path | None = None) -> list[Path]:
     """Every backup folder in <data> (data_root()), i.e. those with a msg-db.sqlite."""
     data = data or data_root()
