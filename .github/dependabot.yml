@@ -1,0 +1,30 @@
+# Version updates: the workflows' actions are pinned to commit SHAs, and
+# uv.lock pins every Python dependency, so nothing moves unless something
+# proposes it. Security updates (enabled in the repository settings) still
+# come as soon as an advisory does. Monthly, one grouped PR per ecosystem,
+# and a week's cooldown so a release is not picked up the day it appears.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      python:
+        patterns: ["*"]
+    commit-message:
+      prefix: build
