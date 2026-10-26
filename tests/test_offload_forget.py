@@ -306,6 +306,30 @@ def test_runs_past_their_hold_are_mentioned_until_emptied(env, monkeypatch, caps
     assert forget.held(A) == [(run_dir.name, 2)]
 
 
+def test_forget_undo_and_empty_keep_the_hash_chain_whole(env, monkeypatch):
+    from mailcellar.backup import chain
+
+    folder, _gmail = env
+
+    def failures():
+        return [(p.kind, p.gmail_id) for p in chain.check(folder, A).failures]
+
+    def last_op():
+        return chain.parse_line(chain.read_lines(folder)[-1])
+
+    run("--batch", BATCH, "--yes", typed="2", monkeypatch=monkeypatch)
+    assert last_op().op == "forget" and {g for g, _h in last_op().removed} == {"p0", "p1"}
+    assert failures() == []
+    (run_dir,) = (data_root() / forget.FORGOTTEN_DIR / A).iterdir()
+    run("--undo", run_dir.name)
+    assert last_op().op == "undo" and {g for g, _h in last_op().added} == {"p0", "p1"}
+    assert failures() == []
+    run("--batch", BATCH, "--yes", typed="2", monkeypatch=monkeypatch)
+    monkeypatch.setattr(forget, "HOLD_DAYS", 0)
+    run("--empty", "--yes", typed="1", monkeypatch=monkeypatch)
+    assert last_op().op == "empty" and failures() == []
+
+
 def test_forget_needs_a_selection(env):
     with pytest.raises(SystemExit, match="say which offloaded mail"):
         run()

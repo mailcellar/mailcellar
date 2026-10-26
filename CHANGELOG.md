@@ -7,6 +7,17 @@ in beta, so commands and options may still change before 1.0.
 
 ## Unreleased
 
+### Added
+- Tamper evidence ([#70](https://github.com/mailcellar/mailcellar/issues/70)):
+  each backup folder keeps a hash chain, `chain.jsonl`, recording what
+  every `backup`, `restore`, `--prune` and `offload forget` added or
+  removed, with each file's SHA-256, and its latest link is kept in the
+  config folder too. `verify --chain` checks every file against it and
+  fails on a change, a loss or an addition no command made, even if
+  `meta.sqlite` was changed to agree. `report health` shows each chain's
+  head. The first `backup` after upgrading starts the chain by hashing
+  every file once.
+
 ### Fixed
 - `restore` creates a user label whose name Gmail reserves (`Muted`,
   `Archive`, `Todo` and others) as `_Muted` and so on, as gyb does;

@@ -236,6 +236,11 @@ def test_imported_message_is_indexed_in_the_backup_sharing_the_file(env):
     paths = {bm.gmail_id: bm.path for bm in gyb.iter_backup(env.folder)}
     assert paths["g1"].samefile(paths[new_id])
     assert sidecar.current_fields(env.folder)[new_id]["message_id"] == "g1@x"
+    from mailcellar.backup import chain
+
+    last = chain.parse_line(chain.read_lines(env.folder)[-1])
+    assert last.op == "restore" and [g for g, _h in last.added] == [new_id]
+    assert chain.check(env.folder, A).failures == ()
 
     # The next backup doesn't download the restored message; count sees nothing missing.
     before = len(env.fetched)

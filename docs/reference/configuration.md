@@ -11,6 +11,7 @@ dotfile manager or sync:
   <name>/client_secrets.json
   <name>/token-readonly.json   # written on first use
   <name>/token-modify.json     # only with keep_modify_token = true
+  anchors/<email>.json         # each backup's latest hash-chain link (verify --chain)
 ```
 
 ```toml

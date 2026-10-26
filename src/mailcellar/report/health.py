@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from mailcellar.backup import chain
 from mailcellar.backup.gyb import backup_account
 from mailcellar.offload import forget
 from mailcellar.paths import pruned_folder
@@ -248,6 +249,40 @@ def pruned(folders: list[Path]) -> Table:
     )
 
 
+def chains(folders: list[Path]) -> Table:
+    """Each backup's hash chain: its head to note down, and whether the anchor agrees."""
+    rows = []
+    for folder in folders:
+        account = backup_account(folder)
+        lines = chain.read_lines(folder)
+        if not lines:
+            rows.append((account, 0, None, "", "no chain yet"))
+            continue
+        _held, broken, heads = chain.replay(lines)
+        found = broken + chain.check_anchor(heads, chain.read_anchor(account))
+        seq, sha = heads[-1]
+        rows.append((account, len(lines), seq, sha, "; ".join(p.kind for p in found) or "agrees"))
+    return Table(
+        "chain",
+        "Hash chain",
+        [
+            ("Account", "text"),
+            ("Links", "int"),
+            ("Head", "int"),
+            ("Head hash", "text"),
+            ("Anchor", "text"),
+        ],
+        rows,
+        notes=[
+            "What each backup, prune, forget and restore added to or removed from the backup, "
+            "each link naming the one before by its hash. Note the head hash down, or keep it "
+            "elsewhere: 'mailcellar verify --chain' checks every file against the chain and "
+            "the anchor in the config folder. A chain starts with the first backup."
+        ],
+        limit=False,
+    )
+
+
 def forgotten(folders: list[Path], now: int) -> Table:
     """Forget runs still held in <data root>/_forgotten/, and which are due for --empty."""
     now_local = datetime.fromtimestamp(now / 1000)  # run names are local time
@@ -323,4 +358,5 @@ def build(
         by_month(con),
         pruned(folders),
         forgotten(folders, now),
+        chains(folders),
     ]

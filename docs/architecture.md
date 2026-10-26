@@ -48,6 +48,7 @@ between them. Everything else reads the backup, not Gmail.
    │ THE BACKUP   <data>/<email>/          │ ◄── verify · export · report   │
    │   msg-db.sqlite + .eml   (gyb format) │     (read only)                │
    │   meta.sqlite            (sidecar)    │                                │
+   │   chain.jsonl            (hash chain) │                                │
    └───────────────────┬───────────────────┘                                │
                        │ read by                                            │
                        ▼                                                    │
@@ -107,6 +108,7 @@ mailcellar` and `python -m mailcellar` both work.
 | `backup/gyb.py` | gyb's format: writes `msg-db.sqlite` and `<y>/<m>/<d>/<id>.eml`, reads them back (`iter_backup`, `backup_account`), `prune` for `--prune` |
 | `backup/schedule.py` | `schedule`: installs `backup --unattended` as a launchd agent on macOS (a cron line elsewhere), `status` from the sidecars' runs and the token files, `remove`. The decisions (`describe`, `launchd_plist`, `cron_line`, `overdue`) are pure |
 | `backup/verify.py` | `verify`: for each backup, every indexed message's `.eml` exists, parses and matches the content hash in `meta.sqlite`; the two databases agree on which messages exist (`--offloaded`, `--sample`). Both are opened read-only; the decisions (`judge`, `select`, `disagreements`) are pure |
+| `backup/chain.py` | The hash chain (`chain.jsonl`): one link per command that adds to or removes from a backup, appended before the change is committed, and its anchor in `<config>/anchors/`; `verify --chain` replays it against every file. `next_link`, `replay`, `compare`, `check_anchor` are pure |
 | `backup/sidecar.py` | The per-account sidecar `meta.sqlite`: schema, migrations, runs, the offload record |
 | `dedup/cli.py` | argparse and one `cmd_*` per subcommand (`index`, `match`, `plan`, `apply`, `auth`); `mailcellar auth` is its `auth`, since authorisation serves every command, and `dedup auth` stays as an alias |
 | `dedup/db.py` | `dedup.sqlite` schema and migrations |

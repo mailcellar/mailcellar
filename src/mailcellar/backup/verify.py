@@ -12,6 +12,8 @@ indexed in msg-db.sqlite it checks that
   - its content hash equals the one meta.sqlite recorded when it was parsed;
 
 and that msg-db.sqlite and meta.sqlite agree on which messages exist. With
+--chain it also replays the backup's hash chain (backup/chain.py) against
+every file and the anchor in the config folder. With
 --offloaded it also checks that every message recorded as offloaded is in the
 index. A message whose meta.sqlite row is missing or from an older parser has
 nothing to compare with: it is counted as unchecked, and `mailcellar meta`
@@ -29,7 +31,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from mailcellar.backup import sidecar
+from mailcellar.backup import chain, sidecar
 from mailcellar.backup.gyb import DB_NAME, backup_account
 from mailcellar.message import PARSER_VERSION, parse_eml
 from mailcellar.progress import Progress
@@ -258,6 +260,24 @@ def show(report: Report, top: int, only_offloaded: bool) -> None:
         )
 
 
+def show_chain(report: chain.Report, top: int) -> None:
+    head = f", head {report.head[0]} {report.head[1][:16]}" if report.head else ""
+    failures = report.failures
+    print(
+        f"{report.account}: hash chain of {report.links:,} links{head}"
+        + (f", {len(failures):,} problems" if failures else ", no problems")
+    )
+    for p in failures[:top]:
+        print(
+            f"  {p.gmail_id + '  ' if p.gmail_id else ''}{p.kind}"
+            + (f" ({p.detail})" if p.detail else "")
+        )
+    if len(failures) > top:
+        print(f"  ... and {len(failures) - top:,} more (--top N shows more)")
+    for p in report.warnings:
+        logger.warning(f"{report.account}: {p.kind}: {p.detail}")
+
+
 def main(argv=None, prog: str | None = None) -> int:
     p = argparse.ArgumentParser(
         prog=prog or "mailcellar verify",
@@ -284,10 +304,18 @@ def main(argv=None, prog: str | None = None) -> int:
         metavar="N",
         help="Check N messages chosen at random (of the offloaded ones, with --offloaded)",
     )
+    p.add_argument(
+        "--chain",
+        action="store_true",
+        help="Also check the backup against its hash chain and the anchor in the config "
+        "folder: every file's SHA-256 as recorded, nothing added or removed unrecorded",
+    )
     p.add_argument("--top", type=int, default=50, help="Problems listed per account (default: 50)")
     args = p.parse_args(argv)
     if args.sample is not None and args.sample < 1:
         p.error("--sample needs a positive number")
+    if args.chain and (args.sample is not None or args.offloaded):
+        p.error("--chain checks every message: it can't be combined with --sample or --offloaded")
 
     try:
         folders = resolve_folders(args.accounts)
@@ -311,4 +339,9 @@ def main(argv=None, prog: str | None = None) -> int:
         show(report, args.top, args.offloaded)
         if not report.ok:
             status = 1
+        if args.chain:
+            checked = chain.check(folder, report.account)
+            show_chain(checked, args.top)
+            if checked.failures:
+                status = 1
     return status

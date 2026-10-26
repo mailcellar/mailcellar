@@ -214,7 +214,7 @@ def test_cli_meta_offline(tmp_path, monkeypatch, capsys):
     _gmail, folder = backed_up(tmp_path)
     (folder / "meta.sqlite").unlink()
     config = tmp_path / "config"
-    config.mkdir()
+    config.mkdir(exist_ok=True)  # the backup wrote its chain anchor there
     (config / "accounts.toml").write_text(f'a = "{ACCOUNT}"\n')
     monkeypatch.chdir(tmp_path)
     assert commands.main(["meta", "a", "--offline", "--config", str(config)]) == 0
