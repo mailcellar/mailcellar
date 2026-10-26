@@ -54,16 +54,15 @@ Any picker that reads lines can choose from it; with
 mailcellar search "invoice 2024" --format tsv \
   | fzf -m --delimiter '\t' --with-nth 1,2,3 --preview 'cat {6}' \
   | while IFS=$'\t' read -r _ _ _ account id _ _ _; do
-      mailcellar restore "$account" --all --id "$id"      # a dry run: add --yes to restore
+      mailcellar restore "$account" --id "$id"      # a dry run: add --yes to restore
     done
 ```
 
 `--with-nth 1,2,3` shows the date, sender and subject, `--preview` shows the
-message, and `-m` lets you choose several with Tab. `--all` lets `--id` pick
-any backed-up message, not only offloaded ones; mail Gmail still has is left
-alone. `export "$account" --all --id "$id" --to …` in the loop copies them
-out instead. skim, gum, peco and fzy
-read the same lines. `--format json` prints one JSON object per line, for
+message, and `-m` lets you choose several with Tab. Mail Gmail still has is
+left alone, so the dry run says what is missing from Gmail. `export
+"$account" --id "$id" --to …` in the loop copies them out instead. skim,
+gum, peco and fzy read the same lines. `--format json` prints one JSON object per line, for
 `jq` and scripts.
 
 ### The first search is slow

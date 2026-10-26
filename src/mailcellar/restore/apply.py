@@ -7,7 +7,7 @@ Each message takes the first way back that applies:
              the offload): move it out; it keeps its ID, labels and thread
   in gmail   an offloaded message already out of Trash: just record it
   present    a message that was never offloaded and is still in Gmail (or
-             its Trash): nothing to do (whole-backup restores)
+             its Trash): nothing to do (whole-backup and --id restores)
   found      gone, but Gmail has a message with the same Message-ID and
              content: record that one (and untrash it if it is in Trash)
   import     gone: upload the backed-up .eml with users.messages.import,
@@ -219,12 +219,14 @@ def candidates(
     target: str = "",
     narrow: Narrowing | None = None,
     include_restored: bool = False,
+    offloaded_only: bool = False,
 ) -> list[Candidate]:
     """
     Messages of the backup in `folder` not yet restored into `target` ('' =
     the backup's own account), oldest first: the offloaded ones, narrowed
     to the given batches, rules and Gmail IDs (any of each), or with
     `everything` the whole backup (old IDs superseded by a restore apart).
+    Gmail IDs are looked for in the whole backup too, unless `offloaded_only`.
     `narrow` then keeps only those that meet its dates, labels and senders.
     include_restored (for an export, which is not a restore) keeps messages
     already restored, but always leaves out the old IDs of messages restored
@@ -246,9 +248,10 @@ def candidates(
         done = set() if include_restored else sidecar.restored_ids(con, target)
     finally:
         con.close()
-    superseded = sidecar.superseded_ids(folder) if everything or include_restored else set()
+    whole = everything or (bool(ids) and not offloaded_only)
+    superseded = sidecar.superseded_ids(folder) if whole or include_restored else set()
     index = {bm.gmail_id: bm for bm in gyb.iter_backup(folder)}
-    pool = set(index) | set(offload) if everything else set(offload)
+    pool = set(index) | set(offload) if whole else set(offload)
 
     def candidate(gid: str) -> Candidate:
         batch, rule = offload.get(gid, ("", ""))

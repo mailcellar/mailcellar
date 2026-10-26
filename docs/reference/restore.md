@@ -45,7 +45,8 @@ itself: name `--all`, `--offloaded`, `--batch`, `--rule` or `--id` too.
   keeping its ID, labels and thread;
 - **offloaded, but already out of Trash** (moved by hand): recorded and
   relabelled;
-- **never offloaded and still in Gmail** (with `--all`): left alone;
+- **never offloaded and still in Gmail** (with `--all` or `--id`): left
+  alone;
 - **gone, but Gmail has the same Message-ID and content** under another
   ID: recorded as that message;
 - **gone:** uploaded from the backup with its labels, apart from those
@@ -118,7 +119,7 @@ account restored into. Without `--yes` it is a dry run.
 | --- | --- |
 | `--batch BATCH` | An offload batch (repeatable) |
 | `--rule RULE` | An offload rule (repeatable) |
-| `--id ID` | A Gmail ID (repeatable) |
+| `--id ID` | A Gmail ID, offloaded or not (repeatable); with `--offloaded`, only if it was offloaded |
 | `--offloaded` | Every offloaded message |
 | `--all` | Every message in the backup; those still in Gmail are left alone |
 

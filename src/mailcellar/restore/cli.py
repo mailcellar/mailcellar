@@ -43,7 +43,12 @@ def add_selection_arguments(
     which = p.add_argument_group("which messages (one or more)")
     which.add_argument("--batch", action="append", default=[], help="An offload batch (repeatable)")
     which.add_argument("--rule", action="append", default=[], help="An offload rule (repeatable)")
-    which.add_argument("--id", action="append", default=[], help="A Gmail ID (repeatable)")
+    which.add_argument(
+        "--id",
+        action="append",
+        default=[],
+        help="A Gmail ID, offloaded or not (repeatable); with --offloaded, only if offloaded",
+    )
     which.add_argument("--offloaded", action="store_true", help="Every offloaded message")
     which.add_argument("--all", action="store_true", help=all_help)
     narrow = p.add_argument_group(
@@ -218,6 +223,7 @@ def main(argv=None, prog: str | None = None) -> int:
             everything=args.all,
             target=target if other else "",
             narrow=narrowing,
+            offloaded_only=args.offloaded,
         )
     except sidecar.MetaError as exc:
         sys.exit(f"error: {exc}")
