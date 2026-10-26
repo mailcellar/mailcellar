@@ -268,42 +268,48 @@ def test_trash_retries_a_rate_limited_call():
     assert len(service.of("batchModify")) == 3
 
 
-def test_not_trashed_names_each_message_gmail_does_not_show_in_trash():
+def test_not_moved_names_each_message_not_where_it_should_be():
     live = {"t": {"TRASH", "work"}, "i": {"INBOX"}, "e": {"INBOX"}, "g": None}
-    got = gmailapi.not_trashed(["t", "i", "e", "g", "u"], live, ["u: HTTP 500"], {"e": "boom"})
-    assert got == [
+    unread, errors = ["u: HTTP 500"], {"e": "boom"}
+    assert gmailapi.not_moved(["t", "i", "e", "g", "u"], live, unread, errors, True) == [
         "i: not in Trash after trashing",
         "e: not in Trash after trashing (boom)",
         "g: gone from Gmail",
         "u: couldn't check it was trashed: HTTP 500",
     ]
+    assert gmailapi.not_moved(["t", "i", "g", "u"], live, unread, {}, False) == [
+        "t: still in Trash",
+        "g: gone from Gmail",
+        "u: couldn't check it was out of Trash: HTTP 500",
+    ]
 
 
-def test_untrash_sends_one_request_per_message():
-    service, gmail = mailbox()
-    assert gmail.untrash(["g1", "g2", "g3"]) == []
-    assert service.of("untrash") == [("g1",), ("g2",), ("g3",)]
+def test_untrash_removes_the_trash_label_a_thousand_at_a_time_then_reads_each_back():
+    ids = [f"g{i}" for i in range(1_500)]
+    messages = {g: ["TRASH", "Label_1"] for g in ids}
+    service, gmail = mailbox(labels=[*SYSTEM, TRASH, WORK], messages=messages)
+    assert gmail.untrash(ids) == []
+    sent = service.of("batchModify")
+    assert [len(chunk) for chunk, _add, _remove in sent] == [1000, 500]
+    assert all(add == [] and remove == ["TRASH"] for _chunk, add, remove in sent)
+    assert service.of("untrash") == []  # no call per message
+    assert len(service.of("get")) == 1_500
+    assert all(labels == ["Label_1"] for labels in service.messages_.values())  # others kept
 
 
-def test_untrash_reports_failures_and_carries_on():
-    service, gmail = mailbox(fail={("untrash", "g2"): [http_error(400)]})
-    failed = gmail.untrash(["g1", "g2", "g3"])
-    assert len(failed) == 1 and failed[0].startswith("g2: ")
-    assert service.of("untrash") == [("g1",), ("g2",), ("g3",)]  # g3 was still sent
-
-
-def test_untrash_retries_a_rate_limited_message():
-    service, gmail = mailbox(fail={("untrash", "g1"): [http_error(429), http_error(503)]})
-    assert gmail.untrash(["g1"]) == []
-    assert service.of("untrash") == [("g1",)] * 3
-
-
-def test_untrash_reports_a_message_refused_too_often():
-    errors = [http_error(429)] * gmailapi.BATCH_ATTEMPTS
-    service, gmail = mailbox(fail={("untrash", "g1"): errors})
-    failed = gmail.untrash(["g1"])
-    assert len(failed) == 1 and failed[0].startswith("g1: ")
-    assert len(service.of("untrash")) == gmailapi.BATCH_ATTEMPTS
+def test_untrash_reports_what_is_still_in_trash_and_carries_on(monkeypatch, caplog):
+    monkeypatch.setattr(gmailapi, "MODIFY_CHUNK", 1)
+    refused = http_error(400, b'{"error": {"reason": "invalidArgument"}}')
+    service, gmail = mailbox(
+        labels=[*SYSTEM, TRASH],
+        messages={"g1": ["TRASH"], "g2": ["TRASH"]},
+        fail={("batchModify", "g1"): [refused]},
+    )
+    failed = gmail.untrash(["g1", "g2", "gone"])
+    assert [f.split(":")[0] for f in failed] == ["g1", "gone"]
+    assert failed[0].startswith("g1: still in Trash (")
+    assert service.messages_["g2"] == []
+    assert "moving 1 out of Trash failed" in caplog.text
 
 
 # ── lookups ──────────────────────────────────────────────────────────────────

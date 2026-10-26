@@ -69,7 +69,9 @@ modify`). `--label-prefix P` nests the backed-up user labels under `P/`;
 the `restored/` label.
 
 **How long it takes:** the dry run checks every `.eml` file and looks each
-message up in Gmail, so on a large backup it takes minutes. Uploads run at
+message up in Gmail, so on a large backup it takes minutes. Messages still
+in Trash come out a thousand per Gmail call, then each is read back to
+confirm it left Trash, so thousands take about a minute. Uploads run at
 about 6 a second, so the dry run's estimate for 4,500 messages is about 13
 minutes and for 50,000 over two hours. Progress lines go to stderr (`-q` turns them off); run
 large restores in the background.

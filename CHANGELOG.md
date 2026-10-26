@@ -37,7 +37,8 @@ in beta, so commands and options may still change before 1.0.
   thousand per Gmail call (adding the `TRASH` label with `batchModify`)
   instead of one call per message, which Gmail held to about 5 a second.
   Each message is then read back, and only one Gmail shows in Trash is
-  recorded as trashed.
+  recorded as trashed. `restore --yes` moves offloaded messages out of Trash
+  the same way, removing the label and reading each back.
 
 ### Removed
 - `run.sh`, a wrapper around `mailcellar backup`, `count` and `meta`. Run
