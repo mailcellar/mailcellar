@@ -78,7 +78,8 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
   (`tests/test_reference_docs.py` fails when `--help` lists one the page
   doesn't name); a new guide goes in `docs/guide/`, `mkdocs.yml`'s `nav` and
   the README's Documentation list. The README stays a landing page. Build in
-  strict mode (a broken link fails) with the command above.
+  strict mode (a broken link fails) with the command above. A change a user
+  would notice also gets a line under `## Unreleased` in `CHANGELOG.md`.
 - Commits: Conventional Commits, `type(scope): summary` (types and scopes
   in CONTRIBUTING.md); the body says why and what it was checked against,
   real data as counts only; one logical change per commit, passing ruff
