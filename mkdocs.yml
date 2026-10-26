@@ -49,6 +49,7 @@ nav:
       - Backing up, and keeping the backup safe: guide/backing-up.md
       - Scheduled backups: guide/scheduling.md
       - Migrating from gyb: guide/from-gyb.md
+      - Finding mail, and deciding what to offload: guide/finding-and-sizing.md
       - Offloading old mail safely: guide/offloading.md
       - Removing duplicate mail: guide/dedup.md
       - Restoring mail: guide/restore.md
