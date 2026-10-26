@@ -136,7 +136,8 @@ def test_setup_asks_for_what_is_missing(tmp_path, download, auth_calls, monkeypa
     answers = iter(["alex@example.org", str(download)])
     monkeypatch.setattr("builtins.input", lambda _prompt: next(answers))
     assert cli.main(["setup"]) == 0
-    assert "console.cloud.google.com" in capsys.readouterr().out  # the steps, as no --client
+    out = capsys.readouterr().out  # the steps are shown, as there is no --client
+    assert all(url in out.split() for _what, url in setup.CONSOLE)
     assert (tmp_path / "config" / "alex" / "client_secrets.json").is_file()
 
 
