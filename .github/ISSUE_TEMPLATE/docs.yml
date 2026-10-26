@@ -1,0 +1,37 @@
+name: Documentation
+description: Something missing, unclear or wrong in the README or guides
+labels: [documentation]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Issues are public: don't paste real mail, addresses, names or
+        credentials. Use placeholders (`alex@example.com`) and describe your
+        mailbox in general terms.
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: The page or section, or the command if nothing covers it.
+      placeholder: docs/guide/offloading.md, "Reviewing the plan"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's missing, unclear or wrong
+      description: What you were trying to do and where the docs stopped helping. For a wrong statement, say what the command does instead.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: What would help
+      description: A new guide, an example, a corrected sentence.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      options:
+        - label: I have removed addresses, names, subjects, message content and tokens from this report.
+          required: true
