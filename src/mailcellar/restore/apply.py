@@ -38,6 +38,7 @@ apply() with no backup folder records and indexes nothing.
 
 import base64
 import csv
+import logging
 import sqlite3
 import time
 from dataclasses import dataclass, replace
@@ -50,6 +51,8 @@ from mailcellar.dedup.rules import is_user_label
 from mailcellar.message import PARSER_VERSION, parse_message
 from mailcellar.offload.apply import OFFLOAD_LABEL, upgrade_log
 from mailcellar.progress import Progress
+
+logger = logging.getLogger(__name__)
 
 # System labels messages.import accepts (tested against Gmail); CHAT fails the whole import.
 IMPORT_SYSTEM_LABELS = {"INBOX", "UNREAD", "STARRED", "IMPORTANT", "SENT", "DRAFT"}
@@ -607,6 +610,26 @@ def _import(
     return results
 
 
+def _label_ids(gmail, names: list[str]) -> tuple[list[str], list[str]]:
+    """
+    (label IDs, names Gmail refused): the labels are created as needed, and
+    one Gmail won't create costs the message that label, not the restore.
+    """
+    from mailcellar import gmailapi
+
+    try:
+        return gmail.label_ids(names), []
+    except gmailapi.GmailError:
+        ids, refused = [], []
+        for name in names:
+            try:
+                ids += gmail.label_ids([name])
+            except gmailapi.GmailError as exc:
+                logger.warning(str(exc))
+                refused.append(name)
+        return ids, refused
+
+
 def _import_chunk(gmail, tcon, folder, chunk, record, system, prefix, strip) -> list[Result]:
     results: dict[str, Result] = {}
     # source ID → (decision, raw bytes, parsed fields, labels note, label IDs)
@@ -618,8 +641,10 @@ def _import_chunk(gmail, tcon, folder, chunk, record, system, prefix, strip) -> 
             results[d.source_id] = Result(d, "skipped", "backup copy differs from the sidecar")
             continue
         keep, dropped = import_labels(d.candidate.labels, system, prefix, strip)
+        label_ids, refused = _label_ids(gmail, keep)
+        dropped += [f"{name} (Gmail refused it)" for name in refused]
         note = f"labels not restored: {', '.join(dropped)}" if dropped else ""
-        ready[d.source_id] = (d, raw, fields, note, gmail.label_ids(keep))
+        ready[d.source_id] = (d, raw, fields, note, label_ids)
     if not ready:
         return list(results.values())
 

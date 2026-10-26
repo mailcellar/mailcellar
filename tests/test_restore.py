@@ -230,6 +230,21 @@ def test_restore_untrashes_imports_and_records(env):
     con.close()
 
 
+def test_a_label_gmail_refuses_costs_that_label_not_the_restore(env, monkeypatch, capsys):
+    real = env.label_ids
+
+    def label_ids(names):
+        if "work" in names:
+            raise gmailapi.GmailError(f"{A}: Gmail refused the label 'work': HTTP 409")
+        return real(names)
+
+    monkeypatch.setattr(env, "label_ids", label_ids)
+    run("--id", "g1", "--yes")
+    outcome, detail = log()["g1"]
+    assert outcome == "imported" and "work (Gmail refused it)" in detail
+    assert "Gmail refused the label 'work'" in capsys.readouterr().err
+
+
 def test_imported_message_is_indexed_in_the_backup_sharing_the_file(env):
     run("--id", "g1", "--yes")
     new_id = restored_rows(env.folder)["g1"][0]

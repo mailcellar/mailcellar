@@ -60,11 +60,12 @@ RETRY_STATUSES = {429, 500, 502, 503, 504}
 LONG_WAIT = 10
 # Top-level label names Gmail won't create as user labels (HTTP 400 "Invalid
 # label name"). Google's list "isn't exhaustive"; this is gyb's, gathered from
-# its users' failed restores. Such a label is created with a leading _.
+# its users' failed restores, less "todo", which Gmail accepted when the rest
+# were tried on 2026-10-26. Such a label is created with a leading _.
 RESERVED_LABELS = frozenset(
     {
         "inbox", "spam", "trash", "unread", "starred", "important", "sent", "draft",
-        "drafts", "chat", "chats", "migrated", "todo", "todos", "buzz", "bin",
+        "drafts", "chat", "chats", "migrated", "todos", "buzz", "bin",
         "allmail", "archive", "archived", "muted",
     }
 )  # fmt: skip
@@ -76,10 +77,10 @@ def creatable_name(name: str, existing) -> str:
     """
     The name to create the user label `name` under: with a leading _ if
     Gmail reserves its top level (gyb does the same), unless the account
-    already has a label by that name. Pure.
+    already has a label by that name; `existing` holds names casefolded. Pure.
     """
     top = name.split("/")[0]
-    if top.lower() in RESERVED_LABELS and top not in existing:
+    if top.lower() in RESERVED_LABELS and top.casefold() not in existing:
         return "_" + name
     return name
 
@@ -827,23 +828,48 @@ class GmailAccount:
 
     # ── writes ───────────────────────────────────────────────────────────────
 
+    def _find_label(self, name: str) -> str | None:
+        """The ID of a label named `name`, or differing only in case (Gmail's own view)."""
+        labels = self._labels()
+        exact = next((i for i, n in labels.items() if n == name), None)
+        if exact is not None:
+            return exact
+        return next((i for i, n in labels.items() if n.casefold() == name.casefold()), None)
+
     def ensure_label(self, name: str) -> str:
-        """ID of the user label `name`, created if missing."""
-        for label_id, label_name in self._labels().items():
-            if label_name == name:
-                return label_id
-        created = self._execute(
-            self.service.users()
-            .labels()
-            .create(
-                userId="me",
-                body={
-                    "name": name,
-                    "labelListVisibility": "labelShow",
-                    "messageListVisibility": "show",
-                },
+        """
+        ID of the user label `name`, created if missing. Gmail treats names
+        that differ only in case as the same label and refuses a second one
+        (HTTP 409), so an existing "furniture" serves for "Furniture".
+        """
+        from googleapiclient.errors import HttpError
+
+        found = self._find_label(name)
+        if found is not None:
+            return found
+        try:
+            created = self._execute(
+                self.service.users()
+                .labels()
+                .create(
+                    userId="me",
+                    body={
+                        "name": name,
+                        "labelListVisibility": "labelShow",
+                        "messageListVisibility": "show",
+                    },
+                )
             )
-        )
+        except HttpError as exc:
+            if exc.status_code != 409:
+                raise
+            self._label_names = None  # made meanwhile, or a name Gmail counts as taken
+            found = self._find_label(name)
+            if found is not None:
+                return found
+            raise GmailError(
+                f"{self.account}: Gmail refused the label {name!r}: {describe(exc)}"
+            ) from None
         self._label_names[created["id"]] = name
         return created["id"]
 
@@ -874,7 +900,7 @@ class GmailAccount:
             if name in system:
                 out.append(name)
                 continue
-            safe = creatable_name(name, set(self._labels().values()))
+            safe = creatable_name(name, {n.casefold() for n in self._labels().values()})
             if safe != name:
                 logger.info(f"{self.account}: Gmail reserves the label {name!r}; using {safe!r}")
                 name = safe

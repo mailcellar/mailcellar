@@ -50,6 +50,9 @@ class RecordingService:
 
             def create(self, userId, body):
                 def create():
+                    taken = {lb["name"].casefold() for lb in service.labels_}
+                    if body["name"].casefold() in taken:  # as Gmail does, whatever the case
+                        raise http_error(409)
                     label = {"id": f"Label_{len(service.labels_) + 1}", "type": "user", **body}
                     service.labels_.append(label)
                     return label
@@ -173,8 +176,9 @@ def test_label_ids_creates_parent_labels_for_nested_names():
         ("Muted", set(), "_Muted"),
         ("archive/2019", set(), "_archive/2019"),  # the top level decides
         ("Projects/Muted", set(), "Projects/Muted"),
-        ("Muted", {"Muted"}, "Muted"),  # the account has it already: use it
+        ("Muted", {"muted"}, "Muted"),  # the account has it already: use it
         ("Mute", set(), "Mute"),
+        ("Todo", set(), "Todo"),  # accepted by Gmail again
     ],
 )
 def test_a_name_gmail_reserves_gets_a_leading_underscore(name, existing, expected):
@@ -183,10 +187,29 @@ def test_a_name_gmail_reserves_gets_a_leading_underscore(name, existing, expecte
 
 def test_label_ids_creates_a_reserved_name_under_the_underscore(caplog):
     service, gmail = mailbox()
-    ids = gmail.label_ids(["Todo/2026", "work"])
-    assert [name for name, _body in service.of("labels.create")] == ["_Todo", "_Todo/2026"]
+    ids = gmail.label_ids(["Bin/2026", "work"])
+    assert [name for name, _body in service.of("labels.create")] == ["_Bin", "_Bin/2026"]
     assert ids == [service.labels_[-1]["id"], "Label_1"]
-    assert "Gmail reserves the label 'Todo/2026'; using '_Todo/2026'" in caplog.text
+    assert "Gmail reserves the label 'Bin/2026'; using '_Bin/2026'" in caplog.text
+
+
+def test_a_label_differing_only_in_case_is_the_existing_one():
+    service, gmail = mailbox()  # has "work"
+    assert gmail.label_ids(["Work", "WORK/2026"]) == ["Label_1", service.labels_[-1]["id"]]
+    assert [name for name, _body in service.of("labels.create")] == ["WORK/2026"]
+
+
+def test_a_label_gmail_refuses_is_a_gmail_error():
+    service, gmail = mailbox(fail={("labels.create", None): [http_error(409)]})
+    with pytest.raises(gmailapi.GmailError, match="Gmail refused the label 'new'"):
+        gmail.ensure_label("new")
+
+
+def test_a_label_made_meanwhile_is_found_after_the_conflict():
+    service, gmail = mailbox()
+    gmail.label_ids(["INBOX"])  # the label list is read now
+    service.labels_.append({"id": "Label_9", "name": "late", "type": "user"})
+    assert gmail.ensure_label("Late") == "Label_9"  # 409, then found on a fresh list
 
 
 def test_label_ids_does_not_recreate_an_existing_parent():
