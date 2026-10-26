@@ -23,6 +23,8 @@ must all match:
     to_me           true: one of your addresses is in To or Cc; false: it isn't
                     (the mail came by a list, Bcc or an alias)
     larger_than_mb  size in MB (a number)
+    query           a Gmail search, as typed in Gmail ("has:attachment filename:pdf");
+                    offload plan asks Gmail, read-only, which messages it finds
 
 `except` takes the same keys; a message matching any one of them is kept.
 
@@ -60,6 +62,7 @@ SCOPES = (
     "subject",
     "to_me",
     "larger_than_mb",
+    "query",
 )
 CATEGORIES = ("promotions", "updates", "forums", "social", "personal")
 KEYS = {"name", "before", "account", "except", "waive", "protect", *SCOPES}
@@ -82,6 +85,11 @@ class Rule:
     @property
     def waived(self) -> list[str]:
         return [p for p in DEFAULT_PROTECT if p not in self.protect]
+
+    @property
+    def queries(self) -> list[str]:
+        """The Gmail searches the rule's scope and exception name."""
+        return [*self.scope.get("query", []), *self.exceptions.get("query", [])]
 
     @property
     def labels(self) -> set[str]:
@@ -193,8 +201,8 @@ def _parse_scope(name: str, raw: dict, where: str) -> dict[str, list]:
             values = [v.lower() for v in values]
         if key == "subject":
             values = [fold(v) for v in values]
-            if not all(values):
-                raise RuleError(f"rule {name!r}: {where}subject must not be empty")
+        if key in ("subject", "query") and not all(values):
+            raise RuleError(f"rule {name!r}: {where}{key} must not be empty")
         scope[key] = values
     return scope
 

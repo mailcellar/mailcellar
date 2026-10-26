@@ -49,7 +49,9 @@ except = { subject = "release" }
   newer than it is never selected.
 - The scope keys say what to select: `label`, `sender` (an address or
   `@domain`), `list`, `forwarded_from`, `category`, `subject`, `to_me`,
-  `larger_than_mb`. At least one is needed; different keys must all
+  `larger_than_mb`, and `query`, a search written as in Gmail's search box
+  (`"has:attachment older_than:5y"`), which `plan` runs in Gmail,
+  read-only. At least one is needed; different keys must all
   match, and a key given a list matches any of its values. Here one key,
   `sender`, does it.
 - `except` takes the same keys and keeps a message that matches **any** of
@@ -73,7 +75,9 @@ Whatever the rule selects, mailcellar keeps in Gmail, by default:
 `waive = ["thread"]` drops a default protection for one rule, and
 `protect = ["correspondents"]` adds one (keeps mail from anyone you have
 written to). Waive only what you have a reason to, and read the plan
-afterwards to see what the rule now takes.
+afterwards to see what the rule now takes. A `query` rule finds mail
+across your labels, so **labels** often keeps much of what it finds: the
+plan's "kept: another user label" line says how much.
 
 ## 2. Plan
 

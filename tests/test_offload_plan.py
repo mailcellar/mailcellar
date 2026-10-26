@@ -196,6 +196,7 @@ def test_plan_changes_nothing(data):
         ("", "no [[rule]] tables"),
         ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nto_me = "yes"\n', "true or false"),
         ('[[rule]]\nname = "x"\nbefore = "5"\nsubject = " "\n', "must not be empty"),
+        ('[[rule]]\nname = "x"\nbefore = "5"\nquery = ["a", ""]\n', "query must not be empty"),
         ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nexcept = "b"\n', "table of scope"),
         (
             '[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nexcept = { before = "1" }\n',
@@ -263,6 +264,91 @@ except = { subject = ["S-W1"], sender = "@shop.com", to_me = true }
     rows = run(data, rules)
     assert {r["gmail_id"] for r in rows} == {"w8", "b1"}  # w1, p2, t1 excepted
     assert "kept: rule exception" in capsys.readouterr().out
+
+
+# ── query: a Gmail search ────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def gmail_search(monkeypatch):
+    """What Gmail's search finds, per (account, query); the searches made, in order."""
+    found = {(A, "has:attachment"): ["w1", "w4", "w8", "p1", "gone-from-backup"]}
+    made = []
+
+    def search(account, config, queries):
+        made.append((account, tuple(queries)))
+        return {q: found.get((account, q), []) for q in queries}
+
+    monkeypatch.setattr(cli, "search_gmail", search)
+    return made
+
+
+def test_a_query_selects_what_gmail_finds_and_the_protections_still_apply(
+    data, gmail_search, caplog
+):
+    rule = '[[rule]]\nname = "pdfs"\nquery = "has:attachment"\nbefore = "2020-01-01"\n'
+    # w1, w4 and w8 carry Work, a user label the rule doesn't name
+    assert {r["gmail_id"] for r in run(data, rule)} == {"p1"}
+    assert gmail_search == [(A, ("has:attachment",)), (B, ("has:attachment",))]
+    rows = run(data, rule + 'waive = ["labels"]\n')
+    assert {r["gmail_id"] for r in rows} == {"w1", "w8", "p1"}  # w4 is starred
+    assert "1 messages Gmail finds for 'has:attachment' aren't in the backup" in caplog.text
+
+
+def test_a_query_narrows_like_any_scope_key_and_works_in_except(data, gmail_search):
+    both = '[[rule]]\nname = "w"\nlabel = "work"\nquery = "has:attachment"\nbefore = "2020-01-01"\n'
+    assert {r["gmail_id"] for r in run(data, both)} == {"w1", "w8"}  # p1 has no Work label
+    excepted = (
+        '[[rule]]\nname = "w"\nlabel = "work"\nbefore = "2020-01-01"\n'
+        'except = { query = "has:attachment" }\n'
+    )
+    assert {r["gmail_id"] for r in run(data, excepted)} == {"p2", "t1", "b1"}
+
+
+def test_no_query_no_gmail(data, gmail_search):
+    run(data)
+    assert gmail_search == []
+
+
+def test_search_gmail_signs_in_read_only_and_stops_on_a_failed_search(tmp_path, monkeypatch):
+    from mailcellar import gmailapi
+
+    scopes = []
+    monkeypatch.setattr(gmailapi, "find_config_folder", lambda config, account: config)
+    monkeypatch.setattr(
+        gmailapi, "load_credentials", lambda folder, account, scope: scopes.append(scope)
+    )
+
+    class Searching:
+        def __init__(self, account, creds):
+            pass
+
+        def list_message_ids(self, query):
+            if query == "bad":
+                raise gmailapi.GmailError("HTTP 400")
+            return [f"{query}-1"]
+
+    monkeypatch.setattr(gmailapi, "GmailAccount", Searching)
+    assert cli.search_gmail(A, tmp_path, ["a", "b"]) == {"a": ["a-1"], "b": ["b-1"]}
+    assert scopes == ["readonly"]
+    with pytest.raises(SystemExit, match="search for 'bad' failed: HTTP 400"):
+        cli.search_gmail(A, tmp_path, ["bad"])
+
+
+def test_searches_are_per_account_and_asked_once():
+    from mailcellar.offload.plan import searches
+    from mailcellar.offload.rules import parse_rule
+
+    def rule(**raw):
+        return parse_rule({"before": "5", **raw}, parse_before, lambda a: a)
+
+    rules = [
+        rule(name="one", query=["a", "b"], account=A),
+        rule(name="two", query="a"),
+        rule(name="three", label="x", **{"except": {"query": "c"}}),
+        rule(name="four", label="y"),
+    ]
+    assert searches(rules, [A, B]) == {A: ["a", "b", "c"], B: ["a", "c"]}
 
 
 def test_every_plan_is_kept(data, monkeypatch):

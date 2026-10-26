@@ -33,7 +33,14 @@ from mailcellar.offload.apply import (
     stale_backups,
     upgrade_log,
 )
-from mailcellar.offload.plan import PLAN_COLUMNS, build_plan, plan_rows, summary
+from mailcellar.offload.plan import (
+    PLAN_COLUMNS,
+    build_plan,
+    not_backed_up,
+    plan_rows,
+    searches,
+    summary,
+)
 from mailcellar.offload.review import write_reviews
 from mailcellar.offload.rules import RuleError, load_rules
 from mailcellar.paths import backup_folder, config_root, data_root
@@ -70,6 +77,22 @@ def write_plan(rows: list[dict], path: Path) -> None:
         w.writerows(rows)
 
 
+def search_gmail(account: str, config: Path, queries: list[str]) -> dict[str, list[str]]:
+    """Gmail's own search, read-only: each query's message IDs (Spam and Trash left out)."""
+    from mailcellar import gmailapi
+
+    folder = gmailapi.find_config_folder(config, account)
+    gmail = gmailapi.GmailAccount(account, gmailapi.load_credentials(folder, account, "readonly"))
+    found = {}
+    for q in queries:
+        logger.info(f"{account}: searching Gmail for {q!r}")
+        try:
+            found[q] = gmail.list_message_ids(q)
+        except gmailapi.GmailError as exc:
+            sys.exit(f"error: {account}: Gmail's search for {q!r} failed: {exc}")
+    return found
+
+
 def cmd_plan(args) -> None:
     folders = resolve_folders(args.accounts)
     if not folders:
@@ -82,7 +105,19 @@ def cmd_plan(args) -> None:
         for rule in rules:
             if rule.accounts and not set(rule.accounts) & set(accounts):
                 logger.warning(f"rule {rule.name!r}: none of its accounts is chosen")
-        results = build_plan(con, rules, accounts, {backup_account(f): str(f) for f in folders})
+        hits = {
+            (account, q): ids
+            for account, queries in searches(rules, accounts).items()
+            for q, ids in search_gmail(account, Path(args.config), queries).items()
+        }
+        results = build_plan(
+            con, rules, accounts, {backup_account(f): str(f) for f in folders}, hits
+        )
+        for (account, q), n in not_backed_up(con).items():
+            logger.warning(
+                f"{account}: {n:,} messages Gmail finds for {q!r} aren't in the backup, so no "
+                "rule can offload them; run a backup, then plan again."
+            )
         reviews = write_reviews(con, results, accounts, review_dir()) if args.review else []
     planned = int(time.time() * 1000)
     rows = plan_rows(results, planned)
@@ -386,6 +421,12 @@ def main(argv=None, prog: str | None = None) -> None:
         help="Also write a review page per rule, in <data root>/offload/review/: samples of "
         "what it would offload and what it keeps, the largest messages and threads, "
         "attachment types (senders and subjects, never bodies; for you alone)",
+    )
+    pl.add_argument(
+        "--config",
+        default=str(config_root()),
+        help="Config folder, for rules with a query: Gmail is searched, read-only "
+        f"(default: {config_root()})",
     )
     pl.set_defaults(func=cmd_plan)
 

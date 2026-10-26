@@ -86,7 +86,7 @@ Who touches what:
 | `search` | the backups | `search.sqlite` | none |
 | `dedup index` | the backups | `dedup.sqlite` | none |
 | `dedup match`, `plan` | `dedup.sqlite` | `dedup.sqlite` (groups); `dedup-plan.csv` | none |
-| `offload plan` | the backup, `rules.toml` | `offload-plan.csv`, `plans/` | none |
+| `offload plan` | the backup, `rules.toml`; Gmail's search, for rules with a `query` | `offload-plan.csv`, `plans/` | none, or read-only for a `query` |
 | `dedup apply`, `offload apply` | the plan; Gmail, to check each message | with `--label`/`--trash`: Gmail labels and Trash; logs; `meta.sqlite` (offload) | read-only for a dry run, modify with `--label`/`--trash` |
 | `restore` | the backup; Gmail, to look each message up | with `--yes`: Gmail; `restore-log.csv`; `meta.sqlite` | read-only for a dry run, modify with `--yes` |
 
