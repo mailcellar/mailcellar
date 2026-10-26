@@ -86,7 +86,10 @@ def config_accounts(config_root: Path) -> dict[str, Path]:
 
     path = config_root / ACCOUNTS_FILE
     if not path.is_file():
-        raise GmailError(f"{path} not found; it maps config folder names to accounts")
+        raise GmailError(
+            f"{path} not found; it maps config folder names to accounts "
+            "(`mailcellar setup` creates it)"
+        )
     with path.open("rb") as fh:
         entries = tomllib.load(fh)
     found: dict[str, Path] = {}

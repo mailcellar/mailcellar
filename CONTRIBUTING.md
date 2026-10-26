@@ -82,7 +82,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
   `test`, `refactor`, `perf`, `build` (`pyproject.toml`, `uv.lock`), `ci`,
   `chore`.
 - **Scopes,** optional: `backup`, `dedup`, `offload`, `restore`, `search`,
-  `report`, `gmailapi`, `message`, `cli`, `paths`.
+  `report`, `setup`, `gmailapi`, `message`, `cli`, `paths`.
 - **Summary** at most 72 characters.
 - **Breaking changes** (a CLI option or output format changes, or the
   backup format) take `!` after the scope and a `BREAKING CHANGE:` footer

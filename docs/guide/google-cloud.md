@@ -104,7 +104,17 @@ number>.apps.googleusercontent.com.json`. Save it as
 ~/.config/mailcellar/<name>/client_secrets.json
 ```
 
-`<name>` is the short name you give the account in `accounts.toml`:
+`mailcellar setup` does the rest of this step for you: it checks the file is a
+Desktop app client, saves it there, adds the account to `accounts.toml` and
+signs in (step 6), and asks for the address and the file's path if you don't
+give them:
+
+```bash
+mailcellar setup alex@example.com --client ~/Downloads/client_secret_*.json
+```
+
+To do it by hand instead, `<name>` is the short name you give the account in
+`accounts.toml`:
 
 ```toml
 # ~/.config/mailcellar/accounts.toml

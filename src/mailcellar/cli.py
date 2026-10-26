@@ -1,6 +1,7 @@
 """
 mailcellar: one command for the Gmail backups and what is done with them.
 
+  mailcellar setup   [ADDRESS] [--client FILE]   add an account from a downloaded OAuth client
   mailcellar backup  [ACCOUNT ...] [--full | --search Q | --refresh-labels] [--sync]
   mailcellar count   [ACCOUNT ...]      compare Gmail with the backup
   mailcellar meta    [ACCOUNT ...]      fill meta.sqlite for older mail
@@ -22,7 +23,7 @@ backup, count and meta take every account in accounts.toml unless given
 some. Each command takes --help. Anywhere on the line, -v also shows
 Gmail's retries and waits, and -q shows only warnings and errors. The
 work is done by the modules each command dispatches to (backup/, dedup/,
-offload/, restore/, search/, report/).
+offload/, restore/, search/, report/, setup/).
 """
 
 import difflib
@@ -42,6 +43,12 @@ def _backup_command(name: str):
         return commands.main([name, *argv], prog="mailcellar")
 
     return run
+
+
+def _setup(argv: list[str]) -> int:
+    from mailcellar.setup.cli import main
+
+    return main(argv, prog="mailcellar setup")
 
 
 def _verify(argv: list[str]) -> int:
@@ -261,6 +268,7 @@ def _config(argv: list[str]) -> int:
 
 
 COMMANDS = {
+    "setup": _setup,
     "backup": _backup_command("backup"),
     "count": _backup_command("count"),
     "meta": _backup_command("meta"),
