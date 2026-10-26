@@ -167,7 +167,7 @@ browser (if it cannot, it prints the address to open). On the way:
    (`gmail.readonly`). **Tick it.** The box is unticked by default, and
    *Continue* with it unticked gives mailcellar nothing, so the next
    step fails with "Google did not grant gmail.readonly". If that happens,
-   delete the `dedup-token-readonly.json` it names, in the account's folder,
+   delete the `token-readonly.json` it names, in the account's folder,
    and run the command again.
 4. The browser shows "The authentication flow has completed". Return to the
    terminal; the backup starts.
@@ -176,8 +176,9 @@ A backup needs only read access. Later, `dedup apply`, `offload apply` and
 `restore --yes` ask once more, for *modify* access, the same way; see
 [Backups need only read access](https://github.com/mailcellar/mailcellar#what-changes-gmail).
 
-The tokens are saved beside the client as `dedup-token-readonly.json` and
-`dedup-token-modify.json`, readable only by you. To revoke access, delete
+The tokens are saved beside the client as `token-readonly.json` and
+`token-modify.json`, readable only by you (0.9 and earlier called them
+`dedup-token-…`; mailcellar renames them on first use). To revoke access, delete
 them and remove mailcellar at
 [Google Account → Security → Third-party access](https://myaccount.google.com/connections).
 

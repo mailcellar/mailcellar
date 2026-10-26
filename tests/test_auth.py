@@ -190,7 +190,7 @@ def test_readonly_request_reuses_modify_token(tmp_path, monkeypatch):
 
     monkeypatch.setattr(gcreds.Credentials, "from_authorized_user_file", classmethod(from_file))
     gmailapi.load_credentials(tmp_path, "a@example.com", "readonly")
-    assert requested == [("dedup-token-modify.json", [gmailapi.SCOPES["modify"]])]
+    assert requested == [("token-modify.json", [gmailapi.SCOPES["modify"]])]
     assert not gmailapi.token_file(tmp_path, "readonly").exists()
 
 
@@ -435,3 +435,42 @@ def test_mailcellar_auth_help_names_itself(capsys):
     out = capsys.readouterr().out
     assert out.startswith("usage: mailcellar auth ") and "--renew" in out
     assert "mailcellar auth" in cli.__doc__
+
+
+def test_token_file_names(tmp_path):
+    new = tmp_path / "token-modify.json"
+    old = tmp_path / "dedup-token-modify.json"
+    assert gmailapi.token_file(tmp_path, "modify") == new  # none yet: the new name
+    old.write_text("{}")
+    assert gmailapi.token_file(tmp_path, "modify") == old  # only the old one: found
+    new.write_text("{}")
+    assert gmailapi.token_file(tmp_path, "modify") == new  # both: the new one wins
+
+
+def test_old_token_is_moved_to_the_new_name(tmp_path, monkeypatch):
+    """A token from 0.9 keeps working, with its consent time, and is renamed on use."""
+    from google.oauth2 import credentials as gcreds
+
+    old = tmp_path / "dedup-token-readonly.json"
+    old.write_text("{}")
+    requested = []
+
+    class Valid:
+        expired, valid = False, True
+
+        def has_scopes(self, scopes):
+            return True
+
+        def to_json(self):
+            return json.dumps({"token": "t"})
+
+    def from_file(cls, path, scopes):
+        requested.append(path.rsplit("/", 1)[-1])
+        return Valid()
+
+    monkeypatch.setattr(gcreds.Credentials, "from_authorized_user_file", classmethod(from_file))
+    gmailapi.load_credentials(tmp_path, "a@example.com", "readonly")
+    assert requested == ["dedup-token-readonly.json"]  # no new consent asked for
+    assert not old.exists()
+    assert json.loads((tmp_path / "token-readonly.json").read_text()) == {"token": "t"}
+    assert (tmp_path / "token-readonly.json").stat().st_mode & 0o777 == 0o600

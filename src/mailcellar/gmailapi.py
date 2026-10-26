@@ -4,7 +4,7 @@ gmailapi: the Gmail API, for every command that talks to Gmail.
 Accounts: <config>/accounts.toml maps each config folder name to an
 address. Auth: an installed-app OAuth flow with the account's own OAuth
 client (<config>/<name>/client_secrets.json); tokens are stored next to it
-as dedup-token-<scope>.json, readonly or modify, and a modify token also
+as token-<scope>.json, readonly or modify, and a modify token also
 serves reads. The token file also records when consent was last given
 (authorised_at): with the consent screen in Testing status Google expires
 the token 7 days after that, so ageing tokens are reported before a run
@@ -127,8 +127,24 @@ def find_config_folder(config_root: Path, account: str) -> Path:
     return folder
 
 
-def token_file(config_folder: Path, scope: str) -> Path:
+def new_token_file(config_folder: Path, scope: str) -> Path:
+    return config_folder / f"token-{scope}.json"
+
+
+def legacy_token_file(config_folder: Path, scope: str) -> Path:
+    """The name before 0.10, from when only dedup needed a token."""
     return config_folder / f"dedup-token-{scope}.json"
+
+
+def token_file(config_folder: Path, scope: str) -> Path:
+    """
+    The account's token file for this scope: token-<scope>.json, or the old
+    dedup-token-<scope>.json while that is all there is. load_credentials
+    moves the old one to the new name the next time it stores a token.
+    """
+    new = new_token_file(config_folder, scope)
+    old = legacy_token_file(config_folder, scope)
+    return old if old.is_file() and not new.is_file() else new
 
 
 def effective_scope(config_folder: Path, scope: str) -> str:
@@ -261,8 +277,10 @@ def load_credentials(
     data = json.loads(creds.to_json())
     if authorised_at is not None:
         data[TOKEN_FIELD] = authorised_at.isoformat()
-    token_path.write_text(json.dumps(data))
-    token_path.chmod(0o600)
+    stored = new_token_file(config_folder, scope)
+    stored.write_text(json.dumps(data))
+    stored.chmod(0o600)
+    legacy_token_file(config_folder, scope).unlink(missing_ok=True)  # moved to the new name
     if not consented:
         try:
             warn_days = token_warn_days(config_folder.parent)

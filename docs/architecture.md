@@ -128,7 +128,7 @@ mailcellar` and `python -m mailcellar` both work.
                              gitignored); paths.config_root()
   accounts.toml              folder name → address (work = "alex@example.org")
   <name>/client_secrets.json the account's OAuth client (Desktop app)
-  <name>/dedup-token-readonly.json, dedup-token-modify.json   # + authorised_at: when consent was last given
+  <name>/token-readonly.json, token-modify.json   # + authorised_at: when consent was last given
   settings.toml              data_dir: the data root; token_warn_days (optional)
 <data root>/                 everything derived from mail: $MAILCELLAR_DATA, else
                              data_dir in <config>/settings.toml, else ~/mailcellar
