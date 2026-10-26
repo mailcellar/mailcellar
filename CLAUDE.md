@@ -57,8 +57,10 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
     only their own files in the data root;
   - plain `backup` and `meta`, which add to and refresh the backup but
     never delete from it.
-- Copy a database aside before running a schema migration on real data
-  (`meta.sqlite.pre-vN` next to it).
+- Copy a database aside before running a schema migration on real data.
+  `sidecar.open_meta` does it for `meta.sqlite` (`meta.sqlite.pre-vN` next
+  to it, before the first write); for `dedup.sqlite` and `search.sqlite`,
+  copy them yourself, or rebuild them (`dedup index`, a search).
 - Check changes against the real backups, read-only. Committed files
   (code, README, docs/) never quote figures from them.
 - Run live Gmail operations that take more than a couple of minutes in the
