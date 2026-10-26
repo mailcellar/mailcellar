@@ -113,6 +113,20 @@ def apply_labels(con, mcon, gmail, gmail_id: str, label_ids) -> bool:
     return changed
 
 
+def current_labels(gmail, gmail_ids: list[str], mailbox: int) -> dict[str, list[str] | None]:
+    """
+    Each message's label IDs now, or None if Gmail no longer has it: by
+    listing the mailbox's labels when that is quicker (gmailapi.prefer_listing,
+    `mailbox` being the backup's size), else one lookup each.
+    """
+    if gmailapi.prefer_listing(len(gmail_ids), mailbox):
+        listed = gmail.labels_by_listing()
+        return {gid: listed.get(gid) for gid in gmail_ids}
+    with Progress("Reading labels", len(gmail_ids)):
+        details = gmail.message_details(gmail_ids)
+    return {gid: None if d is None else d.get("labelIds", []) for gid, d in details.items()}
+
+
 def history_plan(
     gmail, con, mcon, have: set[str], indexed: set[str], start: str, stats: dict
 ) -> tuple[list, str]:
@@ -129,14 +143,11 @@ def history_plan(
     gone = deleted & have
     lookup = sorted((touched - deleted) | (indexed - have))
     todo = []
-    with Progress("Reading changed messages", len(lookup)):
-        details = gmail.message_details(lookup)
-    for gid, d in details.items():
-        if d is None:  # deleted since the history was read
+    for gid, label_ids in current_labels(gmail, lookup, len(have)).items():
+        if label_ids is None:  # deleted since the history was read
             if gid in have:
                 gone.add(gid)
             continue
-        label_ids = d.get("labelIds", [])
         if gid in have:
             stats["labels_changed"] += apply_labels(con, mcon, gmail, gid, label_ids)
         elif SKIP_LABELS & set(label_ids) or gyb.is_chat(label_ids):
@@ -285,13 +296,9 @@ def _backup(gmail, con, mcon, folder: Path, query, refresh_labels: bool, stats: 
     if refresh_labels:
         existing = sorted(have)
         print(f"Refreshing labels of {len(existing):,} messages …")
-        with Progress("Reading labels", len(existing)):
-            refreshed = gmail.message_details(existing)
-        for gid, details in refreshed.items():
-            if details is not None:
-                stats["labels_changed"] += apply_labels(
-                    con, mcon, gmail, gid, details.get("labelIds", [])
-                )
+        for gid, label_ids in current_labels(gmail, existing, len(have)).items():
+            if label_ids is not None:
+                stats["labels_changed"] += apply_labels(con, mcon, gmail, gid, label_ids)
         con.commit()
 
     if next_history_id and not stats["failed"]:

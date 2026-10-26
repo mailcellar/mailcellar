@@ -62,7 +62,7 @@ with none named, every account in `accounts.toml`.
 | `--yes` | With `--sync`: don't ask before moving |
 | `--force` | With `--sync`: allow moving more than 10% of the backup |
 | `--unattended` | For scheduled runs: never open a browser. A token that needs signing in fails that account's run, with the command to fix it |
-| `--refresh-labels` | Also re-sync the labels of messages already backed up |
+| `--refresh-labels` | Also re-sync the labels of messages already backed up. Gmail lists them label by label, 500 messages per call, so about a minute for 50,000 messages |
 | `--search QUERY` | Only consider messages matching this Gmail search |
 | `--folder FOLDER` | Backup folder (default `<data root>/<email>`) |
 | `--config CONFIG` | Config folder (default `~/.config/mailcellar`, or `$MAILCELLAR_CONFIG`) |
