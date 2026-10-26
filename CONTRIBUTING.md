@@ -91,6 +91,10 @@ Co-Authored-By: <model or agent> <address>   (only if AI helped)
 - **One logical change per commit:** its code, tests and docs together.
   `uv run ruff format && uv run ruff check` and `uv run pytest` pass at
   every commit.
+- **Changelog:** a change a user would notice adds a line under
+  `## Unreleased` in [`CHANGELOG.md`](CHANGELOG.md), in the same commit,
+  under Added, Changed, Fixed or Removed. Internal changes (tests, CI,
+  refactors) don't.
 - **AI assistance,** if any, is disclosed with a `Co-Authored-By:` trailer
   naming the model or agent; leave it out when none was used. It records how the change was made, and doesn't change who
   "the mailcellar authors" in NOTICE are.
@@ -118,7 +122,9 @@ Pushing a tag `vX.Y.Z` releases that version:
 [`.github/workflows/release.yml`](.github/workflows/release.yml) checks the
 tag against `version` in `pyproject.toml`, runs the checks again, builds the
 package, uploads it to [PyPI](https://pypi.org/project/mailcellar/) and
-attaches it to a GitHub release with notes from the merged pull requests.
+attaches it to a GitHub release whose notes are that version's section of
+[`CHANGELOG.md`](CHANGELOG.md). The workflow stops before uploading if the
+changelog has no section for the version.
 
 **Once, before the first release** (a maintainer with access to both):
 
@@ -133,8 +139,9 @@ attaches it to a GitHub release with notes from the merged pull requests.
 **Each release:**
 
 1. On `main`, with CI green: set `version` in `pyproject.toml` (`uv version
-   X.Y.Z` also updates `uv.lock`), and commit it as
-   `build: release X.Y.Z` through a pull request like any other change.
+   X.Y.Z` also updates `uv.lock`), rename `## Unreleased` in `CHANGELOG.md`
+   to `## X.Y.Z (YYYY-MM-DD)`, and commit both as `build: release X.Y.Z`
+   through a pull request like any other change.
 2. Once that is merged, tag the merge commit and push the tag:
    ```bash
    git switch main && git pull
