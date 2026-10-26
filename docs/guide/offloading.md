@@ -278,6 +278,7 @@ Messages still in Gmail's Trash aren't touched, so run it after Gmail has
 emptied its Trash (30 days after the batch, or sooner if you empty it
 yourself) and a backup has run. Forgotten files are held for 30 days in
 `<data root>/_forgotten/`, where `--undo RUN` can still put them back;
-`offload forget --empty --yes` then deletes them. Copies outside the data
+`offload forget --empty --yes` then deletes them; `report health` and the
+next `offload forget` say when a run is due. Copies outside the data
 root, such as an export or Time Machine, keep the mail. The details are in
 the [reference](../reference/offload.md#forgetting-offloaded-mail).

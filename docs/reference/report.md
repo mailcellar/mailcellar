@@ -8,7 +8,7 @@ mailcellar report volume                  # received, sent and forwarded mail ov
 mailcellar report threads                 # thread sizes; threads in both accounts
 mailcellar report labels                  # user labels per account; unlabelled mail
 mailcellar report correspondents          # who you write to and hear from; reply rates
-mailcellar report health                  # backup completeness, runs, gaps, pruned batches
+mailcellar report health                  # completeness, runs, gaps, pruned and forgotten mail
 mailcellar report senders personal --top 30  # top senders and domains in one backup
 ```
 

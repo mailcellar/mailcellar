@@ -87,7 +87,8 @@ mailcellar offload forget --empty --yes                      # delete runs held 
 - **Held 30 days.** The files move to `<data root>/_forgotten/<email>/<run>/`,
   with a manifest that `--undo RUN` uses to put them back; `mailcellar meta`
   then re-parses them. `--empty` deletes runs held 30 days or more, for
-  good, after you type the count.
+  good, after you type the count. `report health` lists the held runs and
+  which are due, and `offload forget` says so when any are.
 - **Nothing else keeps them.** Their rows leave `msg-db.sqlite` and
   `meta.sqlite` (attachment names included), the search index and the
   dedup catalogue, and each database is rewritten so their bytes don't

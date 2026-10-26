@@ -292,6 +292,20 @@ def test_empty_deletes_runs_after_the_hold_for_good(env, monkeypatch, capsys):
     assert files_with_marker(data_root(), "p0", "p1", held_too=True) == []  # held copies too
 
 
+def test_runs_past_their_hold_are_mentioned_until_emptied(env, monkeypatch, capsys):
+    run("--batch", BATCH, "--yes", typed="2", monkeypatch=monkeypatch)
+    capsys.readouterr()
+    run("--batch", BATCH)
+    assert "forget runs held" not in capsys.readouterr().out  # not due yet
+    monkeypatch.setattr(forget, "HOLD_DAYS", 0)
+    (run_dir,) = (data_root() / forget.FORGOTTEN_DIR / A).iterdir()
+    run("--batch", BATCH)
+    out = capsys.readouterr().out
+    assert f"{A}: 1 forget runs held 0 days or more ({run_dir.name})" in out
+    assert "'offload forget --empty' deletes them for good" in out
+    assert forget.held(A) == [(run_dir.name, 2)]
+
+
 def test_forget_needs_a_selection(env):
     with pytest.raises(SystemExit, match="say which offloaded mail"):
         run()

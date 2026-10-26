@@ -186,7 +186,27 @@ def test_pruned_batches_and_cli(report, capsys, tmp_path):
     assert report()["pruned"].rows == [(A, "2026-09-01-120000", 2)]
     cli.main(["health", "--csv", "reports"])
     assert capsys.readouterr().out.startswith(f"Backup health report — {A}, {B}")
-    assert len(list((tmp_path / "reports").glob("health-*.csv"))) == 5
+    assert len(list((tmp_path / "reports").glob("health-*.csv"))) == 6
+
+
+def test_forget_runs_held_and_due(report, tmp_path):
+    from datetime import datetime
+
+    from mailcellar.offload.forget import RUN_FORMAT
+
+    def held_run(days_ago, n):
+        name = datetime.fromtimestamp((NOW - days_ago * DAY) / 1000).strftime(RUN_FORMAT)
+        run = tmp_path / "data" / "_forgotten" / A / name
+        run.mkdir(parents=True)
+        lines = "".join(f"x{i},2026/1/1/x{i}.eml\n" for i in range(n))
+        (run / "forgotten.csv").write_text("gmail_id,path\n" + lines)
+        return name
+
+    old, recent = held_run(40, 3), held_run(10, 1)
+    (tmp_path / "data" / "_forgotten" / A / "notes").mkdir()  # no manifest: not a run
+    rows = report()["forgotten"].rows
+    assert [(r[0], r[1], r[2], r[4]) for r in rows] == [(A, old, 3, "yes"), (A, recent, 1, "")]
+    assert rows[1][3] == datetime.fromtimestamp((NOW + 20 * DAY) / 1000).strftime("%Y-%m-%d")
 
 
 # ── tokens ───────────────────────────────────────────────────────────────────

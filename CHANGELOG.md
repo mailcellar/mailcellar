@@ -5,6 +5,13 @@ What changed for users in each release. Releases and their dates are on the
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). mailcellar is
 in beta, so commands and options may still change before 1.0.
 
+## Unreleased
+
+### Added
+- `report health` lists the forget runs held in `_forgotten/`, with when
+  each hold ends and which are due for `offload forget --empty`; `offload
+  forget` says when runs are due, so held mail isn't kept by oversight.
+
 ## 0.11.0 (2026-10-26)
 
 **Upgrading from 0.10.0:** each backup's `meta.sqlite` moves to schema 10
