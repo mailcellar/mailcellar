@@ -49,8 +49,9 @@ Open Gmail and look at them. Restored messages carry the label
 right, run without `--limit`. `--limit` takes the oldest messages first, and
 the next run carries on where the last one stopped.
 
-Uploads run at about six a second, so 4,500 messages take about 13 minutes
-and 50,000 over two hours. Run large restores in the background; progress
+Messages still in Trash come back quickly, a thousand per Gmail call.
+Uploads are slower, about six a second, so 4,500 messages take about 13
+minutes and 50,000 over two hours. Run large restores in the background; progress
 lines go to stderr (`-q` turns them off).
 
 ## Undo an offload

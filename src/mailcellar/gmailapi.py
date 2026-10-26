@@ -393,31 +393,31 @@ def is_not_found(exc) -> bool:
     return isinstance(exc, HttpError) and exc.status_code == 404
 
 
-def not_trashed(
+def not_moved(
     gmail_ids: list[str],
     live: dict[str, set[str] | None],
     unread: list[str],
     errors: dict[str, str],
+    into_trash: bool,
 ) -> list[str]:
     """
-    "<id>: <why>" for each message not shown in Trash when read back after
-    trashing: `live` its labels (None: gone from Gmail), `unread` the
-    "<id>: <error>" lookups that failed, `errors` why its batchModify call
-    failed. Pure.
+    "<id>: <why>" for each message not where trash (into_trash) or untrash
+    should have put it, when read back: `live` its labels (None: gone from
+    Gmail), `unread` the "<id>: <error>" lookups that failed, `errors` why
+    its batchModify call failed. Pure.
     """
     why_unread = dict(u.split(": ", 1) for u in unread)
+    verb = "trashed" if into_trash else "out of Trash"
     out = []
     for gid in gmail_ids:
         labels = live.get(gid)
         if gid in why_unread:
-            out.append(f"{gid}: couldn't check it was trashed: {why_unread[gid]}")
+            out.append(f"{gid}: couldn't check it was {verb}: {why_unread[gid]}")
         elif labels is None:
             out.append(f"{gid}: gone from Gmail")
-        elif "TRASH" not in labels:
-            out.append(
-                f"{gid}: not in Trash after trashing"
-                + (f" ({errors[gid]})" if gid in errors else "")
-            )
+        elif ("TRASH" in labels) != into_trash:
+            where = "not in Trash after trashing" if into_trash else "still in Trash"
+            out.append(f"{gid}: {where}" + (f" ({errors[gid]})" if gid in errors else ""))
     return out
 
 
@@ -840,19 +840,8 @@ class GmailAccount:
             )
 
     def untrash(self, gmail_ids: list[str]) -> list[str]:
-        """Move messages out of Trash. Returns failures."""
-        failed: list[str] = []
-
-        def on_result(gid, _response, exception):
-            if exception is not None:
-                failed.append(f"{gid}: {exception}")
-
-        self._run_batches(
-            gmail_ids,
-            lambda gid: self.service.users().messages().untrash(userId="me", id=gid),
-            on_result,
-        )
-        return failed
+        """Move messages out of Trash, as trash() moves them in. Returns failures."""
+        return self._move(gmail_ids, into_trash=False)
 
     def import_messages(self, messages: dict[str, tuple[bytes, list[str]]], on_imported):
         """
@@ -904,14 +893,23 @@ class GmailAccount:
 
     def trash(self, gmail_ids: list[str]) -> list[str]:
         """
-        Move messages to Trash (recoverable for 30 days), MODIFY_CHUNK at a
-        time, by adding the TRASH label with messages.batchModify: one call
-        per thousand messages, where messages.trash takes one per message
-        and is held to about 5 a second. batchModify says nothing about
-        single messages, so every message's labels are then read back, and
-        only one Gmail shows in Trash counts as trashed. Returns
-        "<id>: <why>" for the rest.
+        Move messages to Trash (recoverable for 30 days). Returns "<id>: <why>"
+        for those Gmail doesn't show in Trash afterwards; see _move.
         """
+        return self._move(gmail_ids, into_trash=True)
+
+    def _move(self, gmail_ids: list[str], into_trash: bool) -> list[str]:
+        """
+        Add (into_trash) or remove the TRASH label, MODIFY_CHUNK messages per
+        messages.batchModify call, where messages.trash and messages.untrash
+        take one call per message and are held to about 5 a second. A batch
+        call says nothing about single messages, and can fail after Gmail
+        applied part of it, so every message's labels are then read back:
+        only one Gmail shows where it should be counts. Returns "<id>: <why>"
+        for the rest (see not_moved).
+        """
+        change = "addLabelIds" if into_trash else "removeLabelIds"
+        where = "to Trash" if into_trash else "out of Trash"
         errors: dict[str, str] = {}
         for start in range(0, len(gmail_ids), MODIFY_CHUNK):
             chunk = gmail_ids[start : start + MODIFY_CHUNK]
@@ -919,11 +917,11 @@ class GmailAccount:
                 self._execute(
                     self.service.users()
                     .messages()
-                    .batchModify(userId="me", body={"ids": chunk, "addLabelIds": ["TRASH"]})
+                    .batchModify(userId="me", body={"ids": chunk, change: ["TRASH"]})
                 )
             except Exception as exc:  # the read-back below says what happened
-                logger.warning(f"{self.account}: moving {len(chunk):,} to Trash failed: {exc}")
+                logger.warning(f"{self.account}: moving {len(chunk):,} {where} failed: {exc}")
                 errors.update(dict.fromkeys(chunk, str(exc)))
         unread: list[str] = []
         live = self.message_labels(gmail_ids, unread)
-        return not_trashed(gmail_ids, live, unread, errors)
+        return not_moved(gmail_ids, live, unread, errors, into_trash)
