@@ -62,3 +62,32 @@ whose Trash has been emptied (as the last `backup` or `count` found) and
 their size, what is still in Trash and when Gmail will empty it, and what
 was restored since. Gmail's own storage figure isn't available through its
 API, so the sizes are its per-message estimates.
+
+## Options
+
+### `offload plan`
+
+| Option | What it does |
+| --- | --- |
+| `ACCOUNT ...` | Accounts to plan for (default: every backup in the data root) |
+| `--rules RULES` | Rules file (default `<data root>/offload/rules.toml`) |
+| `--plan PLAN` | Plan CSV to write (default `<data root>/offload/offload-plan.csv`) |
+| `--top N` | Senders per rule in the summary (default 15) |
+| `--csv DIR` | Also write the summary tables as CSV in DIR |
+| `--review` | Also write a review page per rule to `<data root>/offload/review/` |
+
+### `offload apply`
+
+A dry run unless `--label` or `--trash` is given.
+
+| Option | What it does |
+| --- | --- |
+| `ACCOUNT ...` | Only these accounts' plan rows (default: all) |
+| `--label [NAME]` | Add the label NAME (default `offload-candidate`) to messages that pass the checks; it is created if missing. Removing it in Gmail vetoes a message |
+| `--trash [NAME]` | Move messages that pass the checks and carry the label NAME to Trash, and record them as offloaded |
+| `--rule RULE` | Only this rule's rows (repeatable) |
+| `--limit N` | Only the first N plan rows |
+| `--yes` | Don't ask before trashing |
+| `--plan PLAN` | Plan CSV from `plan` |
+| `--log LOG` | Apply log, appended to (default `<data root>/offload/offload-apply-log.csv`) |
+| `--config CONFIG` | Config folder |
