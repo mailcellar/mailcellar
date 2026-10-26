@@ -105,3 +105,53 @@ into, so each message is looked up there by Message-ID and content, as
 with `--to`: recorded if Gmail has it, uploaded otherwise. Nothing is
 recorded in a backup or indexed: a run again finds what was restored by
 its Message-ID, and the next `backup` downloads it.
+
+## Options
+
+`restore ACCOUNT` takes the backup to read from: an address, config name or
+a unique part of an address. With `--from-mbox` or `--from-folder` it is the
+account restored into. Without `--yes` it is a dry run.
+
+**Which messages** (at least one, from the backup):
+
+| Option | What it selects |
+| --- | --- |
+| `--batch BATCH` | An offload batch (repeatable) |
+| `--rule RULE` | An offload rule (repeatable) |
+| `--id ID` | A Gmail ID (repeatable) |
+| `--offloaded` | Every offloaded message |
+| `--all` | Every message in the backup; those still in Gmail are left alone |
+
+**Narrowing**, combined with any of the above; all must hold:
+
+| Option | What it keeps |
+| --- | --- |
+| `--before DATE`, `--after DATE` | Mail older than, or from, the date: `YYYY-MM-DD` (UTC) or a number of years ago |
+| `--has-label NAME` | Mail with this user label, ignoring case (repeatable: any of them) |
+| `--sender ADDRESS`, `--sender @DOMAIN` | Mail from this From address, or any address at the domain (repeatable: any of them) |
+
+**From elsewhere**, instead of the backup (one of):
+
+| Option | What it reads |
+| --- | --- |
+| `--from-pruned BATCH` | Mail `backup --sync` moved into `<data root>/_pruned/<email>/BATCH/` |
+| `--from-mbox FILE` | An mbox file: a Google Takeout export, or one `export` wrote |
+| `--from-folder DIR` | A gyb backup folder from elsewhere, read as it is |
+
+**Where it goes and what it is labelled:**
+
+| Option | What it does |
+| --- | --- |
+| `--to ACCOUNT` | Restore into this configured account instead; its backup gets the new IDs |
+| `--label NAME` | The label restored messages get (default `restored/<today>`) |
+| `--label-prefix P` | Nest the backed-up user labels under `P/` |
+| `--strip-labels` | Restore no backed-up labels, only the `restored/` label: the messages arrive archived |
+
+**Other:**
+
+| Option | What it does |
+| --- | --- |
+| `--limit N` | Only the first N, oldest first |
+| `--yes` | Restore; without it, a dry run |
+| `--config CONFIG` | Config folder |
+| `--log LOG` | Restore log, appended to (default `<data root>/restore/restore-log.csv`) |

@@ -47,3 +47,43 @@ progress goes to stderr.
 Backups live in `<data root>/<email>/`, in the format of
 [gyb](https://github.com/GAM-team/got-your-back), so other tools can read
 them too. [`mailcellar restore`](restore.md) puts mail back into Gmail.
+
+## Options
+
+Accounts are named by address, config name or a unique part of an address;
+with none named, every account in `accounts.toml`.
+
+### `backup`
+
+| Option | What it does |
+| --- | --- |
+| `--full` | List every message instead of reading Gmail's history since the last run |
+| `--sync` | Then move mail permanently deleted from Gmail out of the backup, into `<data root>/_pruned/<email>/`; never offloaded mail |
+| `--yes` | With `--sync`: don't ask before moving |
+| `--force` | With `--sync`: allow moving more than 10% of the backup |
+| `--unattended` | For scheduled runs: never open a browser. A token that needs signing in fails that account's run, with the command to fix it |
+| `--refresh-labels` | Also re-sync the labels of messages already backed up |
+| `--search QUERY` | Only consider messages matching this Gmail search |
+| `--folder FOLDER` | Backup folder (default `<data root>/<email>`) |
+| `--config CONFIG` | Config folder (default `~/.config/mailcellar`, or `$MAILCELLAR_CONFIG`) |
+
+### `count`
+
+Takes `--folder` and `--config`, as `backup` does.
+
+### `meta`
+
+| Option | What it does |
+| --- | --- |
+| `--offline` | Only parse the `.eml` files; don't ask Gmail for thread IDs, labels and sizes |
+| `--folder FOLDER`, `--config CONFIG` | As for `backup` |
+
+### `verify`
+
+| Option | What it does |
+| --- | --- |
+| `--offloaded` | Only offloaded mail, the copies with no other source |
+| `--sample N` | Check N messages chosen at random (of the offloaded ones, with `--offloaded`) |
+| `--top N` | Problems listed per account (default 50) |
+
+`verify` takes account names and finds the backups in the data root.

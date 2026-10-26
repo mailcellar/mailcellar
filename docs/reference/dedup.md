@@ -15,3 +15,49 @@ messages in Gmail before trashing; removing the label vetoes a message.
 Each run is logged in `<data root>/dedup/dedup-apply-log.csv`. How
 copies are matched and which one is kept:
 [docs/architecture.md](../architecture.md#deduplication).
+
+## Options
+
+The index, plan and log default to files in `<data root>/dedup/`.
+
+### `dedup index`
+
+| Option | What it does |
+| --- | --- |
+| `FOLDER ...` | Backup folders to catalogue (default: every backup in the data root) |
+| `--db DB` | Index database path (default `<data root>/dedup/dedup.sqlite`) |
+
+### `dedup match`
+
+| Option | What it does |
+| --- | --- |
+| `--csv CSV` | Also write every matched copy to this file |
+| `--show N` | Within-account groups to list in the report (default 20) |
+| `--db DB` | Index database path |
+
+### `dedup plan`
+
+| Option | What it does |
+| --- | --- |
+| `--scope {cross,within,both}` | Duplicates across accounts (default), within one account, or both |
+| `--keep ACCOUNT` | The account whose copies are kept: a full address or a unique part of one. Required unless `--scope within` |
+| `--keep origin` | Remove only copies that were auto-forwarded from another account; keep the one in the account they came from |
+| `--ignore-label LABEL` | A user label that may be lost on removal (repeatable) |
+| `--out OUT` | Plan CSV path (default `<data root>/dedup/dedup-plan.csv`) |
+| `--db DB` | Index database path |
+
+### `dedup apply`
+
+A dry run unless `--label` or `--trash` is given.
+
+| Option | What it does |
+| --- | --- |
+| `--label [NAME]` | Add the label NAME (default `dedup-redundant`) to removals that pass the checks; it is created if missing |
+| `--trash [NAME]` | Move removals that pass the checks and carry the label NAME to Trash |
+| `--limit N` | Only consider the first N removals in the plan |
+| `--yes` | Don't ask for confirmation before trashing |
+| `--plan PLAN` | Plan CSV to apply (default `<data root>/dedup/dedup-plan.csv`) |
+| `--log LOG` | Apply log, appended to (default `<data root>/dedup/dedup-apply-log.csv`) |
+| `--config CONFIG` | Config folder |
+
+`dedup auth` still works, as an alias of [`auth`](configuration.md#auth).
