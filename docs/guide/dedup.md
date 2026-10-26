@@ -164,8 +164,9 @@ mailcellar dedup apply --trash --limit 5
 `--trash` moves labelled messages to Trash. It repeats the checks of the dry
 run, so a message whose labels changed since the plan is skipped, and it
 asks once per account: `Move N messages in <account> to Trash? [y/N]`
-(`--yes` skips the question). Trashing takes about four messages a second,
-so for thousands run it in the background or with `--limit`.
+(`--yes` skips the question). Trashing takes about a minute for 2,000
+messages, so for tens of thousands run it in the background or with
+`--limit`.
 
 Each run is appended to `<data root>/dedup/dedup-apply-log.csv`.
 
