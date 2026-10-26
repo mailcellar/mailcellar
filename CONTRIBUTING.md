@@ -75,7 +75,7 @@ Why the change was needed and what it does, wrapped at 72 columns.
 What it was checked against: the tests, and any real-data check as
 counts only (never addresses, subjects or other mail content).
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Co-Authored-By: <model or agent> <address>   (only if AI helped)
 ```
 
 - **Types:** `feat` (a new command, option or behaviour), `fix`, `docs`,
@@ -91,8 +91,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 - **One logical change per commit:** its code, tests and docs together.
   `uv run ruff format && uv run ruff check` and `uv run pytest` pass at
   every commit.
-- **AI assistance** is disclosed with a `Co-Authored-By:` trailer naming
-  the model. It records how the change was made, and doesn't change who
+- **AI assistance,** if any, is disclosed with a `Co-Authored-By:` trailer
+  naming the model or agent; leave it out when none was used. It records how the change was made, and doesn't change who
   "the mailcellar authors" in NOTICE are.
 
 ## The documentation site
