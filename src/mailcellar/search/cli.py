@@ -20,11 +20,21 @@ from mailcellar.paths import data_root
 from mailcellar.report.cli import parse_before, resolve_folders
 from mailcellar.report.db import AnalyticsError
 from mailcellar.search import db, index
-from mailcellar.search.query import Offload, QueryError, find, fts_query, keep, render
+from mailcellar.search.query import (
+    Offload,
+    QueryError,
+    find,
+    fts_query,
+    keep,
+    render,
+    render_json,
+    render_tsv,
+)
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_LIMIT = 50
+FORMATS = {"tsv": render_tsv, "json": render_json}  # text is render()'s
 
 
 def read_offloads(folder: Path, account: str) -> dict[tuple[str, str], Offload]:
@@ -84,6 +94,13 @@ def main(argv=None, prog: str | None = None) -> int:
         action="store_true",
         help="Search the index as it is, without first adding new mail to it",
     )
+    p.add_argument(
+        "--format",
+        choices=["text", *FORMATS],
+        default="text",
+        help="text to read (default); tsv, one tab-separated line per result, or json, "
+        "one object per line, for scripts and pickers such as fzf",
+    )
     args = p.parse_args(argv)
     try:
         match = fts_query(args.query)
@@ -109,15 +126,21 @@ def main(argv=None, prog: str | None = None) -> int:
     for account, folder in by_account.items():
         offloads |= read_offloads(folder, account)
     hits = keep(hits, offloads, args.offloaded, set(args.rule), set(args.batch))
+    # tsv and json keep stdout for results; what is said about them goes to stderr
+    say = print if args.format == "text" else logger.info
     if not hits:
-        print("No matches.")
+        say("No matches.")
         return 1
     shown = hits[: max(args.limit, 0)]
     for hit in shown:
-        key = (hit.account, hit.gmail_id)
-        print("\n".join(render(hit, by_account.get(hit.account), offloads.get(key))))
+        found = (hit, by_account.get(hit.account), offloads.get((hit.account, hit.gmail_id)))
+        if args.format == "text":
+            print("\n".join(render(*found)))
+        else:
+            print(FORMATS[args.format](*found))
     more = (
         f"; showing the newest {len(shown):,} (--limit for more)" if len(shown) < len(hits) else ""
     )
-    print(f"\n{len(hits):,} {'match' if len(hits) == 1 else 'matches'}{more}")
+    count = f"{len(hits):,} {'match' if len(hits) == 1 else 'matches'}{more}"
+    say(f"\n{count}" if args.format == "text" else count)
     return 0

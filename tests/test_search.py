@@ -1,14 +1,25 @@
 """search: the full-text index over the backups, and finding mail with it."""
 
+import json
 import sqlite3
 from email.message import EmailMessage
+from pathlib import Path
 
 import pytest
 
 from mailcellar import cli, gmailapi
 from mailcellar.backup import commands, sidecar
 from mailcellar.search import db, index
-from mailcellar.search.query import Hit, Offload, QueryError, fts_query, keep, render
+from mailcellar.search.query import (
+    Hit,
+    Offload,
+    QueryError,
+    fts_query,
+    keep,
+    render,
+    render_json,
+    render_tsv,
+)
 from test_backup import ACCOUNT, FakeGmail, raw_response
 
 DAY = 86_400_000
@@ -192,6 +203,37 @@ def test_a_result_shows_date_sender_subject_file_and_how_to_restore(tmp_path):
     assert "(no sender)" in render(hit("m1", sender=""), tmp_path, None)[0]
 
 
+def test_a_tsv_result_is_one_line_readable_part_first(tmp_path):
+    line = render_tsv(hit("m2", subject="Re:\tthe\r\nplan"), tmp_path, Offload(BATCH, "old work"))
+    assert line.split("\t") == [
+        "2023-11-15",
+        "Alice",
+        "Re: the  plan",
+        ACCOUNT,
+        "m2",
+        str(tmp_path / "2023/11/15/m2.eml"),
+        "old work",
+        BATCH,
+    ]
+    fields = render_tsv(hit("m1", sender=""), tmp_path, None).split("\t")
+    assert len(fields) == 8 and fields[1] == "" and fields[6:] == ["", ""]
+
+
+def test_a_json_result_is_one_object_on_one_line(tmp_path):
+    line = render_json(hit("m2", subject="Café\nplan"), tmp_path, Offload(BATCH, "old work"))
+    assert "\n" not in line and "Café" in line
+    assert json.loads(line) == {
+        "date": "2023-11-15",
+        "sender": "Alice",
+        "subject": "Café\nplan",
+        "account": ACCOUNT,
+        "gmail_id": "m2",
+        "path": str(tmp_path / "2023/11/15/m2.eml"),
+        "offloaded": {"rule": "old work", "batch": BATCH},
+    }
+    assert json.loads(render_json(hit("m1"), tmp_path, None))["offloaded"] is None
+
+
 # ── the command ──────────────────────────────────────────────────────────────
 
 
@@ -292,6 +334,27 @@ def test_mail_restored_since_its_offload_is_not_offloaded(backup, capsys):
 def test_no_match_is_said_and_exits_1(backup, capsys):
     assert search("nonexistentword") == 1
     assert capsys.readouterr().out.strip() == "No matches."
+
+
+def test_tsv_and_json_print_only_results_on_stdout(backup, capsys):
+    assert search("invoice", "--format", "tsv") == 0
+    out, err = capsys.readouterr()
+    rows = [line.split("\t") for line in out.splitlines()]
+    assert [(r[3], r[4], r[6]) for r in rows] == [
+        (ACCOUNT, "m3", "news"),
+        (ACCOUNT, "m2", "old work"),
+    ]
+    assert all(Path(r[5]).is_file() for r in rows)
+    assert "2 matches" in err
+
+    assert search("invoice", "--format", "json", "--limit", "1") == 0
+    out, err = capsys.readouterr()
+    assert [json.loads(line)["gmail_id"] for line in out.splitlines()] == ["m3"]
+    assert "showing the newest 1" in err
+
+    assert search("nonexistentword", "--format", "tsv") == 1
+    out, err = capsys.readouterr()
+    assert (out, err.strip()) == ("", "No matches.")
 
 
 def test_the_limit_shows_the_newest_and_says_how_many_more(backup, capsys):

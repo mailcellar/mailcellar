@@ -15,6 +15,7 @@ It is translated to SQLite FTS5's syntax by fts_query(), so punctuation in a
 word (an address, a hyphen) never breaks the query.
 """
 
+import json
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -116,10 +117,17 @@ def keep(
     return out
 
 
+def _date(hit: Hit) -> str:
+    return datetime.fromtimestamp(hit.internal_date / 1000, UTC).strftime("%Y-%m-%d")
+
+
+def _path(hit: Hit, folder: Path | None) -> Path:
+    return folder / hit.path if folder else Path(hit.path)
+
+
 def render(hit: Hit, folder: Path | None, offload: Offload | None) -> list[str]:
     """A result's lines: date and sender; subject; file; if offloaded, how to restore it."""
-    date = datetime.fromtimestamp(hit.internal_date / 1000, UTC).strftime("%Y-%m-%d")
-    path = folder / hit.path if folder else Path(hit.path)
+    date, path = _date(hit), _path(hit, folder)
     lines = [
         f"{date}  {hit.sender or '(no sender)'}",
         f"            {hit.subject or '(no subject)'}",
@@ -131,6 +139,41 @@ def render(hit: Hit, folder: Path | None, offload: Offload | None) -> list[str]:
             f"mailcellar restore {hit.account} --id {hit.gmail_id}"
         )
     return lines
+
+
+def render_tsv(hit: Hit, folder: Path | None, offload: Offload | None) -> str:
+    """
+    A result as one tab-separated line: date, sender, subject, account, Gmail
+    ID, file, offload rule, offload batch (both empty if not offloaded). Tabs
+    and line breaks in the sender and subject become spaces.
+    """
+    fields = [
+        _date(hit),
+        re.sub(r"\s", " ", hit.sender),
+        re.sub(r"\s", " ", hit.subject),
+        hit.account,
+        hit.gmail_id,
+        str(_path(hit, folder)),
+        offload.rule if offload else "",
+        offload.batch if offload else "",
+    ]
+    return "\t".join(fields)
+
+
+def render_json(hit: Hit, folder: Path | None, offload: Offload | None) -> str:
+    """A result as one JSON object on one line, the same fields as render_tsv()."""
+    return json.dumps(
+        {
+            "date": _date(hit),
+            "sender": hit.sender,
+            "subject": hit.subject,
+            "account": hit.account,
+            "gmail_id": hit.gmail_id,
+            "path": str(_path(hit, folder)),
+            "offloaded": {"rule": offload.rule, "batch": offload.batch} if offload else None,
+        },
+        ensure_ascii=False,
+    )
 
 
 # ── reading ──────────────────────────────────────────────────────────────────

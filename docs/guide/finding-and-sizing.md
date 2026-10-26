@@ -42,6 +42,30 @@ sender, subject and `.eml` file. The exit status is 1 when nothing matches.
 - **Send it on.** [Exporting mail](exporting.md) copies a selection out as an
   mbox or a zip.
 
+### Picking results with fzf
+
+`--format tsv` prints each result as one tab-separated line: date, sender,
+subject, then account, Gmail ID, `.eml` path, offload rule and batch
+(the columns are in the [reference](../reference/search.md#output-for-scripts-and-pickers)).
+Any picker that reads lines can choose from it; with
+[fzf](https://github.com/junegunn/fzf):
+
+```bash
+mailcellar search "invoice 2024" --format tsv \
+  | fzf -m --delimiter '\t' --with-nth 1,2,3 --preview 'cat {6}' \
+  | while IFS=$'\t' read -r _ _ _ account id _ _ _; do
+      mailcellar restore "$account" --all --id "$id"      # a dry run: add --yes to restore
+    done
+```
+
+`--with-nth 1,2,3` shows the date, sender and subject, `--preview` shows the
+message, and `-m` lets you choose several with Tab. `--all` lets `--id` pick
+any backed-up message, not only offloaded ones; mail Gmail still has is left
+alone. `export "$account" --all --id "$id" --to …` in the loop copies them
+out instead. skim, gum, peco and fzy
+read the same lines. `--format json` prints one JSON object per line, for
+`jq` and scripts.
+
 ### The first search is slow
 
 `search` keeps an index in `<data root>/search/search.sqlite`. Each search

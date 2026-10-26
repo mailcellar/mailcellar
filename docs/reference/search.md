@@ -22,6 +22,33 @@ Results are newest first, at most 50 (`--limit`): the date, sender, subject
 and `.eml` file, and for offloaded mail the `mailcellar restore … --id`
 command that puts it back. The exit status is 1 when nothing matches.
 
+## Output for scripts and pickers
+
+`--format tsv` prints one tab-separated line per result, and `--format json`
+one JSON object per line (JSON Lines). Either way stdout holds only the
+results; the match count, "No matches." and progress go to stderr. The
+exit status, `--limit` and the filters are the same as for the default
+`--format text`.
+
+| Column | `tsv` | `json` key |
+| --- | --- | --- |
+| 1 | date, `YYYY-MM-DD` (UTC) | `date` |
+| 2 | sender | `sender` |
+| 3 | subject | `subject` |
+| 4 | account | `account` |
+| 5 | Gmail ID | `gmail_id` |
+| 6 | path of the `.eml` file | `path` |
+| 7 | offload rule, empty if not offloaded | `offloaded`: `null`, or `{"rule": …, "batch": …}` |
+| 8 | offload batch, likewise | |
+
+In `tsv`, tabs and line breaks in the sender and subject become spaces; in
+`json` they are kept, escaped. The readable columns come first so a picker
+can show the whole line, and `cut -f` takes what a script needs from the
+end. The account and Gmail ID are what `restore` and `export` take:
+`--id` alone selects among offloaded mail, and `--all --id` among the whole
+backup. A recipe with fzf is in
+[Finding mail](../guide/finding-and-sizing.md#picking-results-with-fzf).
+
 The index is `<data root>/search/search.sqlite`. Each search first adds new
 and changed mail to it for the backups searched, so the first search reads
 every message once and takes a while; later ones read only what changed
