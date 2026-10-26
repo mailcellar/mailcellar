@@ -113,7 +113,7 @@ A few uses:
   people the `correspondents` protection would keep mail from.
 - **Checking in.** `health` after a schedule has been running for a while:
   the last run of each account, gaps longer than four weeks, tokens that
-  need signing in, and pruned batches.
+  need signing in, pruned batches, and forget runs due to be emptied.
 
 Reports read only the local backups. Add `--csv DIR` to write every section,
 all rows, as CSV files, and `--output FILE` to save the text. Each report

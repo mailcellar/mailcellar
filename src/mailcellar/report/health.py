@@ -5,8 +5,9 @@ From the sidecar's runs table (every backup, count and prune run since
 meta.sqlite schema 5), plus checks that need no run history: index
 entries without an .eml file, sidecar rows missing or parsed by an older
 parser, whether a history start point is stored, the newest message,
-mail offloaded from Gmail and kept in the backup, and the batches --prune
-moved to <data root>/_pruned/.
+mail offloaded from Gmail and kept in the backup, the batches --prune
+moved to <data root>/_pruned/, and the forget runs held in
+<data root>/_forgotten/, with those due for --empty.
 
 Gmail keeps mailbox history for about 28 days; a backup whose start
 point is older than that lists every message instead (~30 s rather than
@@ -20,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 from mailcellar.backup.gyb import backup_account
+from mailcellar.offload import forget
 from mailcellar.paths import pruned_folder
 from mailcellar.report.db import completeness_counts
 from mailcellar.report.output import Table, day, when
@@ -246,6 +248,37 @@ def pruned(folders: list[Path]) -> Table:
     )
 
 
+def forgotten(folders: list[Path], now: int) -> Table:
+    """Forget runs still held in <data root>/_forgotten/, and which are due for --empty."""
+    now_local = datetime.fromtimestamp(now / 1000)  # run names are local time
+    rows = []
+    for folder in folders:
+        account = backup_account(folder)
+        runs = forget.held(account)
+        due = set(forget.due([run for run, _ in runs], now_local))
+        for run, n in runs:
+            until = forget.held_until(run)
+            rows.append((account, run, n, f"{until:%Y-%m-%d}", "yes" if run in due else ""))
+    return Table(
+        "forgotten",
+        "Forget runs held (<data root>/_forgotten/)",
+        [
+            ("Account", "text"),
+            ("Run", "text"),
+            ("Messages", "int"),
+            ("Held until", "text"),
+            ("Due", "text"),
+        ],
+        rows,
+        notes=[
+            f"Mail offload forget took out of the backup, held {forget.HOLD_DAYS} days so "
+            "'offload forget --undo RUN' can put it back. Due: held that long; "
+            "'mailcellar offload forget --empty --yes' deletes it for good."
+        ],
+        limit=False,
+    )
+
+
 def tokens(rows: list[tuple[str, str, datetime | None]], now: int) -> Table:
     """Each account's tokens and when consent was last given: (account, scope, authorised_at)."""
     shown = []
@@ -289,4 +322,5 @@ def build(
         gaps(con, accounts, opts, now),
         by_month(con),
         pruned(folders),
+        forgotten(folders, now),
     ]

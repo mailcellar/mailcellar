@@ -144,6 +144,15 @@ def held_runs(account: str) -> list[str]:
     return sorted(p.name for p in folder.iterdir() if (p / MANIFEST).is_file())
 
 
+def held(account: str) -> list[tuple[str, int]]:
+    """The account's held runs, oldest first, each with how many messages it holds."""
+    out = []
+    for run in held_runs(account):
+        with (runs_dir(account) / run / MANIFEST).open(newline="", encoding="utf-8") as fh:
+            out.append((run, sum(1 for _ in csv.DictReader(fh))))
+    return out
+
+
 def candidates(folder: Path, batches=(), rules=()) -> list[Offloaded]:
     """
     The backup's offloaded messages (not restored, not forgotten) in any of

@@ -231,6 +231,7 @@ def cmd_forget(args) -> None:
         return forget_undo(folders, args.undo)
     if args.empty:
         return forget_empty(folders, args.yes)
+    remind_due(folders)
     if not (args.batch or args.rule):
         sys.exit("error: say which offloaded mail: --batch or --rule (or --empty, --undo RUN)")
     run = datetime.now().strftime(forget.RUN_FORMAT)
@@ -294,6 +295,19 @@ def cmd_forget(args) -> None:
             )
             + "."
         )
+
+
+def remind_due(folders: list[Path]) -> None:
+    """Say which held forget runs are past their hold, so they don't stay held for ever."""
+    now = datetime.now()
+    for folder in folders:
+        account = backup_account(folder)
+        due = forget.due(forget.held_runs(account), now)
+        if due:
+            print(
+                f"{account}: {len(due):,} forget runs held {forget.HOLD_DAYS} days or more "
+                f"({', '.join(due)}); 'offload forget --empty' deletes them for good.\n"
+            )
 
 
 def forget_empty(folders: list[Path], yes: bool) -> None:
