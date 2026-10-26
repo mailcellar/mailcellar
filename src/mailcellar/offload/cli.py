@@ -122,7 +122,7 @@ def cmd_apply(args) -> None:
         logger.info(
             f"{before - len(rows):,} plan rows already done (offloaded"
             + (", or labelled before" if mode == "label" else "")
-            + (", or vetoed before" if mode == "trash" else "")
+            + (", not labelled by a label run, or vetoed before" if mode == "trash" else "")
             + ")."
         )
     if args.rule:

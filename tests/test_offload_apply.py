@@ -254,6 +254,27 @@ def test_label_batches_advance_and_vetoes_are_not_retried(env):
         apply("--label")  # w0 was labelled once; the veto stands
 
 
+def test_trash_reads_only_the_messages_a_label_run_labelled(env):
+    apply("--label", "--limit", "2")
+    env.live.calls.clear()
+    log = apply("--trash", "--yes")
+    assert env.live.calls[0] == ("get", ["w0", "w1"])  # w2–w4 were never labelled
+    assert outcomes(log[-2:], "trashed") == ["w0", "w1"]
+    with pytest.raises(SystemExit, match="no plan rows match"):
+        apply("--trash", "--yes")  # nothing labelled is left
+
+
+def test_a_message_gmail_could_not_read_is_tried_again_next_run(env):
+    apply("--label")
+    env.live.fail_lookup = {"w1"}
+    first = apply("--trash", "--yes")[-5:]
+    assert outcomes(first, "trashed") == ["w0", "w2", "w3", "w4"]
+    assert outcomes(first, "skipped") == ["w1"]
+    env.live.fail_lookup = set()
+    second = apply("--trash", "--yes")
+    assert [(r["gmail_id"], r["outcome"]) for r in second[-1:]] == [("w1", "trashed")]
+
+
 def test_messages_trashed_before_a_crash_are_recorded(env, monkeypatch, capsys):
     apply("--label")
 
@@ -285,7 +306,8 @@ def test_messages_trashed_before_a_crash_are_recorded(env, monkeypatch, capsys):
 
 
 def test_trashed_by_hand_without_the_label_is_not_recorded(env):
-    env.live.messages["w0"].add("TRASH")  # trashed in Gmail, not by offload
+    apply("--label")
+    env.live.messages["w0"] = {"work", "TRASH"}  # unlabelled and trashed in Gmail by hand
     log = apply("--trash", "--yes")[-5:]
     w0 = next(r for r in log if r["gmail_id"] == "w0")
     assert (w0["outcome"], w0["detail"]) == ("skipped", "already in trash")
@@ -411,6 +433,7 @@ def test_an_account_with_no_backup_run_recorded_is_stale(env):
 
 
 def test_trashing_is_refused_when_no_backup_run_is_recorded(env, capsys):
+    apply("--label")
     con = sidecar.open_meta(env.folder)
     con.execute("DELETE FROM runs")
     con.commit()
@@ -418,7 +441,7 @@ def test_trashing_is_refused_when_no_backup_run_is_recorded(env, capsys):
     with pytest.raises(SystemExit, match="run a backup of each account"):
         apply("--trash", "--yes")
     assert "no backup run recorded" in capsys.readouterr().err
-    assert env.live.messages["w0"] == {"work"}  # nothing was trashed
+    assert env.live.messages["w0"] == {"work", OFFLOAD_LABEL}  # nothing was trashed
 
 
 def test_a_file_that_is_not_an_offload_plan_is_refused(tmp_path):

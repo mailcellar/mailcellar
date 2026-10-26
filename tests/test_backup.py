@@ -624,6 +624,37 @@ def test_get_raw_retries_rate_limits_and_skips_deleted():
     assert failed == []
 
 
+FAILED_PRECONDITION = (
+    b'{"error": {"code": 400, "message": "Precondition check failed.", '
+    b'"errors": [{"reason": "failedPrecondition"}]}}'
+)
+
+
+def test_a_failed_precondition_is_retried_and_other_400s_are_not():
+    service = FakeService({"g1": [http_error(400, FAILED_PRECONDITION), raw_response("g1")]})
+    got = []
+    assert account(service).get_raw(["g1"], lambda r: got.append(r["id"])) == []
+    assert got == ["g1"]
+    assert gmailapi.describe(http_error(400, FAILED_PRECONDITION)).startswith("400 (precondition")
+    assert not gmailapi.is_retryable(http_error(400, b'{"error": {"reason": "badRequest"}}'))
+
+
+def test_message_labels_collects_failed_lookups_when_asked():
+    def gmail():
+        service = FakeService(
+            {"g1": [{"id": "g1", "labelIds": ["INBOX"]}], "g2": [http_error(400)]}
+        )
+        g = account(service)
+        g._label_names = {"INBOX": "INBOX"}
+        return g
+
+    failures = []
+    assert gmail().message_labels(["g1", "g2"], failures) == {"g1": {"INBOX"}}
+    assert len(failures) == 1 and failures[0].startswith("g2: ")
+    with pytest.raises(gmailapi.GmailError, match="1 lookups failed"):
+        gmail().message_labels(["g1", "g2"])
+
+
 def test_get_raw_gives_up_after_max_attempts():
     service = FakeService({"g1": [http_error(500)] * gmailapi.BATCH_ATTEMPTS})
     failed = account(service).get_raw(["g1"], lambda r: None)

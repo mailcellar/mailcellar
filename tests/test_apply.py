@@ -21,14 +21,26 @@ A, B = "a@example.com", "b@example.com"
 class FakeGmail:
     """In-memory stand-in for gmailapi.GmailAccount."""
 
-    def __init__(self, messages: dict[str, set[str]], fail_trash=()):
+    def __init__(self, messages: dict[str, set[str]], fail_trash=(), fail_lookup=()):
         self.messages = {gid: set(labels) for gid, labels in messages.items()}
         self.fail_trash = set(fail_trash)
+        self.fail_lookup = set(fail_lookup)
         self.calls = []
 
-    def message_labels(self, ids):
+    def message_labels(self, ids, failures=None):
         self.calls.append(("get", sorted(ids)))
-        return {gid: set(self.messages[gid]) if gid in self.messages else None for gid in ids}
+        failed = [
+            f"{gid}: HttpError 400 failedPrecondition" for gid in ids if gid in self.fail_lookup
+        ]
+        if failed and failures is None:
+            raise AssertionError("apply must collect lookup failures, not raise")
+        if failures is not None:
+            failures.extend(failed)
+        return {
+            gid: set(self.messages[gid]) if gid in self.messages else None
+            for gid in ids
+            if gid not in self.fail_lookup
+        }
 
     def add_label(self, ids, label):
         self.calls.append(("label", sorted(ids), label))
@@ -166,6 +178,24 @@ def test_trash_stage_needs_label_and_confirmation(tmp_path):
     log = apply_plan([row(tmp_path)], "trash", gmail_for, confirm=lambda p: False)
     assert outcomes(log) == {"b1": ("skipped", "not confirmed")}
     assert not any(c[0] == "trash" for c in gmail[B].calls)
+
+
+def test_a_message_gmail_could_not_read_is_skipped_and_the_rest_carry_on(tmp_path, caplog):
+    rows = [row(tmp_path, "b1", "a1"), row(tmp_path, "b2", "a2"), row(tmp_path, "b3", "a3")]
+    gmail, _, gmail_for = setup(
+        {"a1": set(), "a2": set(), "a3": set()},
+        {"b1": set(), "b2": set(), "b3": set()},
+        fail_lookup={"b2"},
+    )
+    gmail[A].fail_lookup = {"a3"}  # b3's keeper
+    log = apply_plan(rows, "label", gmail_for, lambda p: True)
+    by_id = {r.row["gmail_id"]: r for r in log}
+    assert by_id["b1"].outcome == "labelled"
+    assert (by_id["b2"].outcome, by_id["b3"].outcome) == ("skipped", "skipped")
+    assert by_id["b2"].detail.startswith("couldn't read it from Gmail: HttpError 400")
+    assert by_id["b3"].detail.startswith("couldn't read the keeper from Gmail")
+    assert gmail[B].calls[-1] == ("label", ["b1"], DEDUP_LABEL)  # nothing done on a guess
+    assert "1 messages couldn't be read from Gmail" in caplog.text
 
 
 def test_trash_failures_are_reported(tmp_path):
