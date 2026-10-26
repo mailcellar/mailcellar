@@ -28,7 +28,7 @@ dependencies = [
 Repository = "https://github.com/mailcellar/mailcellar"
 Documentation = "https://mailcellar.github.io/mailcellar/"
 Issues = "https://github.com/mailcellar/mailcellar/issues"
-Changelog = "https://github.com/mailcellar/mailcellar/releases"
+Changelog = "https://github.com/mailcellar/mailcellar/blob/main/CHANGELOG.md"
 
 [project.scripts]
 mailcellar = "mailcellar.cli:main"
