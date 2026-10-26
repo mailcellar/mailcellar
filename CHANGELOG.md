@@ -39,6 +39,15 @@ in beta, so commands and options may still change before 1.0.
   ([GHSA-6q48-6c7w-9gw2](https://github.com/certifi/python-certifi/security/advisories/GHSA-6q48-6c7w-9gw2)),
   which would let someone on the network impersonate Google. Upgrade an
   existing install with `uv tool upgrade mailcellar`.
+- The `gmail.modify` token, which can label and trash mail, is no longer
+  stored. `dedup apply`, `offload apply` and `restore --yes` sign in when
+  they run and hold the token in memory until they end, so a copy of the
+  config folder can read the mailbox but not change it. A stored
+  `token-modify.json` is used once more by the next of those commands, then
+  deleted; if the account has no read-only token, it says to run
+  `mailcellar auth ACCOUNT --scope readonly` before the next unattended
+  backup. `keep_modify_token = true` in `settings.toml` stores it as before,
+  and `auth --scope modify` only stores a token with that setting.
 - Token files and `client_secrets.json` are owner-only from the moment they
   are written. Before, a token was written with the umask's permissions,
   often readable by other users, and made owner-only just after; replacing

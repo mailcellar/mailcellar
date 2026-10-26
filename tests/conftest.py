@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from mailcellar import gmailapi
 from mailcellar.cli import configure_logging
 from mailcellar.paths import CONFIG_ENV, DATA_ENV
 
@@ -26,6 +27,7 @@ def default_roots(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     configure_logging()  # as `mailcellar` does; tests calling a command's main see its log
+    monkeypatch.setattr(gmailapi, "_held", {})  # modify tokens held by one "run" stay in it
 
 
 @pytest.fixture(autouse=True)

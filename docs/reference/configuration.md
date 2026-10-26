@@ -7,9 +7,10 @@ dotfile manager or sync:
 ```
 ~/.config/mailcellar/
   accounts.toml            # config name → address
-  settings.toml            # optional: data_dir, token_warn_days
+  settings.toml            # optional: data_dir, token_warn_days, keep_modify_token
   <name>/client_secrets.json
-  <name>/token-readonly.json, token-modify.json   # written on first use
+  <name>/token-readonly.json   # written on first use
+  <name>/token-modify.json     # only with keep_modify_token = true
 ```
 
 ```toml
@@ -40,7 +41,19 @@ count and last backup. It never prints a credential.
 # settings.toml
 data_dir = "~/data/mailcellar"
 token_warn_days = 5     # warn when a token is this many days past consent; 0 = never
+keep_modify_token = false   # true stores the modify token too, as earlier versions did
 ```
+
+**The modify token isn't stored.** `dedup apply`, `offload apply` and
+`restore --yes` need `gmail.modify`, which can label and trash mail. Each
+signs in when it runs and holds the token in memory until it ends, so no
+file in the config folder can change your mailbox; the read-only token,
+which unattended backups need, is stored as before. A `token-modify.json`
+from an earlier version is used once more by the next command that needs
+it, then deleted. mailcellar doesn't revoke it at Google: that would
+revoke the read-only token too. `keep_modify_token = true` stores the
+modify token like the read-only one, for when signing in on every run is
+a burden.
 
 To move existing backups, move the whole folder and set the new path. Then
 run `mailcellar dedup index` (it records each backup's folder) and re-run
@@ -73,7 +86,7 @@ Signs in, or renews consent. It changes nothing in the mailbox.
 | Option | What it does |
 | --- | --- |
 | `ACCOUNT ...` | Accounts (default: every account in `accounts.toml`) |
-| `--scope {readonly,modify}` | Required. `readonly` for backups, counts and reports; `modify` for `dedup apply`, `offload apply` and `restore --yes` |
+| `--scope {readonly,modify}` | Required. `readonly` for backups, counts and reports; `modify` for `dedup apply`, `offload apply` and `restore --yes`, which only stores a token with `keep_modify_token = true` (without it, those commands sign in when they run) |
 | `--renew` | Ask for consent again even if the token still works, which starts Google's 7 days afresh for a consent screen in *Testing* status |
 | `--config CONFIG` | Config folder |
 

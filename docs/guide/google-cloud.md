@@ -173,13 +173,15 @@ browser (if it cannot, it prints the address to open). On the way:
    terminal; the backup starts.
 
 A backup needs only read access. Later, `dedup apply`, `offload apply` and
-`restore --yes` ask once more, for *modify* access, the same way; see
-[Backups need only read access](../reference/what-changes-gmail.md).
+`restore --yes` ask for *modify* access the same way, each time they run;
+see [Backups need only read access](../reference/what-changes-gmail.md).
 
-The tokens are saved beside the client as `token-readonly.json` and
-`token-modify.json`, readable only by you (0.9 and earlier called them
-`dedup-token-…`; mailcellar renames them on first use). To revoke access, delete
-them and remove mailcellar at
+The read-only token is saved beside the client as `token-readonly.json`,
+readable only by you (0.9 and earlier called it `dedup-token-readonly.json`;
+mailcellar renames it on first use). The modify token is held only while
+the command that needs it runs, never saved, unless you set
+`keep_modify_token = true` ([Configuration](../reference/configuration.md)).
+To revoke access, delete the token files and remove mailcellar at
 [Google Account → Security → Third-party access](https://myaccount.google.com/connections).
 
 ## Problems

@@ -102,8 +102,8 @@ def test_auth_defaults_to_every_account(config, fake_auth, capsys):
 
 
 def test_auth_named_account_by_substring(config, fake_auth):
-    dedup.main(["auth", "personal", "--scope", "modify", "--config", str(config)])
-    assert fake_auth == [("personal", "alex@example.com", "modify")]
+    dedup.main(["auth", "personal", "--scope", "readonly", "--config", str(config)])
+    assert fake_auth == [("personal", "alex@example.com", "readonly")]
 
 
 def test_auth_rejects_ambiguous_account(config, fake_auth):
@@ -128,8 +128,8 @@ def test_rejected_refresh_token_falls_back_to_consent(tmp_path, monkeypatch, cap
     from google.oauth2 import credentials as gcreds
     from google_auth_oauthlib import flow as gflow
 
-    gmailapi.token_file(tmp_path, "modify").write_text("{}")
-    scope = gmailapi.SCOPES["modify"]
+    gmailapi.token_file(tmp_path, "readonly").write_text("{}")
+    scope = gmailapi.SCOPES["readonly"]
 
     class Stale:
         expired, valid, refresh_token = True, False, "r"
@@ -162,14 +162,14 @@ def test_rejected_refresh_token_falls_back_to_consent(tmp_path, monkeypatch, cap
         classmethod(lambda cls, path, scopes: Flow()),
     )
 
-    creds = gmailapi.load_credentials(tmp_path, "a@example.com", "modify")
+    creds = gmailapi.load_credentials(tmp_path, "a@example.com", "readonly")
     assert isinstance(creds, Fresh)
-    stored = json.loads(gmailapi.token_file(tmp_path, "modify").read_text())
+    stored = json.loads(gmailapi.token_file(tmp_path, "readonly").read_text())
     assert stored.pop("authorised_at").startswith(datetime.now(UTC).strftime("%Y-%m-%d"))
     assert stored == {"token": "new"}
     out = capsys.readouterr().out
     assert "was rejected (invalid_grant); authorising again" in out
-    assert "mailcellar auth a@example.com --scope modify --renew" in out
+    assert "mailcellar auth a@example.com --scope readonly --renew" in out
 
 
 def test_readonly_request_reuses_modify_token(tmp_path, monkeypatch):
@@ -195,6 +195,7 @@ def test_readonly_request_reuses_modify_token(tmp_path, monkeypatch):
     gmailapi.load_credentials(tmp_path, "a@example.com", "readonly")
     assert requested == [("token-modify.json", [gmailapi.SCOPES["modify"]])]
     assert not gmailapi.token_file(tmp_path, "readonly").exists()
+    assert gmailapi.token_file(tmp_path, "modify").exists()  # a read never deletes it
 
 
 def test_ungranted_scope_is_an_error(tmp_path, monkeypatch):
@@ -345,6 +346,55 @@ def test_a_private_file_left_half_written_keeps_the_old_one(tmp_path, monkeypatc
     assert sorted(p.name for p in tmp_path.iterdir()) == ["token-readonly.json"]
 
 
+def test_a_modify_token_is_held_for_the_run_and_never_stored(account_folder, consent, capsys):
+    first = gmailapi.load_credentials(account_folder, "alex@example.org", "modify")
+    again = gmailapi.load_credentials(account_folder, "alex@example.org", "modify")
+    assert again is first and consent == ["alex@example.org"]  # signed in once
+    assert "held for this run only, never stored" in capsys.readouterr().out
+    assert sorted(p.name for p in account_folder.iterdir()) == ["client_secrets.json"]
+
+
+def test_a_stored_modify_token_is_used_once_more_then_deleted(
+    account_folder, consent, caplog, capsys
+):
+    write_token(account_folder, "modify")
+    gmailapi.legacy_token_file(account_folder, "modify").write_text("{}")
+    with caplog.at_level(logging.INFO, logger="mailcellar"):
+        gmailapi.load_credentials(account_folder, "alex@example.org", "modify")
+    assert consent == []  # the stored token served this run
+    assert sorted(p.name for p in account_folder.iterdir()) == ["client_secrets.json"]
+    assert "deleted" in caplog.text and "keep_modify_token = true" in caplog.text
+    assert "mailcellar auth alex@example.org --scope readonly" in caplog.text  # no read token
+
+    caplog.clear()
+    write_token(account_folder, "readonly")
+    write_token(account_folder, "modify")
+    with caplog.at_level(logging.INFO, logger="mailcellar"):
+        gmailapi.load_credentials(account_folder, "alex@example.org", "modify")
+    assert "deleted" in caplog.text and "--scope readonly" not in caplog.text
+
+
+def test_keep_modify_token_stores_it_as_before(config, account_folder, consent):
+    (config / "settings.toml").write_text("keep_modify_token = true\n")
+    gmailapi.load_credentials(account_folder, "alex@example.org", "modify")
+    gmailapi.load_credentials(account_folder, "alex@example.org", "modify")
+    assert consent == ["alex@example.org"]  # the second call read the stored token
+    assert gmailapi.token_file(account_folder, "modify").stat().st_mode & 0o777 == 0o600
+
+    (config / "settings.toml").write_text('keep_modify_token = "yes"\n')
+    with pytest.raises(gmailapi.GmailError, match="keep_modify_token must be true or false"):
+        gmailapi.load_credentials(account_folder, "alex@example.org", "modify")
+
+
+def test_auth_for_modify_says_it_is_not_stored_unless_kept(config, fake_auth, capsys):
+    dedup.main(["auth", "work", "--scope", "modify", "--config", str(config)])
+    assert fake_auth == []
+    assert "tokens aren't stored" in capsys.readouterr().out
+    (config / "settings.toml").write_text("keep_modify_token = true\n")
+    dedup.main(["auth", "work", "--scope", "modify", "--config", str(config)])
+    assert fake_auth == [("work", "alex@example.org", "modify")]
+
+
 def test_a_new_consent_records_when_it_was_given(account_folder, consent):
     gmailapi.load_credentials(account_folder, "alex@example.org", "readonly")
     assert consent == ["alex@example.org"]
@@ -469,11 +519,13 @@ def test_mailcellar_auth_is_the_command_and_dedup_auth_an_alias(config, fake_aut
     assert "gmail.readonly OK" in captured.out and "is now" not in captured.err
     assert fake_auth == [("work", "alex@example.org", "readonly")]
 
-    assert cli.main(["dedup", "auth", "work", "--scope", "modify", "--config", str(config)]) == 0
+    assert (
+        cli.main(["dedup", "auth", "personal", "--scope", "readonly", "--config", str(config)]) == 0
+    )
     captured = capsys.readouterr()
-    assert "gmail.modify OK" in captured.out  # the old name still works
+    assert "gmail.readonly OK" in captured.out  # the old name still works
     assert "'mailcellar dedup auth' is now 'mailcellar auth'" in captured.err
-    assert fake_auth[-1] == ("work", "alex@example.org", "modify")
+    assert fake_auth[-1] == ("personal", "alex@example.com", "readonly")
 
 
 def test_mailcellar_auth_help_names_itself(capsys):
