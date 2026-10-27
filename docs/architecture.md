@@ -157,7 +157,7 @@ mailcellar` and `python -m mailcellar` both work.
     batches/<batch>/offloaded.csv  manifest of each trash batch: plan row + batch + trashed
     review/<rule>.html       offload plan --review: a page per rule (senders, subjects)
   restore/
-    restore-log.csv          one row per message per restore run (dry run or --yes)
+    restore-log.csv          a row per message per restore run (dry run or --yes); last counts
   search/
     search.sqlite            full-text index (schema v1); rebuilt if deleted
   dedup/

@@ -88,7 +88,9 @@ delete it for good.
    - **keyword** (the default): `$mailcellar-` and the label
      (`$mailcellar-offload-candidate`) on every copy. Most mail clients
      show keywords as tags; **clear it on a message to keep it.** A server
-     that keeps no custom keywords is refused here: review by folder.
+     that keeps no custom keywords is refused here: review by folder. One
+     that keeps none in some folders only fails those folders' mail, saying
+     which, and marks the rest.
    - **folder**: every copy is moved into `mailcellar/review/<label>`
      (`mailcellar/review/offload-candidate`), and the folders it came from
      are recorded in the backup, so its labels there don't change while
@@ -116,7 +118,8 @@ another account (`--to`), IMAP or Gmail, as it does for Gmail:
   each of its folders (created if missing); it comes back with the same
   ID, so the next backup has nothing new to fetch;
 - restored mail gets a `$mailcellar-restored.<date>` keyword, where the
-  server keeps keywords (otherwise restore says so and carries on).
+  server keeps keywords (otherwise restore says so and carries on; in a
+  folder that keeps none, the message is restored with a note in the log).
 
 **Between Gmail and IMAP accounts** the target decides: a Gmail backup
 restored into an IMAP account has its labels made folders (INBOX and the

@@ -40,6 +40,7 @@ class FakeImap:
         self.permanentflags = b"(\\Answered \\Flagged \\Deleted \\Seen \\Draft \\*)"
         self.read_write = False  # the selected folder was SELECTed, not EXAMINEd
         self.refused: set[str] = set()  # folders EXAMINE answers NO for
+        self.keywordless: set[str] = set()  # folders whose PERMANENTFLAGS has no \\*
         self.bodiless: set[int] = set()  # UIDs whose BODY.PEEK[] comes back without a body
         self.capabilities = ("IMAP4REV1", "LITERAL+", "AUTH=PLAIN")  # the greeting's, as imaplib
         self.signed_in = ("IMAP4rev1", "LITERAL+", "SPECIAL-USE", "MOVE", "UIDPLUS")  # CAPABILITY
@@ -119,6 +120,8 @@ class FakeImap:
 
     def response(self, code):
         if code == "PERMANENTFLAGS":
+            if self.selected in self.keywordless:
+                return code, [b"(\\Seen \\Flagged)"]
             return code, [self.permanentflags]
         assert code == "UIDVALIDITY"
         return code, [str(self.folders[self.selected]["uidvalidity"]).encode()]
@@ -183,6 +186,10 @@ class FakeImap:
             if "\\Deleted" in flags or not how.startswith(("+FLAGS", "-FLAGS")):
                 raise AssertionError(f"UID STORE {how} {flags}: deletes, or replaces flags")
             names = set(flags.strip("()").split())
+            keeps = b"\\*" in self.permanentflags and self.selected not in self.keywordless
+            if not keeps and any(not n.startswith("\\") for n in names):
+                # A keyword the server doesn't keep: BAD, as some servers answer; imaplib raises.
+                raise imaplib.IMAP4.error("UID command error: BAD [b'arguments invalid']")
             for u in targets:
                 f = uids[u]["flags"]
                 uids[u]["flags"] = f | names if how.startswith("+") else f - names

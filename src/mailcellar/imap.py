@@ -27,6 +27,7 @@ by save_state, through the backup's own meta.sqlite connection
 (meta.sqlite's imap_map, backup/sidecar.py).
 """
 
+import ast
 import base64
 import binascii
 import hashlib
@@ -114,6 +115,7 @@ class Message:
     # check reads this, not labels.
     marks: frozenset[str] = frozenset()
     places: tuple[Location, ...] = ()  # every copy, folder and UID: what a write acts on
+    keywords: frozenset[str] = frozenset()  # the marks it carries as keywords (on any copy)
 
 
 @dataclass(frozen=True)
@@ -526,7 +528,8 @@ def merge(reads, ids: Mapping[Location, str], origins: Mapping | None = None) ->
         home = [(r, u) for r, u in places if r.folder.label in kept]
         read, uid = (home or places)[0]
         header = read.headers.get(uid)
-        marks = keyword_marks(flags) | {r.folder.label for r, _u in places if r.folder.review}
+        keywords = keyword_marks(flags)
+        marks = keywords | {r.folder.label for r, _u in places if r.folder.review}
         messages[gid] = Message(
             gid,
             frozenset(kept) | flag_labels(flags),
@@ -535,6 +538,7 @@ def merge(reads, ids: Mapping[Location, str], origins: Mapping | None = None) ->
             header.size if header else None,
             marks,
             tuple((r.folder.name, u) for r, u in places),
+            keywords,
         )
     maps = {
         read.folder.name: (
@@ -607,6 +611,39 @@ def log_out(conn) -> None:
 
 
 # ── writing: decided here, carried out by ImapAccount ─────────────────────────
+
+
+BAD_ANSWER = re.compile(r"^(\S+) command error: BAD (\[.*\])$")  # as imaplib words a tagged BAD
+
+
+def answered(exc: BaseException) -> bool:
+    """
+    Whether imaplib raised for the server's tagged BAD, so the session is in
+    step; not an abort, nor imaplib refusing a command itself (a command in
+    the wrong state is mailcellar's mistake, to be seen). _write takes such a
+    BAD as a refusal. Pure.
+    """
+    return (
+        isinstance(exc, imaplib.IMAP4.error)
+        and not isinstance(exc, imaplib.IMAP4.abort)
+        and BAD_ANSWER.search(str(exc)) is not None
+    )
+
+
+def server_said(exc: BaseException) -> str:
+    """
+    A BAD as _ok words a NO, "<command>: BAD <text>…", in the server's words
+    as it sent them; else str(exc). Pure.
+    """
+    found = BAD_ANSWER.search(str(exc))
+    try:
+        parts = ast.literal_eval(found[2]) if found else None
+    except ValueError, SyntaxError:
+        parts = None
+    if not isinstance(parts, list):
+        return str(exc)
+    words = [p.decode("utf-8", "replace") if isinstance(p, bytes) else str(p) for p in parts]
+    return f"{found[1]}: " + " ".join(["BAD", *(w for w in words if w)])
 
 
 def write_refusal(info: ServerInfo) -> str:
@@ -755,6 +792,16 @@ def keyword_marking(scan: Scan, ids) -> Marking:
     return Marking(None, False, copies, owners, MappingProxyType({}), missing)
 
 
+def keyword_unmarking(scan: Scan, ids, label: str) -> Marking:
+    """
+    keyword_marking of the messages that carry `label`'s keyword: a server
+    that keeps no keywords, or mail marked by folder, is never asked to take
+    one off. Pure.
+    """
+    carrying = [g for g in ids if g in scan.messages and label in scan.messages[g].keywords]
+    return keyword_marking(scan, carrying)  # one not on the server is put_back's failure
+
+
 def folder_marking(scan: Scan, ids, label: str, entries) -> Marking:
     """
     The review folder for `label` in the server's own hierarchy (to create if
@@ -797,10 +844,13 @@ def folder_marking(scan: Scan, ids, label: str, entries) -> Marking:
     return Marking(review, create, copies, owners, MappingProxyType(origins), tuple(failures))
 
 
-def marking_failures(marking: Marking, refused: Mapping[str, str]) -> list[str]:
-    """add_label's failures: the plan's own, and the IDs in a folder that refused. Pure."""
+def marking_failures(marking: Marking, refused: Mapping[str, str], what: str) -> list[str]:
+    """
+    The failures of `what` done to a marking's copies (marking, unmarking):
+    the plan's own, and the IDs in a folder that refused. Pure.
+    """
     stuck = {
-        gid: f"{gid}: marking it in {name} failed: {why}"
+        gid: f"{gid}: {what} in {name} failed: {why}"
         for name, why in sorted(refused.items())
         for gid in sorted(marking.owners.get(name, ()))
     }
@@ -830,7 +880,7 @@ class PutBack:
     """
 
     moves: Mapping[str, Mapping[str, tuple[int, ...]]]  # from → to → UIDs
-    owners: Mapping[str, frozenset[str]]  # from folder → the IDs with a copy there
+    owners: Mapping[tuple[str, str], frozenset[str]]  # (from, to) → the IDs that MOVE takes
     homes: Mapping[str, tuple[str, ...]]  # ID → its home folders
     failures: tuple[str, ...]
     create: tuple[str, ...] = ()  # homes the server doesn't have yet (a new Archive)
@@ -859,7 +909,7 @@ def put_back(scan: Scan, ids, origins: Mapping, out_of) -> PutBack:
         for k, (name, uid) in enumerate(leaving):
             dst = homes[gid][k] if k < len(homes[gid]) else homes[gid][0]
             moves.setdefault(name, {}).setdefault(dst, []).append(uid)
-            owners.setdefault(name, set()).add(gid)
+            owners.setdefault((name, dst), set()).add(gid)
     return PutBack(
         MappingProxyType(
             {
@@ -867,23 +917,41 @@ def put_back(scan: Scan, ids, origins: Mapping, out_of) -> PutBack:
                 for src, by_dst in moves.items()
             }
         ),
-        MappingProxyType({name: frozenset(g) for name, g in owners.items()}),
+        MappingProxyType({step: frozenset(g) for step, g in owners.items()}),
         MappingProxyType(homes),
         tuple(failures),
         tuple(sorted({h for hs in homes.values() for h in hs} - {f.name for f in scan.folders})),
     )
 
 
-def untrash_result(plan: PutBack, refused: Mapping[str, str], after: Scan) -> list[str]:
+def stuck_ids(plan: PutBack, moves: Mapping[tuple[str, str], str]) -> frozenset[str]:
+    """The IDs a refused MOVE (`moves`: (from, to) → why) left where they were. Pure."""
+    return frozenset().union(*(plan.owners.get(step, ()) for step in moves))
+
+
+def put_back_failures(
+    plan: PutBack, moves: Mapping[tuple[str, str], str], copies: Mapping[str, tuple[str, str]]
+) -> dict[str, str]:
     """
-    untrash()'s failures: the plan's own, the IDs with a copy in a folder whose
-    MOVE was refused, and those a re-read still shows in Trash only. Pure.
+    ID → failure: the IDs a refused MOVE (`moves`: (from, to) → why) left
+    where they were (stuck_ids, each with its MOVE's reason), then those whose
+    COPY into a further home was refused (`copies`: ID → (to, why)), only a
+    copy missing. Pure.
     """
+    copied = {gid: f"{gid}: copying it to {to} failed: {why}" for gid, (to, why) in copies.items()}
     stuck = {
-        gid: f"{gid}: moving it out of {name} failed: {why}"
-        for name, why in sorted(refused.items())
-        for gid in sorted(plan.owners.get(name, ()))
+        gid: f"{gid}: moving it out of {src} to {to} failed: {why}"
+        for (src, to), why in sorted(moves.items())
+        for gid in sorted(plan.owners.get((src, to), ()))
     }
+    return copied | stuck
+
+
+def untrash_result(plan: PutBack, stuck: Mapping[str, str], after: Scan) -> list[str]:
+    """
+    untrash()'s failures: the plan's own, those of putting back (`stuck`, from
+    put_back_failures), and those a re-read still shows in Trash only. Pure.
+    """
     still = [
         f"{gid}: still in Trash"
         for gid in plan.homes
@@ -1428,15 +1496,25 @@ class ImapAccount:
         """
         fn(conn, chunk) for each chunk of `uids`, with `folder` SELECTed for
         writing (the only place mailcellar SELECTs rather than EXAMINEs);
-        selected(conn), if given, first, to check what SELECT answered.
+        selected(conn, folder), if given, first, to check what SELECT answered.
+        With no `uids` it only SELECTs: _keywords_kept_in reads PERMANENTFLAGS
+        so, as EXAMINE reports none, changing nothing.
         """
 
         def run(conn):
-            self._ok(*conn.select(quote(folder), readonly=False), f"SELECT {folder}")
-            if selected is not None:
-                selected(conn)
-            for chunk in chunks(uids):
-                fn(conn, ",".join(map(str, chunk)))
+            try:
+                self._ok(*conn.select(quote(folder), readonly=False), f"SELECT {folder}")
+                if selected is not None:
+                    selected(conn, folder)
+                for chunk in chunks(uids):
+                    fn(conn, ",".join(map(str, chunk)))
+            except imaplib.IMAP4.error as exc:
+                # A change the server answered BAD (a keyword it won't keep) is refused, as
+                # a NO is, and the session is in step. Reads keep raising: there a BAD is
+                # most likely a command of mailcellar's gone wrong, to be seen.
+                if not answered(exc):
+                    raise
+                raise gmailapi.GmailError(server_said(exc)) from None
 
         self._retrying(f"{what} in {folder}", run)
 
@@ -1452,6 +1530,11 @@ class ImapAccount:
                 return self._keyword(gmail_ids, label_name)
             except gmailapi.AccessRefused:
                 raise
+            except KeywordsRefused:  # never can be: said once, not a note on every message
+                logger.info(
+                    f"{self.account}: the server keeps no keywords: not marked {label_name}"
+                )
+                return []
             except gmailapi.GmailError as exc:
                 return [f"{gid}: {exc}" for gid in gmail_ids]
         if self.settings.review == "folder":
@@ -1459,22 +1542,62 @@ class ImapAccount:
         return self._keyword(gmail_ids, label_name)
 
     def _keyword(self, gmail_ids, label_name) -> list[str]:
-        """mailcellar's keyword for the label, on every copy of each message."""
+        """
+        mailcellar's keyword for the label, on every copy of each message. A
+        folder keeping no keywords fails its own mail (servers set PERMANENTFLAGS
+        per folder); KeywordsRefused, the account's setup, only when INBOX and
+        every folder touched keep none.
+        """
         keyword = keyword_for(label_name)
         marking = keyword_marking(self._scan()[1], gmail_ids)
+        keywordless: list[str] = []
 
-        def keeps_keywords(conn):
-            _code, (permanent, *_rest) = conn.response("PERMANENTFLAGS")
-            if b"\\*" not in (permanent or b""):
-                raise KeywordsRefused(
-                    f"{self.account}: the server keeps no keywords of mailcellar's in its "
-                    "folders (PERMANENTFLAGS has no \\*); set the account up with --review folder"
-                )
+        def keeps_keywords(conn, folder):
+            try:
+                self._require_keywords(conn, folder)
+            except KeywordsRefused:
+                keywordless.append(folder)
+                raise
 
         def store(conn, uids):
             self._ok(*conn.uid("STORE", uids, "+FLAGS.SILENT", f"({keyword})"), "STORE")
 
-        return self._carry_out(marking, f"marking {label_name}", store, keeps_keywords)
+        failures = self._carry_out(marking, f"marking {label_name}", store, keeps_keywords)
+        if keywordless and set(keywordless) == set(marking.copies):
+            # Known to keep none (not just unknown, the check failing): the account's setup.
+            if "INBOX" in keywordless or self._keywords_kept_in("INBOX") is False:
+                raise KeywordsRefused(
+                    f"{self.account}: the server keeps no keywords of mailcellar's "
+                    f"({', '.join(sorted({'INBOX', *keywordless}))}: PERMANENTFLAGS has no \\*); "
+                    "set the account up with --review folder"
+                )
+        return failures
+
+    @staticmethod
+    def _require_keywords(conn, folder: str) -> None:
+        """A check of what SELECT answered: raises KeywordsRefused if `folder` keeps none."""
+        _code, (permanent, *_rest) = conn.response("PERMANENTFLAGS")
+        if b"\\*" not in (permanent or b""):
+            raise KeywordsRefused(f"{folder} keeps no keywords (PERMANENTFLAGS has no \\*)")
+
+    def _keywords_kept_in(self, folder: str) -> bool | None:
+        """
+        Whether `folder` keeps keywords, by a SELECT that changes nothing; None
+        when the check itself fails (the folder refused, the connection gave
+        out): not known, so nothing is concluded from it.
+        """
+        try:
+            self._write(
+                folder, [], "checking keywords", lambda conn, uids: None, self._require_keywords
+            )
+        except KeywordsRefused:
+            return False
+        except gmailapi.AccessRefused:
+            raise
+        except gmailapi.GmailError as exc:
+            logger.debug("%s: couldn't check %s for keywords: %s", self.account, folder, exc)
+            return None
+        return True
 
     def _carry_out(self, marking: Marking, what: str, fn, selected=None) -> list[str]:
         """fn on every folder's copies, a refused folder failing its own; then re-read."""
@@ -1483,13 +1606,13 @@ class ImapAccount:
             for folder, uids in marking.copies.items():
                 try:
                     self._write(folder, list(uids), what, fn, selected)
-                except gmailapi.AccessRefused, KeywordsRefused:
-                    raise  # the account or the server, not this folder
-                except gmailapi.GmailError as exc:
+                except gmailapi.AccessRefused:
+                    raise  # the account, not this folder
+                except gmailapi.GmailError as exc:  # a folder keeping no keywords, too
                     refused[folder] = str(exc)
         finally:
             self._changed()
-        return marking_failures(marking, refused)
+        return marking_failures(marking, refused, what)
 
     def _create(self, conn, name: str) -> None:
         """CREATE the folder; one that exists by now (another client, a run before) is fine."""
@@ -1573,8 +1696,9 @@ class ImapAccount:
         }
 
     def _put_back(self, plan: PutBack, what: str) -> dict[str, str]:
-        """Move each copy home, then copy into its further homes; folder → why refused."""
-        refused: dict[str, str] = {}
+        """Move each copy home, then copy into its further homes; ID → failure."""
+        refused: dict[tuple[str, str], str] = {}
+        copies: dict[str, tuple[str, str]] = {}
         for name in plan.create:
             self._retrying(f"creating {name}", lambda c, n=name: self._create(c, n))
         try:
@@ -1583,10 +1707,15 @@ class ImapAccount:
                     try:
                         self._write(src, list(uids), what, self._mover(dst))
                     except gmailapi.GmailError as exc:
-                        refused[src] = str(exc)
+                        refused[(src, dst)] = str(exc)
         finally:
             self._changed()
-        more = {gid: homes[1:] for gid, homes in plan.homes.items() if len(homes) > 1}  # unfilled
+        stuck = stuck_ids(plan, refused)  # still where it was: copy it nowhere
+        more = {
+            gid: homes[1:]
+            for gid, homes in plan.homes.items()
+            if len(homes) > 1 and gid not in stuck  # its further homes, unfilled
+        }
         if more:
             scan = self._scan()[1]
             for gid, extra in more.items():
@@ -1602,9 +1731,9 @@ class ImapAccount:
                     try:
                         self._write(name, [uid], f"copying to {dst}", copy)
                     except gmailapi.GmailError as exc:
-                        refused.setdefault(name, str(exc))
+                        copies.setdefault(gid, (dst, str(exc)))
             self._changed()
-        return refused
+        return put_back_failures(plan, refused, copies)
 
     def untrash(self, gmail_ids):
         """
@@ -1617,25 +1746,31 @@ class ImapAccount:
         plan = put_back(
             scan, gmail_ids, self._origins(gmail_ids), lambda name: trash and name == trash.name
         )
-        refused = self._put_back(plan, "moving out of Trash")
-        return untrash_result(plan, refused, self._scan()[1])
+        failed = self._put_back(plan, "moving out of Trash")
+        return untrash_result(plan, failed, self._scan()[1])
 
     def remove_label(self, gmail_ids, label_name):
         """
-        Take a review mark off: the keyword from every copy, and any copy in the
-        label's review folder moved back to the folders it came from.
+        Take a review mark off: any copy in the label's review folder moved back
+        to the folders it came from, then the keyword from the copies that carry
+        it; failures as "<id>: <why>", as add_label's.
         """
         scan = self._scan()[1]
         review = {f.name for f in scan.folders if f.review and f.label == label_name}
         plan = put_back(scan, gmail_ids, self._origins(gmail_ids), lambda n: n in review)
-        self._put_back(plan, f"taking {label_name} off")
+        failed = self._put_back(plan, f"taking {label_name} off")
+        # MOVE keeps flags: what carried the keyword before still does, so with none
+        # to take off, the server isn't read again.
+        if not keyword_unmarking(scan, gmail_ids, label_name).copies:
+            return [*plan.failures, *failed.values()]
         keyword = keyword_for(label_name)
-        marking = keyword_marking(self._scan()[1], gmail_ids)
+        marking = keyword_unmarking(self._scan()[1], gmail_ids, label_name)
 
         def unstore(conn, uids):
             self._ok(*conn.uid("STORE", uids, "-FLAGS.SILENT", f"({keyword})"), "STORE")
 
-        self._carry_out(marking, f"taking {label_name} off", unstore)
+        unmarked = self._carry_out(marking, f"taking {label_name} off", unstore)
+        return [*plan.failures, *failed.values(), *unmarked]
 
     def _append(self, name: str, flags: str, ms: int, raw: bytes) -> None:
         when = imaplib.Time2Internaldate(ms // 1000)

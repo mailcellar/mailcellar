@@ -1100,3 +1100,33 @@ def test_a_restored_message_that_cant_be_labelled_is_restored_all_the_same(env, 
     assert run("--id", "t1", "--yes") == 0
     assert "t1" not in env.trashed  # restored
     assert "couldn't be labelled restored/" in capsys.readouterr().err
+
+
+def test_a_mark_left_on_is_noted_on_the_restored_message(env, capsys):
+    env.remove_label = lambda ids, label: (
+        [f"{i}: NO busy" for i in ids] + [f"{i}: BAD x" for i in ids]
+    )
+    assert run("--id", "t1", "--yes") == 0
+    assert "t1" not in env.trashed  # restored all the same
+    with open("log.csv", newline="", encoding="utf-8") as fh:
+        rows = [(r["outcome"], r["detail"]) for r in csv.DictReader(fh) if r["source_id"] == "t1"]
+    (first, _), (last, detail) = rows  # logged as it was final, then again with the note
+    assert first == last == "untrashed" and "not taken off" not in rows[0][1]
+    assert "offload-candidate not taken off: NO busy; BAD x" in detail  # both reasons kept
+    assert "1 restored messages kept offload-candidate" in capsys.readouterr().err
+
+
+def test_a_restored_messages_wrong_marks_are_one_note():
+    notes = restore.mark_notes({"a": "BAD no", "b": "NO busy"}, {"b": "refused"}, "restored/x")
+    assert notes == {
+        "a": "offload-candidate not taken off: BAD no",
+        "b": "offload-candidate not taken off: NO busy; not labelled restored/x: refused",
+    }
+
+
+def test_only_what_was_restored_is_noted():
+    d = restore.Decision(cand(), restore.UNTRASH, new_id="n1")
+    done = restore.Result(d, "untrashed", "", "n1")
+    skipped = restore.Result(d, restore.ALREADY, "", "n1")
+    noted = restore.noted_results({"s1": done, "s2": skipped}, {"n1": "a mark left on"})
+    assert noted == {"s1": replace(done, detail="a mark left on")}  # not s2, sharing n1

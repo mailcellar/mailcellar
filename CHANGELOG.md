@@ -21,6 +21,8 @@ in beta, so commands and options may still change before 1.0.
   `$mailcellar-` keyword (clear it in a mail client to keep the message),
   `--trash` moves what is still marked to Trash and confirms it there.
   Nothing is expunged; other servers are refused, saying what's missing.
+  A folder that keeps no keywords fails its own mail; a server that keeps
+  none is told to review by folder.
 - `restore` works on IMAP accounts: an IMAP backup goes back into its
   account, or another IMAP account. Mail still in Trash is moved back to
   the folders it lived in; mail the server no longer has is appended with
@@ -33,6 +35,12 @@ in beta, so commands and options may still change before 1.0.
   move into a `mailcellar/review/` folder (moving it out keeps it), the
   folders it came from recorded in the backup. Setting an IMAP account up again
   keeps its port, username, CA file and review mode unless given.
+
+### Fixed
+- `restore`'s notes reach its log. A restored message whose restore label
+  couldn't be added (or, on an IMAP account, whose offload mark couldn't be
+  taken off) gets a second row with the note; the note used to be lost,
+  the message's row having been written before it.
 
 **Upgrading:** `meta.sqlite` schema 11 → 13 (two new tables for IMAP
 accounts), on the first run, after copying the file aside.

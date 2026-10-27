@@ -93,8 +93,8 @@ class Mailbox(Protocol):
         """
         raise NotImplementedError
 
-    def remove_label(self, gmail_ids: list[str], label_name: str) -> None:
-        """Remove a user label from messages."""
+    def remove_label(self, gmail_ids: list[str], label_name: str) -> list[str]:
+        """Remove a user label from messages; failures as "<id>: <why>", as add_label's."""
         raise NotImplementedError
 
     # ── moves ────────────────────────────────────────────────────────────────
