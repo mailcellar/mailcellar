@@ -216,7 +216,7 @@ def cmd_apply(args) -> None:
 
     batch = datetime.now().strftime("%Y-%m-%d-%H%M%S")
     checks = BackupChecks(folders)
-    held = HoldCheck(folders, int(time.time() * 1000))  # legal holds keep their mail in Gmail
+    held = HoldCheck(folders, int(time.time() * 1000), rows)  # legal holds keep their mail in Gmail
     record = recorder(folders, batch, manifest_path(offload_dir(), batch))
     try:
         log = apply_plan(

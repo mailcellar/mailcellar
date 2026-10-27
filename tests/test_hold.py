@@ -254,3 +254,21 @@ def test_health_lists_holds_and_warns_when_backups_lapse(backup):
     assert row[:3] == (ACCOUNT, "landlord-2026", "dispute") and row[5] == 2 and row[8] == ""
     later = holds_now() + 30 * 86_400_000
     assert health.holds_table([folder], later).rows[0][8] == "no backup in 7 days"
+
+
+def test_a_message_the_sidecar_doesnt_know_counts_as_held(backup):
+    _gmail, folder = backup
+    hold("add", "landlord-2026", "--reason", "dispute", "--party", "@landlord.example")
+    con = sidecar.open_meta(folder)  # a gyb-era backup that never had `mailcellar meta` run
+    sidecar.delete_messages(con, ["u1"])
+    con.commit()
+    con.close()
+    row = {"account": ACCOUNT, "gmail_id": "u1"}
+    # The sidecar-only universe wouldn't list u1; asked about it, a hold that can't rule it
+    # out holds it.
+    assert holds.HoldCheck({ACCOUNT: folder}, holds_now(), [row])(row) == "held: landlord-2026"
+    assert holds.HoldCheck({ACCOUNT: folder}, holds_now())(row) == "held: landlord-2026"
+    # Its date isn't known either, so even a hold bounded to the year 2000 can't rule it out.
+    hold("release", "landlord-2026")
+    hold("add", "old", "--reason", "r", "--party", "@landlord.example", "--before", "2000-01-01")
+    assert holds.HoldCheck({ACCOUNT: folder}, holds_now(), [row])(row) == "held: old"

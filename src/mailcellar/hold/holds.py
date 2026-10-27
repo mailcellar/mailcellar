@@ -260,18 +260,36 @@ def held(folder: Path, now_ms: int, gmail_ids=None) -> dict[str, str]:
 class HoldCheck:
     """
     local_check for apply_plan: "" or "held: NAME" for a plan row, so offload
-    and dedup apply leave held mail in Gmail. folders: account → backup.
+    and dedup apply leave held mail in Gmail. folders: account → backup;
+    rows: the plan's rows, so each account is checked for exactly the
+    messages planned: one the sidecar doesn't know (a gyb-era backup that
+    hasn't been through `mailcellar meta`, which dedup index parses itself)
+    has unknown facts and counts as held by any hold that could cover it.
     """
 
-    def __init__(self, folders: dict[str, Path], now_ms: int):
+    def __init__(self, folders: dict[str, Path], now_ms: int, rows=()):
         self.folders, self.now_ms = folders, now_ms
+        self._ids: dict[str, set[str]] = {}
+        for row in rows:
+            self._ids.setdefault(row["account"], set()).add(row["gmail_id"])
         self._held: dict[str, dict[str, str]] = {}
 
     def __call__(self, row: dict) -> str:
         account = row["account"]
         if account not in self._held:
             folder = self.folders.get(account)
-            self._held[account] = held(folder, self.now_ms) if folder else {}
+            ids = self._ids.get(account) or {row["gmail_id"]}
+            self._held[account] = held(folder, self.now_ms, sorted(ids)) if folder else {}
+        elif (
+            row["gmail_id"] not in self._ids.get(account, ())
+            and row["gmail_id"] not in self._held[account]
+        ):
+            # Asked about a row the check wasn't given: look it up on its own.
+            folder = self.folders.get(account)
+            self._held[account].update(
+                held(folder, self.now_ms, [row["gmail_id"]]) if folder else {}
+            )
+            self._ids.setdefault(account, set()).add(row["gmail_id"])  # held or not, known now
         name = self._held[account].get(row["gmail_id"])
         return f"held: {name}" if name else ""
 
