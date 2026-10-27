@@ -124,8 +124,13 @@ another account (`--to`), IMAP or Gmail, as it does for Gmail:
   and its review mark taken off;
 - a message the server no longer has is appended with its flags and the
   date the server first received it (as the backup recorded it), into
-  each of its folders (created if missing); it comes back with the same
-  ID, so the next backup has nothing new to fetch;
+  each of its folders (created if missing). Where the server stores it
+  unchanged, it comes back with the same ID, so the next backup has
+  nothing new to fetch; some servers add a header to appended mail (Yahoo
+  adds `Content-Length`), so restore reads each message's ID back from what
+  the server stored (by the UID the server gives it, else by its
+  Message-ID and date among what arrived during the restore), and the
+  next backup downloads it once;
 - restored mail gets a `$mailcellar-restored.<date>` keyword, where the
   server keeps keywords (otherwise restore says so and carries on; in a
   folder that keeps none, the message is restored with a note in the log).

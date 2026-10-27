@@ -214,6 +214,109 @@ def test_a_message_whose_move_was_refused_is_copied_nowhere(server, tmp_path, mo
     assert len(server.folders["mailcellar/review/offload-candidate"]["uids"]) == 1
 
 
+@pytest.mark.parametrize("uidplus", [True, False])
+def test_an_appended_messages_id_is_read_back_from_the_server(home, tmp_path, uidplus):
+    home.append_adds = b"Content-Length: 1234\r\n"  # as one provider adds to appended mail
+    if not uidplus:
+        home.signed_in = tuple(c for c in home.signed_in if c != "UIDPLUS")
+    offload_two(home, tmp_path)
+    home.folders["Trash"]["uids"].clear()  # emptied: restore appends from the backup
+    assert cli.main(["backup", "home"]) == 0
+    assert cli.main(["restore", "home", "--offloaded", "--yes"]) == 0
+    con = sqlite3.connect(backup_folder(ADDRESS) / "meta.sqlite")
+    try:
+        recorded = {n for (n,) in con.execute("SELECT new_id FROM restored")}
+    finally:
+        con.close()
+    on_server = set(by_folder(home)._scan()[1].messages)
+    assert len(recorded) == 2
+    assert recorded <= on_server  # the server's IDs: by the APPEND's UID, else by Message-ID
+
+
+def imap_box(server):
+    """An ImapAccount on `server` reviewing by keyword, with no backup folder."""
+    settings = gmailapi.ImapSettings("imap.example.org", 993, ADDRESS)
+    return imap.ImapAccount(
+        ADDRESS, settings, "secret", connect=lambda: server, sleep=lambda s: None
+    )
+
+
+def test_a_message_without_a_message_id_is_read_back_by_its_content(server):
+    server.append_adds = b"Content-Length: 1\r\n"
+    raw = b"Subject: no id\r\n\r\nbody\r\n"
+    got = {}
+    assert imap_box(server).import_messages({"k": (raw, ["INBOX"])}, got.__setitem__) == []
+    (stored,) = [m["raw"] for m in server.folders["INBOX"]["uids"].values()]
+    assert got == {"k": imap.content_id(stored)}  # what the server stored, not what was sent
+
+
+def test_a_failed_read_back_keeps_the_prediction_and_says_so(server, monkeypatch, caplog):
+    server.append_adds = b"Content-Length: 1\r\n"
+    uid = server.uid
+
+    def no_fetch(command, *args):
+        if command.upper() == "FETCH":
+            return "NO", [b"[UNAVAILABLE] try later"]
+        return uid(command, *args)
+
+    monkeypatch.setattr(server, "uid", no_fetch)
+    raw = make_eml(msgid="<r@x>").replace(b"\n", b"\r\n")
+    got = {}
+    assert (
+        imap_box(server).import_messages(
+            {"k": (raw, ["INBOX"])}, got.__setitem__, {"k": 1_420_106_400_000}
+        )
+        == []
+    )
+    assert got == {"k": imap.appended_id(raw, 1_420_106_400_000)}
+    assert "1 appended messages couldn't be read back" in caplog.text
+
+
+def test_two_messages_sharing_a_message_id_are_read_back_apart(server):
+    server.signed_in = tuple(c for c in server.signed_in if c != "UIDPLUS")  # no APPENDUID
+    server.append_adds = b"Content-Length: 1\r\n"
+    one = make_eml(msgid="<same@x>", body="first").replace(b"\n", b"\r\n")
+    two = make_eml(msgid="<same@x>", body="the second, longer").replace(b"\n", b"\r\n")
+    got = {}
+    messages = {"a": (one, ["INBOX"]), "b": (two, ["INBOX"])}
+    assert imap_box(server).import_messages(messages, got.__setitem__) == []
+    on_server = set(imap_box(server)._scan()[1].messages)
+    assert len(set(got.values())) == 2 and set(got.values()) <= on_server
+
+
+def test_an_append_whose_answer_was_lost_is_not_stored_twice(server):
+    server.drop_after_append = 1  # stored, then the connection drops before the OK
+    raw = make_eml(msgid="<d@x>").replace(b"\n", b"\r\n")
+    got = {}
+    assert imap_box(server).import_messages({"k": (raw, ["INBOX"])}, got.__setitem__) == []
+    assert len(server.folders["INBOX"]["uids"]) == 1  # the retry found it, and didn't append again
+    assert set(got.values()) <= set(imap_box(server)._scan()[1].messages)
+
+
+def test_an_append_uid_and_the_id_it_reads_back_are_decided_purely():
+    assert imap.append_uid([b"[APPENDUID 7 42] Append completed"]) == 42
+    assert imap.append_uid([b"Append completed"]) is None
+    head = b"Message-ID: <a@x>\r\n\r\n"
+    got = imap.Fetched(uid=42, internal=1_420_106_400_000, size=99, literal=head)
+    assert imap.server_id(got, True) == imap.header_id("<a@x>", 1_420_106_400_000, 99)
+    assert imap.server_id(None, True) is None  # nothing read back
+    assert imap.server_id(imap.Fetched(uid=42, literal=b"x"), False) == imap.content_id(b"x")
+
+
+def test_appended_mail_sharing_a_message_id_gets_a_uid_each():
+    raw = b"Message-ID: <same@x>\r\n\r\nbody"
+    ms = 1_420_106_400_000
+    items = [imap.Appended("a", "INBOX", None, raw, ms), imap.Appended("b", "INBOX", None, raw, ms)]
+    head = b"Message-ID: <same@x>\r\n\r\n"
+    fetched = {u: imap.Fetched(uid=u, internal=ms, size=40, literal=head) for u in (7, 8)} | {
+        6: imap.Fetched(uid=6, internal=ms, size=40, literal=b"Message-ID: <other@x>\r\n\r\n")
+    }
+    assert imap.match_appended(items, fetched) == {"a": 7, "b": 8}  # in order, one each
+    assert imap.already_stored(fetched, imap.appended_key(raw, ms), earlier=1) == 8
+    assert imap.already_stored(fetched, imap.appended_key(raw, ms), earlier=2) is None
+    assert imap.since({3: fetched[6], 9: fetched[7]}, 5) == {9: fetched[7]}  # n:* holds the highest
+
+
 def test_putting_back_fails_each_move_and_copy_on_its_own():
     plan = imap.PutBack(
         {"Trash": {"INBOX": (1,), "Projects": (2,)}},

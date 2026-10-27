@@ -41,6 +41,8 @@ class FakeImap:
         self.read_write = False  # the selected folder was SELECTed, not EXAMINEd
         self.refused: set[str] = set()  # folders EXAMINE answers NO for
         self.keywordless: set[str] = set()  # folders whose PERMANENTFLAGS has no \\*
+        self.append_adds = b""  # a header line the server adds to what is appended, as some do
+        self.drop_after_append = 0  # how many APPENDs store the message, then lose the connection
         self.bodiless: set[int] = set()  # UIDs whose BODY.PEEK[] comes back without a body
         self.capabilities = ("IMAP4REV1", "LITERAL+", "AUTH=PLAIN")  # the greeting's, as imaplib
         self.signed_in = ("IMAP4rev1", "LITERAL+", "SPECIAL-USE", "MOVE", "UIDPLUS")  # CAPABILITY
@@ -119,11 +121,13 @@ class FakeImap:
         return "OK", [None if self.no_exists else str(len(self.folders[name]["uids"])).encode()]
 
     def response(self, code):
+        if code == "UIDNEXT":
+            return code, [str(self.folders[self.selected]["next"]).encode()]
         if code == "PERMANENTFLAGS":
             if self.selected in self.keywordless:
                 return code, [b"(\\Seen \\Flagged)"]
             return code, [self.permanentflags]
-        assert code == "UIDVALIDITY"
+        assert code == "UIDVALIDITY", code
         return code, [str(self.folders[self.selected]["uidvalidity"]).encode()]
 
     def uid(self, command, *args):
@@ -143,6 +147,9 @@ class FakeImap:
         if command != "FETCH":
             raise AssertionError(f"UID {command}: changes the server")
         wanted, items = args
+        if wanted.endswith(":*"):  # n:* is n and up, and the highest UID if all are lower
+            low = int(wanted[:-2])
+            wanted = ",".join(str(u) for u in sorted(uids) if u >= low or u == max(uids, default=0))
         if self.message_limit and len(wanted.split(",")) > self.message_limit:
             raise AssertionError(f"FETCH of {len(wanted.split(','))}: over MESSAGELIMIT")
         if "BODY[" in items or "STORE" in items:
@@ -214,8 +221,14 @@ class FakeImap:
         if name not in self.folders:
             return "NO", [b"[TRYCREATE] no such mailbox"]
         names = set((flags or "()").strip("()").split())
-        self.add(name, raw=message, flags=names, date=date_time.strip('"'))
-        return "OK", [b"Append completed"]
+        uid = self.add(name, raw=self.append_adds + message, flags=names, date=date_time.strip('"'))
+        if self.drop_after_append:  # stored, but the answer never arrives
+            self.drop_after_append -= 1
+            raise imaplib.IMAP4.abort("socket error: EOF")
+        if "UIDPLUS" not in self.signed_in:
+            return "OK", [b"Append completed"]
+        validity = self.folders[name]["uidvalidity"]
+        return "OK", [f"[APPENDUID {validity} {uid}] Append completed".encode()]
 
     def create(self, mailbox):
         self._command("CREATE", mailbox)

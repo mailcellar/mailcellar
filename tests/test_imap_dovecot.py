@@ -386,10 +386,13 @@ def test_offload_by_keyword_then_restore_from_trash(
     assert len(restored) == 2  # the keyword, '.' and all, kept by a real server
 
 
+@pytest.mark.parametrize("appenduid", [True, False])
 def test_offload_by_folder_then_restore_after_trash_is_emptied(
-    dovecot, monkeypatch, tmp_path, capsys, no_second_copy_check
+    dovecot, monkeypatch, tmp_path, capsys, no_second_copy_check, appenduid
 ):
-    user = "folder@example.org"
+    user = f"folder-{appenduid}@example.org".lower()
+    if not appenduid:  # as a server without UIDPLUS: matched from UIDNEXT by Message-ID and date
+        monkeypatch.setattr(imap, "append_uid", lambda data: None)
     review = "mailcellar/review/offload-candidate"
     seeded(dovecot, monkeypatch, tmp_path, user, review="folder")
     cli.main([*OFFLOAD, "--label"])
@@ -410,7 +413,9 @@ def test_offload_by_folder_then_restore_after_trash_is_emptied(
         c.store("1:*", "+FLAGS", r"(\Deleted)")
         c.expunge()
     assert cli.main(["backup", "home"]) == 0
+    capsys.readouterr()
     assert cli.main(["restore", "home", "--offloaded", "--yes"]) == 0
+    assert "couldn't be read back" not in capsys.readouterr().err  # read back, not predicted
     back = projects(dovecot, user)
     assert len(back) == 3  # appended into the folder they lived in
     assert all("\\Seen" in m.flags and m.internal == OLD_MS for m in back)  # flags, date
