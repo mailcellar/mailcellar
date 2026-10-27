@@ -6,6 +6,7 @@ mail leave what it covers alone.
 """
 
 import argparse
+import logging
 import re
 import sys
 import time
@@ -18,6 +19,8 @@ from mailcellar.hold.holds import Hold, HoldError
 from mailcellar.report.cli import parse_before, resolve_folders
 from mailcellar.report.db import AnalyticsError
 from mailcellar.report.output import Table, day, render
+
+logger = logging.getLogger(__name__)
 
 NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
@@ -82,7 +85,7 @@ def cmd_add(p: argparse.ArgumentParser, args) -> int:
         try:
             holds.add(folder, account, hold)
         except HoldError as exc:
-            print(f"error: {exc}", file=sys.stderr)
+            logger.error(str(exc))
             status = 1
             continue
         held = holds.held(folder, hold.created_ms)
