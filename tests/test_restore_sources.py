@@ -109,7 +109,7 @@ def test_takeout_label_names_become_gyb_labels(names, expected):
     ],
 )
 def test_the_headers_end_at_the_first_blank_line_whatever_its_line_ending(raw, end):
-    assert mbox._header_end(raw) == end
+    assert mbox.header_end(raw) == end
 
 
 def test_a_body_line_like_an_added_header_stays_with_mixed_line_endings():

@@ -2,6 +2,7 @@
 
 import base64
 import csv
+import email.utils
 import sqlite3
 from dataclasses import replace
 from email.parser import BytesHeaderParser
@@ -17,7 +18,7 @@ from mailcellar.dedup.index import index_backup
 from mailcellar.offload.apply import OFFLOAD_LABEL
 from mailcellar.report.db import open_sidecars
 from mailcellar.restore import apply as restore
-from test_backup import ACCOUNT, FakeGmail, FakeService, Req, raw_response
+from test_backup import ACCOUNT, MS, FakeGmail, FakeService, Req, raw_response
 from test_index import make_eml
 
 A, B = "a@x.com", "b@y.com"
@@ -316,6 +317,52 @@ def test_an_interrupted_restore_leaves_its_log(env, monkeypatch):
     assert got["t1"][0] == "untrashed" and got["c1"][0] == "skipped"
     assert [g for g in ("g1", "g2") if got.get(g, ("",))[0] == "imported"] == ["g1"]
     assert "g2" not in got
+
+
+# ── dates ────────────────────────────────────────────────────────────────────
+
+MS_2010 = 1_271_584_485_514  # 2010-04-18 09:54:45 UTC
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        # no Date: added after the last header, with the message's line endings
+        (b"From: a\r\nSubject: s\r\n\r\nbody\r\n",
+         b"From: a\r\nSubject: s\r\nDate: Sun, 18 Apr 2010 09:54:45 GMT\r\n\r\nbody\r\n"),
+        (b"From: a\n\nbody\n", b"From: a\nDate: Sun, 18 Apr 2010 09:54:45 GMT\n\nbody\n"),
+        # unreadable (a Spanish month), folded: replaced where it was
+        (b"From: a\r\nDate: 18 Abr 10\r\n 09:54:44\r\nTo: b\r\n\r\nbody",
+         b"From: a\r\nDate: Sun, 18 Apr 2010 09:54:45 GMT\r\nTo: b\r\n\r\nbody"),
+    ],
+)  # fmt: skip
+def test_a_message_without_a_usable_date_gets_the_backups(raw, expected):
+    assert restore.dated(raw, MS_2010) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "ms"),
+    [
+        (b"Date: Sun, 18 Apr 2010 10:54:44 +0100\r\n\r\nbody", MS_2010),  # readable: kept
+        (b"From: a\r\n\r\nbody", 0),  # nothing recorded (an mbox entry)
+        (b"From: a\r\n\r\nX-Note: Date: not a header\r\n", 0),
+    ],
+)
+def test_a_message_with_a_usable_date_or_no_recorded_one_is_left_alone(raw, ms):
+    assert restore.dated(raw, ms) is None
+
+
+def test_an_undated_message_is_restored_on_the_backups_date(env):
+    run("--id", "g1", "--yes")
+    new_id = restored_rows(env.folder)["g1"][0]
+    uploaded = base64.urlsafe_b64decode(env.messages[new_id]["raw"])
+    (backed_up,) = [
+        bm.path.read_bytes() for bm in gyb.iter_backup(env.folder) if bm.gmail_id == "g1"
+    ]
+    assert b"Date:" not in backed_up  # the backup's file is left as it was
+    date = BytesHeaderParser().parsebytes(uploaded)["Date"]
+    assert date == email.utils.formatdate(MS / 1000, usegmt=True)  # the date the backup recorded
+    assert "Date header added from the backup's date" in log()["g1"][1]
 
 
 def test_damaged_backup_copy_is_not_uploaded(env):
