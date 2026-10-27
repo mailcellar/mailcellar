@@ -27,6 +27,7 @@ Beyond what gyb does, each leaving a valid gyb folder:
 
 import base64
 import csv
+import logging
 import os
 import shutil
 import sqlite3
@@ -36,6 +37,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 DB_NAME = "msg-db.sqlite"
 DB_VERSION = "6"
@@ -102,6 +105,17 @@ def backed_up_ids(con: sqlite3.Connection, folder: Path) -> set[str]:
 
 def is_chat(label_ids) -> bool:
     return bool(CHAT_LABELS & set(label_ids))
+
+
+def inside(folder: Path, rel: str) -> Path | None:
+    """
+    folder / rel, the file an index entry names, or None if that leads out of
+    the folder (an absolute path, or one through ..): a gyb folder from
+    elsewhere, read by restore --from-folder, could otherwise name any file
+    on the machine.
+    """
+    path = folder / rel
+    return path if path.resolve().is_relative_to(folder.resolve()) else None
 
 
 def relative_path(gmail_id: str, internal_date_ms: int) -> str:
@@ -237,13 +251,12 @@ def prune(
             for (label,) in con.execute("SELECT label FROM labels WHERE message_num = ?", (num,))
         )
 
-        src = folder / rel
-        moved = src.is_file()
-        target = dest / rel
+        src, target = inside(folder, rel), inside(dest, rel)
+        moved = src is not None and target is not None and src.is_file()
         if moved:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(src, target)
-        elif (earlier := earlier_copy(dest, rel)) is not None:
+        elif target is not None and (earlier := earlier_copy(dest, rel)) is not None:
             target.parent.mkdir(parents=True, exist_ok=True)
             try:
                 os.link(earlier, target)
@@ -374,6 +387,8 @@ def iter_backup(backup_dir: Path):
         con.close()
 
     for num, uid, fname, internal_date in rows:
-        path = backup_dir / fname
-        if path.exists():
+        path = inside(backup_dir, fname)
+        if path is None:
+            logger.warning(f"{backup_dir}: {uid}'s file {fname!r} is outside the folder; skipped")
+        elif path.exists():
             yield BackupMessage(uid, path, internal_date or "", sorted(labels[num]))

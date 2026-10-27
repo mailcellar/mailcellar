@@ -392,3 +392,25 @@ def test_a_folder_from_elsewhere_lists_restored_mail_once(env, tmp_path):
     con.commit()
     con.close()
     assert [c.source_id for c in sources.from_folder(other)] == ["s1"]
+
+
+def test_a_folder_whose_index_names_files_outside_it_is_kept_to_itself(tmp_path, caplog):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("Subject: not mail\n\na file outside the folder\n")
+    folder = tmp_path / "foreign"
+    con = gyb.open_backup(folder, "someone@example.com")
+    for uid, rel in (("r1", "../outside.txt"), ("a1", str(outside))):
+        cur = con.execute(
+            "INSERT INTO messages (message_filename, message_internaldate) VALUES (?, ?)",
+            (rel, "2026-01-01 00:00:00"),
+        )
+        con.execute("INSERT INTO uids (message_num, uid) VALUES (?, ?)", (cur.lastrowid, uid))
+    con.commit()
+    assert sources.from_folder(folder) == []  # neither file is read, so neither is restored
+    assert caplog.text.count("is outside the folder; skipped") == 2
+
+    # Nor does a prune move them: their rows go, the files stay where they are.
+    manifest = gyb.prune(con, folder, ["r1", "a1"], tmp_path / "pruned")
+    con.close()
+    assert [m["file"] for m in manifest] == ["was missing", "was missing"]
+    assert outside.is_file() and not list((tmp_path / "pruned").rglob("*.txt"))

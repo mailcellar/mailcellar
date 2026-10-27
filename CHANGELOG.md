@@ -13,6 +13,11 @@ in beta, so commands and options may still change before 1.0.
   offloads due to be forgotten as soon as Gmail has deleted it.
 
 ### Fixed
+- `restore --from-folder` reads only files inside the gyb folder: an entry
+  in its index naming a file outside it (an absolute path, or one through
+  `..`) is skipped with a warning, where it would have been read and
+  uploaded into Gmail. `backup --prune` likewise moves nothing outside the
+  backup.
 - The crontab line `schedule install` prints escapes `%`, which cron reads
   as the end of the command, so a data root or log path holding one no
   longer stops the scheduled backup.
