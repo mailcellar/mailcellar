@@ -94,6 +94,16 @@ def test_a_backup_of_another_provider_is_refused(server, capsys):
     assert rows("SELECT count(*) FROM uids") == [(3,)]  # nothing added
 
 
+def test_an_imap_run_doesnt_call_every_message_changed():
+    imap_line = backup_commands.history_summary("imap", 119, 0, 0, 0, 0)
+    assert imap_line == "Read the server's 119 messages again; 0 to download, 0 label updates"
+    gmail_line = backup_commands.history_summary("gmail", 3, 1, 2, 1, 1)
+    assert gmail_line == (
+        "History since last run: 3 messages changed, 1 missing locally; "
+        "2 to download, 1 label updates, 1 in Spam/Trash/Chat skipped"
+    )
+
+
 def test_provider_change_allows_a_first_backup_and_the_same_provider(tmp_path):
     assert backup_commands.provider_change(ADDRESS, tmp_path, "gmail", "imap", 0) == ""
     assert backup_commands.provider_change(ADDRESS, tmp_path, "imap", "imap", 5) == ""

@@ -168,12 +168,37 @@ def history_plan(
     sidecar.mark_gone(mcon, gone & offloaded, now_ms())
     stats["deleted_backed_up"] = len(gone - offloaded)
     logger.info(
-        f"History since last run: {len(touched):,} messages changed"
-        + (f", {len(indexed - have):,} missing locally" if indexed - have else "")
-        + f"; {len(todo):,} to download, {stats['labels_changed']:,} label updates"
-        + (f", {stats['skipped']:,} in Spam/Trash/Chat skipped" if stats["skipped"] else "")
+        history_summary(
+            gmail.provider,
+            len(touched),
+            len(indexed - have),
+            len(todo),
+            stats["labels_changed"],
+            stats["skipped"],
+        )
     )
     return todo, new_history_id
+
+
+def history_summary(
+    provider: str, changed: int, missing: int, todo: int, labels: int, skipped: int
+) -> str:
+    """
+    What a history-based run found. An IMAP account has no history: every
+    message on the server is read again and compared, so it says that,
+    not that they all changed. Pure.
+    """
+    lead = (
+        f"History since last run: {changed:,} messages changed"
+        if provider == "gmail"
+        else f"Read the server's {changed:,} messages again"
+    )
+    return (
+        lead
+        + (f", {missing:,} missing locally" if missing else "")
+        + f"; {todo:,} to download, {labels:,} label updates"
+        + (f", {skipped:,} in Spam/Trash/Chat skipped" if skipped else "")
+    )
 
 
 class BackupMissing(Exception):
