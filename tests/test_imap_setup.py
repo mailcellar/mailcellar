@@ -120,6 +120,8 @@ def test_server_report_says_when_offload_wont_be_possible():
     assert "'Drafts' as DRAFT" in report and "rename" not in report  # only relabelled
     settings = gmailapi.ImapSettings("imap.example.org", 993, ADDRESS)
     assert setup.imap_toml(settings, ADDRESS) == 'host = "imap.example.org"\n'
+    folder_mode = gmailapi.ImapSettings("imap.example.org", 993, ADDRESS, review="folder")
+    assert setup.imap_toml(folder_mode, ADDRESS).endswith('review = "folder"\n')
 
 
 @pytest.mark.parametrize("value", ['a"b\\c', "tab\there", "del\x7f", "émoji 😀", "line\nbreak"])
@@ -154,6 +156,37 @@ def test_a_gmail_account_isnt_turned_into_an_imap_one(server, tmp_path):
     with pytest.raises(SystemExit, match="set up as a Gmail account"):
         run(tmp_path, "--force")
     assert not (folder / gmailapi.IMAP_SETTINGS).exists()
+
+
+def test_the_review_mode_is_set_and_kept_when_setting_up_again(server, tmp_path):
+    assert run(tmp_path, "--no-auth", "--review", "folder") == 0
+    toml = tmp_path / "config" / "alex" / gmailapi.IMAP_SETTINGS
+    assert 'review = "folder"' in toml.read_text()
+    assert run(tmp_path, "--no-auth") == 0  # a new password, say: no --force needed
+    assert 'review = "folder"' in toml.read_text()
+    assert run(tmp_path, "--no-auth", "--review", "keyword", "--force") == 0
+    assert "review" not in toml.read_text()  # the default isn't written
+
+
+def test_setting_up_again_keeps_every_setting_not_given(server, tmp_path):
+    ca = tmp_path / "ca.pem"
+    ca.write_text("a CA")
+    assert (
+        run(tmp_path, "--no-auth", "--port", "9993", "--username", "alex", "--cafile", str(ca)) == 0
+    )
+    toml = tmp_path / "config" / "alex" / gmailapi.IMAP_SETTINGS
+    before = toml.read_text()
+    assert run(tmp_path, "--no-auth") == 0  # a new password: nothing else changes
+    assert toml.read_text() == before
+
+
+@pytest.mark.parametrize("text", ["host = \n", 'host = "imap.example.org"\nreview = "Folder"\n'])
+def test_an_unusable_imap_toml_keeps_nothing(server, tmp_path, text):
+    folder = tmp_path / "config" / "alex"
+    folder.mkdir(parents=True)
+    (folder / gmailapi.IMAP_SETTINGS).write_text(text)
+    assert setup.kept_settings(folder, ADDRESS) == {}
+    assert setup.kept_settings(tmp_path / "nowhere", ADDRESS) == {}
 
 
 def test_imap_options_need_imap(tmp_path):

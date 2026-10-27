@@ -54,6 +54,11 @@ SKIP = {"\\Noselect", "\\NonExistent", "\\All", "\\Flagged"}  # not mail, or cop
 SYSTEM = {"INBOX", "SENT", "DRAFT", "SPAM", "TRASH", "UNREAD", "STARRED"}
 HIDDEN = frozenset({"SPAM", "TRASH"})  # left out of listings unless include_spam_trash
 TOKEN = "imap:1"  # a history point: the UID map is the state
+# Review marks (step 3): mailcellar's own labels as keywords, or as folders under REVIEW_ROOT,
+# reserved so a user's own folders under mailcellar/ keep their names.
+KEYWORD_PREFIX = "$mailcellar-"
+REVIEW_ROOT = "mailcellar/review/"
+KEYWORD_SAFE = re.compile(r"^[a-z0-9-]+(/[a-z0-9-]+)*$")  # labels a keyword can carry
 
 LIST_RE = re.compile(rb'^\((?P<flags>[^)]*)\) (?P<delim>"(?:[^"\\]|\\.)*"|NIL) (?P<name>.+)$')
 
@@ -67,6 +72,7 @@ Location = tuple[str, int]  # (folder, uid)
 class Folder:
     name: str  # as the server names it
     label: str  # as the backup names it
+    review: bool = False  # one of mailcellar's review folders (mailcellar/review/<label>)
 
 
 @dataclass(frozen=True)
@@ -96,10 +102,14 @@ class Message:
     """A message as the backup should see it."""
 
     id: str
-    labels: frozenset[str]
+    labels: frozenset[str]  # folders, flags and review marks, as the backup records them
     where: Location  # where to fetch it from
     internal: int | None = None  # None: not read this run (the map knew it)
     size: int | None = None
+    # mailcellar's review marks, from its keywords and review folders only: a user's own
+    # folder named like a mark gives the label, never the mark, so the trash step's
+    # check reads this, not labels.
+    marks: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -182,7 +192,11 @@ def folders_from(entries) -> tuple[Folder, ...]:
     """
     by_name = frozenset(BY_NAME.values()) - marked_roles(entries)
     return tuple(
-        Folder(name, folder_label(name, delim, flags, by_name=by_name))
+        Folder(
+            name,
+            folder_label(name, delim, flags, by_name=by_name),
+            review=review_label(plain_label(name, delim)) is not None,
+        )
         for name, delim, flags in entries
         if not flags & SKIP
     )
@@ -261,14 +275,60 @@ def folder_label(
         return special[0]
     if BY_NAME.get(name.lower()) in by_name:
         return BY_NAME[name.lower()]
+    label = plain_label(name, delim)
+    return review_label(label) or label
+
+
+def plain_label(name: str, delim: str | None) -> str:
+    """A folder's name as a label: decoded, its hierarchy delimiter as '/'. Pure."""
     decoded = decode_utf7(name)
     return decoded.replace(delim, "/") if delim and delim != "/" else decoded
 
 
+def review_label(label: str) -> str | None:
+    """The label a review folder (mailcellar/review/<label>) stands for, or None. Pure."""
+    rest = label[len(REVIEW_ROOT) :] if label.startswith(REVIEW_ROOT) else ""
+    return rest if KEYWORD_SAFE.match(rest) else None
+
+
+def keyword_for(label: str) -> str:
+    """
+    The keyword that carries one of mailcellar's labels (`offload-candidate`,
+    `restored/2026-10-27`): $mailcellar- and the label, '/' as '.'. GmailError
+    for a label a keyword can't carry, naming the form it can. Pure.
+    """
+    if not KEYWORD_SAFE.match(label):
+        raise gmailapi.GmailError(
+            f"{label!r} can't be marked on an IMAP server: use lowercase letters, digits, "
+            "'-' and '/' (as offload-candidate or restored/2026-10-27)"
+        )
+    return KEYWORD_PREFIX + label.replace("/", ".")
+
+
+def label_from_keyword(keyword: str) -> str | None:
+    """
+    The label one of mailcellar's keywords carries, or None for any other flag:
+    only keywords in the form keyword_for writes count (any case, as IMAP
+    keywords are), so every mark read can be cleared again. Pure.
+    """
+    lowered = keyword.lower()
+    if not lowered.startswith(KEYWORD_PREFIX) or "/" in lowered:
+        return None
+    label = lowered[len(KEYWORD_PREFIX) :].replace(".", "/")
+    return label if KEYWORD_SAFE.match(label) else None
+
+
+def keyword_marks(flags) -> frozenset[str]:
+    """The review marks a message's mailcellar keywords carry. Pure."""
+    return frozenset({label_from_keyword(f) for f in flags} - {None})
+
+
 def flag_labels(flags) -> frozenset[str]:
+    """Labels from a message's flags: UNREAD, STARRED, and mailcellar's own keywords. Pure."""
     return frozenset(
         ({"UNREAD"} if "\\Seen" not in flags else set())
         | ({"STARRED"} if "\\Flagged" in flags else set())
+        | keyword_marks(flags)
     )
 
 
@@ -414,12 +474,14 @@ def merge(reads, ids: Mapping[Location, str]) -> Scan:
         home = [(r, u) for r, u in places if r.folder.label in kept]
         read, uid = (home or places)[0]
         header = read.headers.get(uid)
+        marks = keyword_marks(flags) | {r.folder.label for r, _u in places if r.folder.review}
         messages[gid] = Message(
             gid,
             frozenset(kept) | flag_labels(flags),
             (read.folder.name, uid),
             header.internal if header else None,
             header.size if header else None,
+            marks,
         )
     maps = {
         read.folder.name: (
@@ -432,7 +494,9 @@ def merge(reads, ids: Mapping[Location, str]) -> Scan:
         )
         for read in reads
     }
-    labels = frozenset({read.folder.label for read in reads} | {"UNREAD", "STARRED"})
+    labels = frozenset({read.folder.label for read in reads} | {"UNREAD", "STARRED"}).union(
+        *(m.labels for m in messages.values())  # mailcellar's keywords among them
+    )
     return Scan(messages, labels, maps)
 
 

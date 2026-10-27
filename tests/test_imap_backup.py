@@ -159,6 +159,15 @@ def test_a_folder_listed_short_keeps_its_mail_and_fails_the_run(server, monkeypa
     assert last == ("failures", 0)  # an unattended run says so
 
 
+def test_a_review_keyword_is_backed_up_as_a_label_and_its_clearing_seen(server):
+    server.folders["INBOX"]["uids"][1]["flags"].add("$mailcellar-offload-candidate")
+    assert cli.main(["backup", "home"]) == 0
+    assert labels()["<a@x>"] == {"INBOX", "offload-candidate"}
+    server.folders["INBOX"]["uids"][1]["flags"].discard("$mailcellar-offload-candidate")
+    assert cli.main(["backup", "home"]) == 0
+    assert labels()["<a@x>"] == {"INBOX"}  # cleared in the mail client: kept
+
+
 def test_a_message_without_a_message_id_is_backed_up(server):
     server.add("INBOX", raw=make_eml(msgid=None, body="no id here"), flags={"\\Seen"})
     assert cli.main(["backup", "home"]) == 0

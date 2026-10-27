@@ -16,6 +16,10 @@ in beta, so commands and options may still change before 1.0.
   even a message's read state. Folders and flags become labels; Junk and
   Trash are left out, as Spam and Trash are for Gmail. Offload, dedup and
   restore don't apply to IMAP accounts yet. A new guide covers it.
+- `setup --imap --review keyword|folder` chooses how offload and dedup
+  will mark an IMAP account's mail for review (a `$mailcellar-` keyword,
+  or a `mailcellar/review/` folder). Setting an IMAP account up again
+  keeps its port, username, CA file and review mode unless given.
 
 **Upgrading:** `meta.sqlite` schema 11 → 12 (a new table for IMAP
 accounts), on the first run, after copying the file aside.

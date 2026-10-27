@@ -170,6 +170,10 @@ def resolve_account(config_root: Path, name: str) -> tuple[str, Path]:
     return hits[0], known[hits[0]]
 
 
+REVIEW_MODES = ("keyword", "folder")  # an IMAP account's review stage (imap.py)
+DEFAULT_REVIEW = REVIEW_MODES[0]
+
+
 @dataclass(frozen=True)
 class ImapSettings:
     """Where an IMAP account's server is, from its imap.toml."""
@@ -178,6 +182,7 @@ class ImapSettings:
     port: int = 993
     username: str = ""
     cafile: Path | None = None  # a CA to trust besides the system's, for a private server
+    review: str = DEFAULT_REVIEW  # how offload and dedup mark mail for review: REVIEW_MODES
 
 
 def is_imap(config_folder: Path) -> bool:
@@ -222,7 +227,10 @@ def settings_from(data: dict, account: str, where: str) -> ImapSettings:
         if not isinstance(cafile, str) or not Path(cafile).expanduser().is_file():
             raise GmailError(f"{where}: cafile = {cafile!r} is not a file")
         cafile = Path(cafile).expanduser()
-    return ImapSettings(host.lower(), port, username, cafile)
+    review = data.get("review", DEFAULT_REVIEW)
+    if review not in REVIEW_MODES:
+        raise GmailError(f"{where}: review = {review!r} is not one of {', '.join(REVIEW_MODES)}")
+    return ImapSettings(host.lower(), port, username, cafile, review)
 
 
 def imap_password(config_folder: Path) -> str:
