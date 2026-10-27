@@ -53,6 +53,8 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Against Dovecot in a container (tests/test_imap_dovecot.py): skipped unless -m names it.
+markers = ["imap_server: needs podman or docker; run with -m imap_server"]
 # An SQLite connection left open fails the test that leaked it.
 filterwarnings = ["error::ResourceWarning", "error::pytest.PytestUnraisableExceptionWarning"]
 

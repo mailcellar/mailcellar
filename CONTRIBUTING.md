@@ -14,6 +14,7 @@ uv sync                                   # dependencies and the mailcellar comm
 uv run pytest                             # all tests; no network
 uv run pytest --cov                       # with a branch-coverage report
 HYPOTHESIS_PROFILE=ci uv run pytest       # property tests with CI's 2,000 examples each
+uv run pytest -m imap_server              # against Dovecot in a container (podman or docker)
 uv run ruff format && uv run ruff check   # format, then lint; both must pass
 ```
 

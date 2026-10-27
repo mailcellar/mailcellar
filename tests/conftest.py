@@ -60,3 +60,17 @@ def close_test_connections(monkeypatch):
     yield
     for con in opened:
         con.close()
+
+
+def pytest_collection_modifyitems(config, items):
+    """
+    The imap_server tests (Dovecot in a container) run only when -m names
+    them; otherwise they show as skipped, saying how to run them, also when
+    their file is named on the command line.
+    """
+    if "imap_server" in (config.option.markexpr or ""):
+        return
+    skip = pytest.mark.skip(reason="opt-in: uv run pytest -m imap_server (podman or docker)")
+    for item in items:
+        if "imap_server" in item.keywords:
+            item.add_marker(skip)
