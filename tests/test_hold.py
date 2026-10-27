@@ -272,3 +272,16 @@ def test_a_message_the_sidecar_doesnt_know_counts_as_held(backup):
     hold("release", "landlord-2026")
     hold("add", "old", "--reason", "r", "--party", "@landlord.example", "--before", "2000-01-01")
     assert holds.HoldCheck({ACCOUNT: folder}, holds_now(), [row])(row) == "held: old"
+
+
+def test_a_message_whose_addresses_werent_read_counts_as_held(backup):
+    _gmail, folder = backup
+    hold("add", "landlord-2026", "--reason", "dispute", "--party", "@landlord.example")
+    con = sidecar.open_meta(folder)  # u1's headers weren't read: no sender, no recipients
+    con.execute("UPDATE messages SET sender_addr = '' WHERE gmail_id = 'u1'")
+    con.execute("DELETE FROM recipients WHERE gmail_id = 'u1'")
+    con.commit()
+    con.close()
+    (facts,) = holds.read_facts(folder, ["u1"])
+    assert facts.addresses is None
+    assert "u1" in holds.held(folder, holds_now(), ["u1"])
