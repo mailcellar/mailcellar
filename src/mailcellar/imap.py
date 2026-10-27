@@ -8,7 +8,8 @@ Nothing on the server changes: folders are opened with EXAMINE and bodies
 fetched with BODY.PEEK[], so not even \\Seen is set; every write method
 raises. Folders and flags become labels, as Gmail's labels are: INBOX and
 the special-use Sent, Drafts, Junk and Trash as INBOX, SENT, DRAFT, SPAM
-and TRASH, other folders by name ('/' for nesting), a missing \\Seen as
+and TRASH (known by name for a role the server marks no folder for),
+other folders by name ('/' for nesting), a missing \\Seen as
 UNREAD and \\Flagged as STARRED. A message counts as in Trash or Junk
 only if it lives nowhere else.
 
@@ -107,7 +108,7 @@ class ServerInfo:
 
     capabilities: frozenset[str]  # as CAPABILITY answers once signed in
     folders: tuple[Folder, ...]
-    special_use: bool  # the server marks its special-use folders (\Trash…)
+    marked: frozenset[str]  # the roles the server marks a folder for (TRASH…)
 
     @property
     def can_offload(self) -> bool:
@@ -115,11 +116,7 @@ class ServerInfo:
         MOVE and a Trash the server marks \\Trash, not one taken from its name:
         what offloading will need (step 3).
         """
-        return (
-            "MOVE" in self.capabilities
-            and self.special_use
-            and any(f.label == "TRASH" for f in self.folders)
-        )
+        return "MOVE" in self.capabilities and "TRASH" in self.marked
 
 
 @dataclass(frozen=True)
@@ -178,10 +175,12 @@ def list_entries(lines) -> tuple[tuple[str, str | None, frozenset[str]], ...]:
 
 def folders_from(entries) -> tuple[Folder, ...]:
     """
-    The folders to back up, with their labels. Names stand for special-use
-    folders (Trash, Junk…) only on a server that marks none. Pure.
+    The folders to back up, with their labels. A name stands for a role
+    (Trash, Junk…) only when the server marks no folder for it: iCloud marks
+    Sent and Trash but not its Junk, while a user's own folder called Junk
+    stays theirs on a server that marks its real one. Pure.
     """
-    by_name = not marks_special(entries)
+    by_name = frozenset(BY_NAME.values()) - marked_roles(entries)
     return tuple(
         Folder(name, folder_label(name, delim, flags, by_name=by_name))
         for name, delim, flags in entries
@@ -189,9 +188,9 @@ def folders_from(entries) -> tuple[Folder, ...]:
     )
 
 
-def marks_special(entries) -> bool:
-    """Whether the server marks any folder special-use (\\Sent, \\Trash…). Pure."""
-    return any(flags & set(SPECIAL) for _n, _d, flags in entries)
+def marked_roles(entries) -> frozenset[str]:
+    """The roles (SENT, TRASH…) the server marks a folder for, special-use. Pure."""
+    return frozenset(SPECIAL[flag] for _n, _d, flags in entries for flag in flags & set(SPECIAL))
 
 
 def capabilities_from(data) -> frozenset[str]:
@@ -199,14 +198,19 @@ def capabilities_from(data) -> frozenset[str]:
     return frozenset(b" ".join(d for d in data if d).decode("ascii", "replace").upper().split())
 
 
-def folder_label(name: str, delim: str | None, flags, by_name: bool = True) -> str:
-    """The label a folder's mail gets: Gmail's system names where they apply. Pure."""
+def folder_label(
+    name: str, delim: str | None, flags, by_name: frozenset[str] = frozenset(BY_NAME.values())
+) -> str:
+    """
+    The label a folder's mail gets: Gmail's system names where they apply,
+    from its special-use flag, or from its name for the roles in `by_name`. Pure.
+    """
     if name.upper() == "INBOX":
         return "INBOX"
     special = [label for flag, label in SPECIAL.items() if flag in flags]
     if special:
         return special[0]
-    if by_name and name.lower() in BY_NAME:
+    if BY_NAME.get(name.lower()) in by_name:
         return BY_NAME[name.lower()]
     decoded = decode_utf7(name)
     return decoded.replace(delim, "/") if delim and delim != "/" else decoded
@@ -527,7 +531,7 @@ class ImapAccount:
             "reading capabilities",
             lambda conn: capabilities_from(self._ok(*conn.capability(), "CAPABILITY")),
         )
-        return ServerInfo(caps, folders_from(entries), marks_special(entries))
+        return ServerInfo(caps, folders_from(entries), marked_roles(entries))
 
     def close(self) -> None:
         """

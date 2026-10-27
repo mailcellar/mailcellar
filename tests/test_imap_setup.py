@@ -104,12 +104,12 @@ def test_bad_options_are_refused_before_asking(server, tmp_path, monkeypatch, ar
 
 def test_server_report_says_when_offload_wont_be_possible():
     folders = (imap.Folder("INBOX", "INBOX"), imap.Folder("Trash", "TRASH"))
-    info = imap.ServerInfo(frozenset({"IMAP4REV1"}), folders, True)
+    info = imap.ServerInfo(frozenset({"IMAP4REV1"}), folders, frozenset({"TRASH"}))
     assert "not on this server" in setup.server_report(info)[-1]
     # A Trash known only by its name isn't one offloading may move mail into.
-    named = imap.ServerInfo(frozenset({"MOVE"}), folders, False)
+    named = imap.ServerInfo(frozenset({"MOVE"}), folders, frozenset({"SENT"}))
     assert not named.can_offload
-    assert imap.ServerInfo(frozenset({"MOVE"}), folders, True).can_offload
+    assert imap.ServerInfo(frozenset({"MOVE"}), folders, frozenset({"TRASH"})).can_offload
     settings = gmailapi.ImapSettings("imap.example.org", 993, ADDRESS)
     assert setup.imap_toml(settings, ADDRESS) == 'host = "imap.example.org"\n'
 
