@@ -6,53 +6,86 @@
 [![Python](https://img.shields.io/pypi/pyversions/mailcellar)](https://pypi.org/project/mailcellar/)
 [![License](https://img.shields.io/github/license/mailcellar/mailcellar)](https://github.com/mailcellar/mailcellar/blob/main/LICENSE)
 
-**Gmail storage full? Move old mail out of Gmail without losing it.**
-mailcellar keeps a local backup of your Gmail accounts. You can then take old
-mail out of Gmail by rule while the backup keeps it, and it stays searchable,
-exportable and restorable whenever you need it.
+**Gmail full? Keep every email on your own disk, and free the space.**
+
+Your mail lives on someone else's server, in a mailbox with a size limit.
+When it fills up you can pay for more storage, or delete mail you may need
+later. mailcellar gives you a third way: a complete, checked backup on your
+own disk, then old mail taken out of the mailbox by rules you write and
+review, still searchable and restorable whenever you need it. It works
+with Gmail and Google Workspace, and with any IMAP mailbox: iCloud Mail,
+Yahoo Mail, Fastmail, or your own server.
+
+## Why mailcellar
+
+- **Your storage is full.** Offload old mail by rule (older than five
+  years, newsletters, large attachments) and keep it in the backup: the
+  space comes back and nothing is lost.
+- **You have no backup of your own.** Providers keep your mail safe from
+  their own failures, not from a deletion, a compromised account, or being
+  locked out. A provider's export copies everything again each time, with
+  nothing to say it's complete. mailcellar fetches only what changed,
+  compares each account with its backup (`count`) and checks the files
+  (`verify`).
+- **Old mail must stay findable.** `search` covers every backup, offloaded
+  mail included, and `restore` puts back one message, a batch or a whole
+  account.
+- **Your mail is with more than one provider.** One backup, one search and
+  one set of reports cover Gmail and IMAP accounts side by side.
+- **You're moving to another provider.** `restore --to` copies mail from
+  one account to another, Gmail to IMAP or back: labels become folders and
+  folders labels, and the backup records what moved.
+
+## What it does
 
 - **Back up** every account incrementally, in
   [Got Your Back](https://github.com/GAM-team/got-your-back)'s format; an
   existing gyb backup carries on where it is.
-- **Offload** old mail by rule, in stages you check: plan, review, label,
-  look in Gmail, then trash. Nothing is ever permanently deleted from Gmail,
-  and the backup is checked for every message before it goes.
-- **Find and restore** it later: `mailcellar search` searches the backups,
-  offloaded mail included, and `mailcellar restore` puts mail back into
-  Gmail, into the same account or another.
+- **Offload** old mail by rule, in stages you check: plan, review, mark,
+  look in your mail client, then trash. The backup is checked for every
+  message before it goes, and nothing is ever deleted permanently.
+- **Find and restore**: search the backups, offloaded mail included, and
+  put mail back into the same account or another.
 - **Deduplicate, export and report**: remove duplicate copies within and
   across accounts, copy mail out as an mbox or a zip, and see what takes up
   the space.
 - **Keep mail as it is**: a hash chain shows the backup hasn't changed
   since each message was saved (`verify --chain`), and a legal hold keeps
   the mail a dispute or an audit needs out of reach of offloading, pruning
-  and dedup, in Gmail and in the backup.
+  and dedup, in the mailbox and in the backup.
 
-**What changes Gmail.** Only `dedup apply`, `offload apply` and
-`restore --yes`, and each is a dry run until you add a flag. The first two
-label mail, then move it to Trash, which Gmail empties after 30 days;
-nothing is ever permanently deleted from Gmail. `restore` only adds mail.
-Everything else, including `backup`, only reads
+**What changes your mailbox.** Only `offload apply`, `dedup apply` and
+`restore --yes`, and each is a dry run until you add a flag. Offload and
+dedup mark mail for review, then move it to Trash: nothing is ever
+permanently deleted, and Gmail keeps Trash for 30 days. On an IMAP server
+this happens only where the server can move mail safely; elsewhere
+mailcellar backs up only. `restore` only puts mail back: out of Trash, or
+as an upload. Everything else, `backup` included, only reads
 ([details](https://mailcellar.github.io/mailcellar/reference/what-changes-gmail/)).
 
-It runs on your own computer with your own Google Cloud project: there is no
-service in between, and your mail goes nowhere but between Gmail and your
-disk. Setting up the project takes about ten minutes
-([guide](https://mailcellar.github.io/mailcellar/guide/google-cloud/)).
-mailcellar is in beta: it is used on real mailboxes, and its backups are in
-gyb's fixed format, but commands and options may still change before 1.0.
-It runs on macOS and Linux and needs Python 3.14, which uv installs for you.
+**Your mail stays yours.** mailcellar runs on your own computer: there is
+no service in between, and your mail goes nowhere but between the mailbox
+and your disk. Gmail is read through your own Google Cloud project (about
+ten minutes to set up,
+[guide](https://mailcellar.github.io/mailcellar/guide/google-cloud/)); an
+IMAP account needs only its password (an app password, where the provider
+asks for one). mailcellar is in beta: it is used
+on real mailboxes, and its backups are in gyb's fixed format, but commands
+and options may still change before 1.0. It runs on macOS and Linux and
+needs Python 3.14, which uv installs for you.
+
+## Commands
 
 ```
-mailcellar setup   [ADDRESS]       add an account from a downloaded OAuth client
+mailcellar setup   [ADDRESS]       add a Gmail account (OAuth client) or an IMAP one (--imap)
 mailcellar backup  [ACCOUNT ...]   incremental backups in gyb's format
-mailcellar count   [ACCOUNT ...]   compare Gmail with the backup
+mailcellar count   [ACCOUNT ...]   compare the mailbox with the backup
 mailcellar meta    [ACCOUNT ...]   fill the per-message sidecar for older mail
 mailcellar verify  [ACCOUNT ...]   check that the backup's files are still intact
 mailcellar schedule install|status|remove   run backups regularly, unattended
-mailcellar dedup   …               find duplicates and remove them from Gmail, in stages
-mailcellar offload …               take old mail out of Gmail, keeping it in the backup
-mailcellar restore ACCOUNT …       put backed-up mail back into Gmail
+mailcellar dedup   …               find duplicates and remove them from the mailbox, in stages
+mailcellar offload …               take old mail out of the mailbox, keeping it in the backup
+mailcellar restore ACCOUNT …       put backed-up mail back, into its account or another
 mailcellar export  ACCOUNT …       copy mail out as an mbox file or a zip of .eml files
 mailcellar search  QUERY …         find mail in the backups, offloaded mail included
 mailcellar hold    add|list|show|release   keep mail for a dispute or an audit
@@ -66,16 +99,15 @@ some (an address, a config name like `work`, or a unique part of an
 address). Each command takes `--help`.
 
 Results go to stdout; progress, warnings and errors go to stderr. Add `-v`
-anywhere on the line to also see Gmail's retries and rate-limit waits (waits
-of 10 seconds or more show without it), or `-q` to see only warnings and
-errors.
+anywhere on the line to also see the server's retries and rate-limit waits
+(waits of 10 seconds or more show without it), or `-q` to see only warnings
+and errors.
 
 How it fits together: [How it works](https://mailcellar.github.io/mailcellar/architecture/).
 
 ## Quick start
 
-You need [uv](https://docs.astral.sh/uv/) (it provides Python 3.14) and a
-Google account.
+You need [uv](https://docs.astral.sh/uv/) (it provides Python 3.14).
 
 1. **Install.**
    ```bash
@@ -83,40 +115,56 @@ Google account.
    ```
    `pipx install mailcellar` works too, with Python 3.14. To run it from a
    clone instead, see [Development](#development).
-2. **Create an OAuth client** in the [Google Cloud
-   console](https://console.cloud.google.com/): a project with the **Gmail
-   API** enabled, a consent screen with yourself as a test user, and an OAuth
-   client of type **Desktop app**. Download its JSON. The step-by-step
-   version, including *Testing* versus *In production* (Testing tokens
-   expire after 7 days), is [Setting up Google Cloud](https://mailcellar.github.io/mailcellar/guide/google-cloud/).
-3. **Add the account.** `mailcellar setup` takes the downloaded JSON, saves
-   it in the config folder, lists the account in `accounts.toml` and signs
-   in, read-only. It asks for what you don't give and changes nothing in
-   Gmail:
+2. **Add an account**, one of these two ways.
+
+   **Gmail or Google Workspace.** Create an OAuth client in the
+   [Google Cloud console](https://console.cloud.google.com/): a project with
+   the **Gmail API** enabled, a consent screen with yourself as a test user,
+   and an OAuth client of type **Desktop app**. Download its JSON. The step
+   by step version, including *Testing* versus *In production* (Testing
+   tokens expire after 7 days), is
+   [Setting up Google Cloud](https://mailcellar.github.io/mailcellar/guide/google-cloud/).
+   Then:
    ```bash
    mailcellar setup alex@example.org --client ~/Downloads/client_secret_*.json
    ```
-   The backups go in `~/mailcellar`. To keep them somewhere else, set it in
-   `~/.config/mailcellar/settings.toml`:
-   ```toml
-   data_dir = "/Volumes/Archive/mailcellar"
-   ```
-   The files and their keys are in [Configuration](https://mailcellar.github.io/mailcellar/reference/configuration/).
-4. **Back up, then check.**
+
+   **Any other mailbox, over IMAP** (iCloud Mail, Yahoo Mail, Fastmail, your
+   own server). Most providers want an app password, made in their account
+   settings; give `setup` the server, and it asks for the password:
    ```bash
-   mailcellar config         # the config and data folders; the account's client and tokens
-   mailcellar backup work    # the first backup; resumes where it left off if stopped
-   mailcellar count work     # what Gmail has against what the backup has
+   mailcellar setup alex@example.org --imap imap.mail.yahoo.com
    ```
-5. **Schedule it.** Gmail keeps change history for about four weeks, so back
-   up at least that often. A longer gap still works, but lists the whole
-   mailbox again.
+
+   | Provider | Server | Note |
+   | --- | --- | --- |
+   | iCloud Mail | `imap.mail.me.com` | `--username` with the part before `@`; backup only (no IMAP MOVE) |
+   | Yahoo Mail | `imap.mail.yahoo.com` | add `--review folder` to offload: Yahoo keeps no custom keywords |
+   | Fastmail | `imap.fastmail.com` | not yet tried with mailcellar |
+
+   More in [Backing up an IMAP account](https://mailcellar.github.io/mailcellar/guide/imap/).
+
+   Either way, `setup` signs in read-only, changes nothing in the mailbox,
+   and names the account after the address (`alex`; `--name` chooses
+   another). The backups go in `~/mailcellar`; to keep them elsewhere, set
+   `data_dir` in `~/.config/mailcellar/settings.toml`
+   ([Configuration](https://mailcellar.github.io/mailcellar/reference/configuration/)).
+3. **Back up, then check.**
+   ```bash
+   mailcellar config         # the config and data folders; each account's state
+   mailcellar backup alex    # the first backup; resumes where it left off if stopped
+   mailcellar count alex     # what the mailbox has against what the backup has
+   ```
+4. **Schedule it.**
    ```bash
    mailcellar schedule install     # macOS: a launchd agent, weekly; elsewhere: a cron line
    ```
-   If the consent screen is in *Testing*, tokens expire after 7 days:
-   publish it, or renew with `mailcellar auth work --scope readonly --renew`.
-   See [Scheduled backups](https://mailcellar.github.io/mailcellar/guide/scheduling/).
+   For Gmail, back up at least every four weeks: Gmail keeps change history
+   about that long, and a longer gap lists the whole mailbox again. If its
+   consent screen is in *Testing*, tokens expire after 7 days: publish it,
+   or renew with `mailcellar auth alex --scope readonly --renew`. An IMAP
+   account has no token to renew. See
+   [Scheduled backups](https://mailcellar.github.io/mailcellar/guide/scheduling/).
 
 Then [keep the backup safe](https://mailcellar.github.io/mailcellar/guide/backing-up/), and when you are ready
 to free space, [offload old mail](https://mailcellar.github.io/mailcellar/guide/offloading/).
@@ -129,10 +177,11 @@ The [documentation site](https://mailcellar.github.io/mailcellar/) has the guide
 
 - [Setting up Google Cloud](https://mailcellar.github.io/mailcellar/guide/google-cloud/): the project and OAuth
   client mailcellar signs in with, and the first consent screen.
+- [Backing up an IMAP account](https://mailcellar.github.io/mailcellar/guide/imap/): back up
+  mail on another provider's server, or your own; offload, dedup and restore
+  there too, where the server can move mail safely.
 - [Workspace: backing up through a service account](https://mailcellar.github.io/mailcellar/guide/workspace-service-account/):
   unattended, read-only backups of a domain's mailboxes without each person signing in.
-- [Backing up an IMAP account](https://mailcellar.github.io/mailcellar/guide/imap/): back up
-  mail on another provider's server, or your own, read-only.
 - [Backing up, and keeping the backup safe](https://mailcellar.github.io/mailcellar/guide/backing-up/): the
   routine, a second copy of the data root and checking it, `backup --prune`.
 - [Scheduled backups](https://mailcellar.github.io/mailcellar/guide/scheduling/): run backups unattended, and
@@ -159,7 +208,7 @@ The [documentation site](https://mailcellar.github.io/mailcellar/) has the guide
 
 - [Backups](https://mailcellar.github.io/mailcellar/reference/backup/): `backup`, `count`, `meta`, `verify`
 - [Configuration](https://mailcellar.github.io/mailcellar/reference/configuration/): the config folder, `accounts.toml`, `settings.toml`; `setup`, `auth`, `schedule`, `config`
-- [What changes Gmail](https://mailcellar.github.io/mailcellar/reference/what-changes-gmail/): the commands that write to Gmail
+- [What changes your mailbox](https://mailcellar.github.io/mailcellar/reference/what-changes-gmail/): the commands that write to Gmail, or to an IMAP server
 - [Removing duplicates](https://mailcellar.github.io/mailcellar/reference/dedup/): `dedup`
 - [Offloading old mail](https://mailcellar.github.io/mailcellar/reference/offload/): `offload`, and the rule keys
 - [Restoring mail](https://mailcellar.github.io/mailcellar/reference/restore/): `restore`

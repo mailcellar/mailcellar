@@ -44,6 +44,15 @@ Many providers want an **app password** for IMAP rather than your
 account's own: Fastmail, iCloud and Yahoo all do. Make one in the
 provider's account settings and give that to `setup`.
 
+| Provider | Server (`--imap`) | Note |
+| --- | --- | --- |
+| iCloud Mail | `imap.mail.me.com` | `--username` with the part of the address before `@` (Apple: the full address if that fails); backup only: it has no MOVE |
+| Yahoo Mail | `imap.mail.yahoo.com` | it keeps no custom keywords: add `--review folder` to offload |
+| Fastmail | `imap.fastmail.com` | not yet tried with mailcellar |
+
+Outlook.com and Microsoft 365 want OAuth over IMAP (XOAUTH2), which
+mailcellar doesn't do yet, so they aren't supported.
+
 The connection is always TLS, with the server's certificate checked.
 There is no option to send the password unencrypted.
 
