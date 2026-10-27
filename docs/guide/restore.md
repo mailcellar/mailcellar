@@ -162,7 +162,8 @@ Message-ID and skips it.
 - **Dates are kept.** An uploaded message keeps its original date, and Gmail
   threads it by its headers, so threads may not look exactly as they did.
 - **Everything is logged:** `<data root>/restore/restore-log.csv`, one row per
-  message.
+  message, and a second for one restored but noted afterwards (a mark left
+  on, a label not added); the last row counts.
 
 ## Undoing a restore
 

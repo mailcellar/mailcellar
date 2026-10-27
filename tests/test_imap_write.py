@@ -1,6 +1,7 @@
 """IMAP step 3 (#113): writing to an IMAP account, where the server can do it safely."""
 
 import csv
+import imaplib
 import sqlite3
 
 import pytest
@@ -133,6 +134,143 @@ def test_folder_review_label_then_trash_takes_only_what_is_still_in_review(serve
     assert [b"<a@x>" in m["raw"] for m in server.folders["Trash"]["uids"].values()] == [True]
 
 
+def test_folder_review_on_a_server_without_keywords_takes_the_mark_off_by_folder(server, tmp_path):
+    server.add("INBOX", msgid="<a@x>", flags={"\\Seen"})
+    server.permanentflags = b"(\\Seen \\Flagged)"  # it keeps no keywords
+    box = by_folder(server, folder=tmp_path)
+    (gid,) = box.list_message_ids()
+    box.add_label([gid], "offload-candidate")
+    by_folder(server, folder=tmp_path).remove_label([gid], "offload-candidate")
+    assert len(server.folders["INBOX"]["uids"]) == 1  # moved back where it came from
+    assert not [c for c in server.commands if c[:2] == ("UID", "STORE")]  # no keyword to take off
+
+
+def test_a_bad_answer_is_a_failure_and_keeps_the_session(server):
+    uid = server.add("INBOX", msgid="<a@x>", flags={"\\Seen", "$mailcellar-offload-candidate"})
+    server.permanentflags = b"(\\Seen \\Flagged)"  # a STORE of the keyword is answered BAD
+    box = account(server)
+    (gid,) = box.list_message_ids()
+    (failure,) = box.remove_label([gid], "offload-candidate")  # a refusal, not a crash
+    assert failure.startswith(f"{gid}: taking offload-candidate off in INBOX failed")
+    assert failure.endswith("in INBOX failed: UID: BAD arguments invalid")  # as a NO reads
+    assert "$mailcellar-offload-candidate" in server.folders["INBOX"]["uids"][uid]["flags"]
+    assert sum(c[0] == "LOGIN" for c in server.commands) == 1  # the session kept
+
+
+def test_a_refused_move_out_of_review_fails_only_the_mail_it_was_taking(
+    server, tmp_path, monkeypatch
+):
+    server.add("INBOX", msgid="<a@x>", flags={"\\Seen"})
+    server.add("Projects", msgid="<b@x>", flags={"\\Seen"})
+    box = by_folder(server, folder=tmp_path)
+    ids = ids_by_msgid(box, server)
+    box.add_label(list(ids.values()), "offload-candidate")
+    refusing(server, monkeypatch, "MOVE", "Projects")
+    box = by_folder(server, folder=tmp_path)
+    (failure,) = box.remove_label(list(ids.values()), "offload-candidate")
+    review = "mailcellar/review/offload-candidate"
+    assert failure.startswith(f"{ids['<b@x>']}: moving it out of {review} to Projects failed")
+    assert len(server.folders["INBOX"]["uids"]) == 1  # a@x went home all the same
+
+
+def refusing(server, monkeypatch, command, folder):
+    """The server answers NO to `command` (MOVE, COPY) into `folder`."""
+    write = server._write
+
+    def refuse(cmd, uids, wanted, *rest):
+        if cmd == command and rest == (f'"{folder}"',):
+            return "NO", [b"[CANNOT] not now"]
+        return write(cmd, uids, wanted, *rest)
+
+    monkeypatch.setattr(server, "_write", refuse)
+
+
+def one_copy_two_homes(server, tmp_path):
+    """A message reviewed by folder from INBOX and Projects, one copy left in review."""
+    server.add("INBOX", msgid="<a@x>", flags={"\\Seen"})
+    server.add("Projects", msgid="<a@x>", flags={"\\Seen"})
+    box = by_folder(server, folder=tmp_path)
+    (gid,) = box.list_message_ids()
+    box.add_label([gid], "offload-candidate")
+    review = server.folders["mailcellar/review/offload-candidate"]["uids"]
+    review.pop(max(review))  # the user deleted the second copy
+    return gid
+
+
+def test_a_refused_copy_into_a_further_home_is_its_failure(server, tmp_path, monkeypatch):
+    gid = one_copy_two_homes(server, tmp_path)
+    refusing(server, monkeypatch, "COPY", "Projects")
+    (failure,) = by_folder(server, folder=tmp_path).remove_label([gid], "offload-candidate")
+    assert failure.startswith(f"{gid}: copying it to Projects failed")
+    assert len(server.folders["INBOX"]["uids"]) == 1  # home, only a copy short
+
+
+def test_a_message_whose_move_was_refused_is_copied_nowhere(server, tmp_path, monkeypatch):
+    gid = one_copy_two_homes(server, tmp_path)
+    refusing(server, monkeypatch, "MOVE", "INBOX")
+    (failure,) = by_folder(server, folder=tmp_path).remove_label([gid], "offload-candidate")
+    assert failure.startswith(f"{gid}: moving it out of mailcellar/review/")
+    assert not server.folders["Projects"]["uids"]  # not copied out of review
+    assert len(server.folders["mailcellar/review/offload-candidate"]["uids"]) == 1
+
+
+def test_putting_back_fails_each_move_and_copy_on_its_own():
+    plan = imap.PutBack(
+        {"Trash": {"INBOX": (1,), "Projects": (2,)}},
+        {("Trash", "INBOX"): frozenset({"a"}), ("Trash", "Projects"): frozenset({"b"})},
+        {"a": ("INBOX", "Archive"), "b": ("Projects",)},
+        (),
+    )
+    assert imap.put_back_failures(plan, {("Trash", "Projects"): "no"}, {}) == {
+        "b": "b: moving it out of Trash to Projects failed: no"  # not a, moved to INBOX
+    }
+    assert imap.put_back_failures(plan, {}, {"a": ("Archive", "full")}) == {
+        "a": "a: copying it to Archive failed: full"  # home, only a copy short
+    }
+
+
+def test_a_bad_answer_to_a_read_stops_loudly(server, monkeypatch):
+    server.add("INBOX", msgid="<a@x>", flags={"\\Seen"})
+    uid = server.uid
+
+    def bad_fetch(command, *args):
+        if command.upper() == "FETCH":
+            raise imaplib.IMAP4.error("UID command error: BAD [b'invalid fetch']")
+        return uid(command, *args)
+
+    monkeypatch.setattr(server, "uid", bad_fetch)
+    with pytest.raises(imaplib.IMAP4.error, match="BAD"):  # not a folder quietly skipped
+        account(server).list_message_ids()
+
+
+@pytest.mark.parametrize(
+    "exc, answer",
+    [
+        (imaplib.IMAP4.error("UID command error: BAD [b'[CLIENTBUG] invalid']"), True),
+        (imaplib.IMAP4.error("command UID illegal in state AUTH"), False),  # mailcellar's own
+        (imaplib.IMAP4.error("Unknown IMAP4 UID command: STOR"), False),
+        (imaplib.IMAP4.abort("socket error: EOF"), False),
+        (OSError("timed out"), False),
+    ],
+)
+def test_only_the_servers_bad_keeps_the_session(exc, answer):
+    assert imap.answered(exc) is answer
+
+
+@pytest.mark.parametrize(
+    "text, said",
+    [
+        ("UID command error: BAD [b'[CLIENTBUG] invalid']", "UID: BAD [CLIENTBUG] invalid"),
+        ("STORE command error: BAD [b'one', b'two']", "STORE: BAD one two"),
+        ('STORE command error: BAD [b"it\'s"]', "STORE: BAD it's"),
+        ("STORE command error: BAD [b'caf\\xc3\\xa9']", "STORE: BAD caf\u00e9"),
+        ("command UID illegal in state AUTH", "command UID illegal in state AUTH"),
+    ],
+)
+def test_the_servers_words_are_shown_as_it_sent_them(text, said):
+    assert imap.server_said(imaplib.IMAP4.error(text)) == said
+
+
 # ── marking and trashing ─────────────────────────────────────────────────────
 
 
@@ -156,6 +294,70 @@ def test_a_server_that_keeps_no_keywords_is_told_to_review_by_folder(server):
     box = account(server)
     with pytest.raises(gmailapi.GmailError, match="--review folder"):
         box.add_label(box.list_message_ids(), "offload-candidate")
+
+
+def test_a_folder_keeping_no_keywords_fails_its_own_mail_only(server):
+    server.add("INBOX", msgid="<a@x>", flags={"\\Seen"})
+    server.add("Projects", msgid="<b@x>", flags={"\\Seen"})
+    server.keywordless.add("Projects")  # PERMANENTFLAGS is per folder
+    box = account(server)
+    ids = ids_by_msgid(box, server)
+    for review in (True, False):  # offload's mark, and restore's
+        label = "offload-candidate" if review else "restored/2026-01-01"
+        (failure,) = box.add_label(list(ids.values()), label, review=review)
+        assert failure.startswith(f"{ids['<b@x>']}: marking {label} in Projects failed")
+        assert "keeps no keywords" in failure
+        assert label in box.message_labels([ids["<a@x>"]])[ids["<a@x>"]]  # marked all the same
+
+
+def test_mail_only_in_keywordless_folders_fails_while_inbox_keeps_them(server):
+    server.add("Projects", msgid="<b@x>", flags={"\\Seen"})
+    server.keywordless.add("Projects")  # the only folder touched; INBOX keeps keywords
+    box = account(server)
+    (failure,) = box.add_label(box.list_message_ids(), "offload-candidate")
+    assert "Projects keeps no keywords" in failure  # its own mail, not the account's setup
+    server.keywordless.add("INBOX")
+    with pytest.raises(imap.KeywordsRefused, match="INBOX, Projects.*--review folder"):
+        account(server).add_label(box.list_message_ids(), "offload-candidate")
+
+
+def test_an_inbox_check_that_fails_concludes_nothing(server, monkeypatch):
+    server.add("Projects", msgid="<b@x>", flags={"\\Seen"})
+    server.keywordless.add("Projects")
+    select = server.select
+
+    def inbox_refused(mailbox="INBOX", readonly=False):
+        if mailbox == '"INBOX"' and not readonly:
+            server._command("SELECT", mailbox)
+            return "NO", [b"[UNAVAILABLE] try later"]
+        return select(mailbox, readonly)
+
+    monkeypatch.setattr(server, "select", inbox_refused)
+    box = account(server)
+    (failure,) = box.add_label(box.list_message_ids(), "offload-candidate")  # no raise
+    assert "Projects keeps no keywords" in failure  # its own failure, as when INBOX keeps them
+    assert ("SELECT", '"INBOX"') in server.commands  # it did check
+
+
+def test_a_keywordless_folder_and_a_refusing_one_fail_their_own(server, monkeypatch):
+    server.add_folder("Archive")
+    server.add("INBOX", msgid="<a@x>", flags={"\\Seen"})
+    server.add("Projects", msgid="<b@x>", flags={"\\Seen"})
+    server.add("Archive", msgid="<c@x>", flags={"\\Seen"})
+    server.keywordless.add("Projects")
+    write = server._write
+
+    def refuse_archive(command, uids, wanted, *rest):
+        if command == "STORE" and server.selected == "Archive":
+            return "NO", [b"[CANNOT] not now"]
+        return write(command, uids, wanted, *rest)
+
+    monkeypatch.setattr(server, "_write", refuse_archive)
+    box = account(server)
+    ids = ids_by_msgid(box, server)
+    failures = sorted(box.add_label(list(ids.values()), "offload-candidate"))
+    assert [f.split(": ", 1)[0] for f in failures] == sorted([ids["<b@x>"], ids["<c@x>"]])
+    assert "offload-candidate" in box.message_labels([ids["<a@x>"]])[ids["<a@x>"]]
 
 
 def test_trash_moves_every_copy_and_confirms(server):
@@ -320,6 +522,20 @@ def test_offload_on_an_imap_account_labels_trashes_and_records(home, tmp_path):
         con.close()
 
 
+def test_offload_label_on_a_keywordless_folder_fails_its_mail_and_goes_on(home, tmp_path):
+    home.keywordless.add("Projects")  # INBOX keeps keywords: not the account's setup
+    assert cli.main(["backup", "home"]) == 0
+    (tmp_path / "rules.toml").write_text(
+        '[[rule]]\nname = "old"\nlabel = "Projects"\nbefore = "2020-01-01"\n'
+    )
+    cli.main(["offload", "plan", "--rules", "rules.toml", "--plan", "plan.csv"])
+    cli.main(["offload", "apply", "--plan", "plan.csv", "--log", "log.csv", "--label"])
+    with open("log.csv", newline="", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    assert len(rows) == 3 and {r["outcome"] for r in rows} == {"failed"}
+    assert all("Projects keeps no keywords" in r["detail"] for r in rows)
+
+
 # ── restore into an IMAP account ─────────────────────────────────────────────
 
 
@@ -399,7 +615,8 @@ def test_a_folder_refusing_the_move_into_review_fails_its_messages_only(
 
     monkeypatch.setattr(server, "_write", refuse_projects)
     (failure,) = box.add_label([ids["<a@x>"], ids["<b@x>"]], "offload-candidate")
-    assert failure.startswith(f"{ids['<b@x>']}: marking it in Projects failed")
+    review = "mailcellar/review/offload-candidate"
+    assert failure.startswith(f"{ids['<b@x>']}: moving to {review} in Projects failed")
     assert not server.folders["INBOX"]["uids"]  # a@x moved all the same
 
 
@@ -473,10 +690,15 @@ def test_a_review_folder_that_exists_by_now_is_used(server, tmp_path, monkeypatc
     assert len(server.folders["mailcellar/review/offload-candidate"]["uids"]) == 1
 
 
-def test_restore_after_review_by_folder_puts_mail_back_where_it_was(home, tmp_path):
+@pytest.mark.parametrize("keeps_keywords", [True, False])
+def test_restore_after_review_by_folder_puts_mail_back_where_it_was(
+    home, tmp_path, keeps_keywords, capsys
+):
     (tmp_path / "config" / "home" / gmailapi.IMAP_SETTINGS).write_text(
         'host = "imap.example.org"\nreview = "folder"\n'
     )
+    if not keeps_keywords:  # folder review's reason to be: no keyword is ever sent
+        home.permanentflags = b"(\\Seen \\Flagged)"
     assert cli.main(["backup", "home"]) == 0
     (tmp_path / "rules.toml").write_text(
         '[[rule]]\nname = "old"\nlabel = "Projects"\nbefore = "2020-01-01"\n'
@@ -493,6 +715,14 @@ def test_restore_after_review_by_folder_puts_mail_back_where_it_was(home, tmp_pa
     assert cli.main(["restore", "home", "--offloaded", "--yes"]) == 0
     assert len(home.folders["Projects"]["uids"]) == 3  # home again, by the review's record
     assert not home.folders["Trash"]["uids"] and not home.folders["INBOX"]["uids"]
+    restored = [
+        f for m in home.folders["Projects"]["uids"].values() for f in m["flags"] if "restored" in f
+    ]
+    assert len(restored) == (2 if keeps_keywords else 0)
+    err = capsys.readouterr().err
+    assert "couldn't be labelled" not in err  # nothing that could ever be
+    said = "the server keeps no keywords: not marked restored/"
+    assert err.count(said) == (0 if keeps_keywords else 1)  # said once instead
 
 
 def test_labels_become_folders_and_flags_for_an_append():
@@ -616,10 +846,9 @@ def test_untrash_result_is_decided_from_ids(server):
     server.add("Trash", msgid="<a@x>", flags={"\\Seen"})
     scan = account(server)._scan()[1]
     (gid,) = scan.messages
-    plan = imap.PutBack({}, {"Trash": frozenset({gid})}, {gid: ("INBOX",)}, ())
-    assert imap.untrash_result(plan, {"Trash": "no"}, scan) == [
-        f"{gid}: moving it out of Trash failed: no"
-    ]
+    plan = imap.PutBack({}, {("Trash", "INBOX"): frozenset({gid})}, {gid: ("INBOX",)}, ())
+    stuck = {gid: f"{gid}: moving it out of Trash to INBOX failed: no"}
+    assert imap.untrash_result(plan, stuck, scan) == list(stuck.values())
     assert imap.untrash_result(plan, {}, scan) == [f"{gid}: still in Trash"]
 
 

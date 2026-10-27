@@ -1158,15 +1158,15 @@ class GmailAccount:
             out.append(self.ensure_label(name))
         return out
 
-    def remove_label(self, gmail_ids: list[str], label_name: str) -> None:
+    def remove_label(self, gmail_ids: list[str], label_name: str) -> list[str]:
         """
         Remove a user label from messages; nothing to do if the label doesn't
         exist. Found as add_label finds it: Gmail counts names that differ only
-        in case as one label.
+        in case as one label. A batch either goes through or raises: no failures.
         """
         label_id = self._find_label(label_name)
         if label_id is None:
-            return
+            return []
         for start in range(0, len(gmail_ids), MODIFY_CHUNK):
             self._execute(
                 self.service.users()
@@ -1179,6 +1179,7 @@ class GmailAccount:
                     },
                 )
             )
+        return []
 
     def untrash(self, gmail_ids: list[str]) -> list[str]:
         """Move messages out of Trash, as trash() moves them in. Returns failures."""

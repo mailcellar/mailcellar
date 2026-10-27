@@ -43,6 +43,7 @@ import hashlib
 import logging
 import sqlite3
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from email.parser import BytesHeaderParser
 from pathlib import Path
@@ -577,7 +578,8 @@ def apply(
     the backup's meta.sqlite as it succeeds, so an interrupted run carries
     on where it stopped. Returns a Result per decision, in order;
     on_result(result) is called with each as soon as it is final, so a log
-    kept that way survives an interruption.
+    kept that way survives an interruption; and again for one a mark then
+    failed on (a note added), so its last call is the one that counts.
 
     folder None: the candidates come from a source other than a backup's
     index (sources.py). Nothing is recorded or indexed; a run again finds
@@ -637,20 +639,23 @@ def apply(
 
         done = sorted({r.new_id for r in results.values() if r.outcome in DONE})
         if done:
-            if not target:
-                gmail.remove_label(done, OFFLOAD_LABEL)
+            kept = unmarked(gmail.remove_label(done, OFFLOAD_LABEL)) if not target else {}
             gmail.label_ids([label])  # creates restored/ first
             unlabelled = unmarked(gmail.add_label(done, label, review=False))
-            for source_id, r in list(results.items()):
-                if r.new_id in unlabelled:  # restored all the same: only the label is missing
-                    results[source_id] = with_note(
-                        r, f"not labelled {label}: {unlabelled[r.new_id]}"
+            noted = noted_results(results, mark_notes(kept, unlabelled, label))
+            results |= noted
+            for r in noted.values():
+                if on_result is not None:  # logged again, noted: its last row counts
+                    on_result(r)
+            for count, what in (
+                (len(kept), f"kept {OFFLOAD_LABEL}"),
+                (len(unlabelled), f"couldn't be labelled {label}"),
+            ):
+                if count:
+                    logger.warning(
+                        f"{count:,} restored messages {what}; they are restored all the same "
+                        "(the log says why)"
                     )
-            if unlabelled:
-                logger.warning(
-                    f"{len(unlabelled):,} restored messages couldn't be labelled {label}; "
-                    "they are restored all the same"
-                )
     finally:
         if mcon is not None:
             mcon.close()
@@ -658,8 +663,42 @@ def apply(
 
 
 def unmarked(failures) -> dict[str, str]:
-    """add_label's failures ("<id>: <why>") as ID → why. Pure."""
-    return dict(f.split(": ", 1) for f in failures)
+    """
+    add_label's or remove_label's failures ("<id>: <why>") as ID → why, an
+    ID's several reasons joined in order. Pure.
+    """
+    reasons: dict[str, list[str]] = {}
+    for failure in failures:
+        gid, why = failure.split(": ", 1)
+        reasons.setdefault(gid, []).append(why)
+    return {gid: "; ".join(whys) for gid, whys in reasons.items()}
+
+
+def mark_notes(
+    kept: Mapping[str, str], unlabelled: Mapping[str, str], label: str
+) -> dict[str, str]:
+    """
+    ID → the note on a restored message whose marks went wrong: the offload
+    mark left on (`kept`), restore's label not added (`unlabelled`). Pure.
+    """
+    wrong = ((f"{OFFLOAD_LABEL} not taken off", kept), (f"not labelled {label}", unlabelled))
+    return {
+        i: "; ".join(f"{what}: {by_id[i]}" for what, by_id in wrong if i in by_id)
+        for i in sorted(kept.keys() | unlabelled.keys())
+    }
+
+
+def noted_results(results: Mapping[str, Result], notes: Mapping[str, str]) -> dict[str, Result]:
+    """
+    Source ID → the result with its new ID's note added, for the results this
+    run restored (outcome in DONE) only: a skipped or already-restored one
+    sharing the new ID wasn't acted on. Pure.
+    """
+    return {
+        source_id: with_note(r, notes[r.new_id])
+        for source_id, r in results.items()
+        if r.outcome in DONE and r.new_id in notes
+    }
 
 
 def with_note(r: Result, note: str) -> Result:

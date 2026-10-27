@@ -262,6 +262,7 @@ class FakeMailbox:
             self.messages[gid]["labelIds"] = [
                 i for i in self.messages[gid]["labelIds"] if self.labels.get(i) != label_name
             ]
+        return []
 
     # ── moves ────────────────────────────────────────────────────────────────
     def _move(self, gmail_ids, into_trash: bool) -> list[str]:

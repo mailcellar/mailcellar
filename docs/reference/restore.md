@@ -99,7 +99,10 @@ large restores in the background.
 
 Runs are logged in `<data root>/restore/restore-log.csv`, a row per message
 as it is done, so an interrupted run's log shows how far it got; each
-restored message is also recorded in its backup's `meta.sqlite`. How it works:
+restored message is also recorded in its backup's `meta.sqlite`. A message
+restored whose marks then went wrong (its offload mark left on, the
+restore label not added) gets a second row with the note; its last row
+is the one that counts. How it works:
 [docs/architecture.md](../architecture.md#restore).
 
 **From elsewhere.** Three other sources hold mail that isn't in a backup's
