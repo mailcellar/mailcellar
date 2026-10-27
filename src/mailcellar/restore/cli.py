@@ -122,6 +122,19 @@ def restore_dir() -> Path:
     return data_root() / "restore"
 
 
+def refuse_imap_source(folder: Path) -> None:
+    """Exit if `folder` is a backup of an IMAP account, or can't be told: its IDs aren't Gmail's."""
+    try:
+        is_imap = sidecar.provider(folder) == "imap"
+    except sidecar.MetaError as exc:
+        sys.exit(f"error: {exc}")
+    if is_imap:
+        sys.exit(
+            f"error: {folder} is a backup of an IMAP account; "
+            "restoring it isn't supported yet (#108)"
+        )
+
+
 def main(argv=None, prog: str | None = None) -> int:
     log = restore_dir() / "restore-log.csv"
     p = argparse.ArgumentParser(
@@ -215,6 +228,7 @@ def main(argv=None, prog: str | None = None) -> int:
     folder = backup_folder(account)
     if not sidecar.meta_path(folder).is_file():
         sys.exit(f"error: {folder} has no meta.sqlite; run mailcellar meta")
+    refuse_imap_source(folder)
     try:
         cands = candidates(
             folder,
@@ -295,6 +309,7 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
     try:
         if args.from_pruned:
             where = f"pruned batch {args.from_pruned}"
+            refuse_imap_source(backup_folder(account))
             cands = sources.from_pruned(backup_folder(account), args.from_pruned)
         elif args.from_mbox:
             where = args.from_mbox
@@ -307,6 +322,7 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
                     "--from-folder is the backup of the account restored into; select its "
                     "mail with --offloaded, --batch, --rule, --id or --all instead"
                 )
+            refuse_imap_source(folder)
             cands = sources.from_folder(folder)
     except sources.SourceError as exc:
         sys.exit(f"error: {exc}")

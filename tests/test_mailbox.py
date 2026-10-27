@@ -27,7 +27,7 @@ def parameters(function):
 
 
 def test_gmail_account_has_every_mailbox_method_with_the_same_parameters():
-    assert len(protocol_methods()) == 16
+    assert len(protocol_methods()) == 17
     for name, method in protocol_methods().items():
         real = getattr(gmailapi.GmailAccount, name, None)
         assert real is not None, f"GmailAccount has no {name}"
@@ -79,11 +79,13 @@ def test_backup_signs_in_interactively_unless_unattended(monkeypatch, unattended
     monkeypatch.setattr(
         mailbox,
         "open_mailbox",
-        lambda account, folder, scope, interactive=True: opened.append(interactive),
+        lambda account, config_folder, scope, interactive=True, folder=None: opened.append(
+            (interactive, folder)
+        ),
     )
     args = Namespace(config="cfg", account=ACCOUNT, folder="data", unattended=unattended)
     commands.connect(args)
-    assert opened == [not unattended]
+    assert opened == [(not unattended, Path("data"))]  # the backup folder, for an IMAP map
 
 
 # ── contract: FakeMailbox and GmailAccount agree ─────────────────────────────

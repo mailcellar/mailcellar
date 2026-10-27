@@ -13,8 +13,22 @@ ADDRESS = "alex@example.org"
 SETTINGS = gmailapi.ImapSettings("imap.example.org", 993, ADDRESS)
 
 
+class Saving(imap.ImapAccount):
+    """An ImapAccount whose map is saved after it scans, as backup saves it."""
+
+    def _scan(self):
+        first = self._cache is None
+        result = super()._scan()
+        if first and self.folder is not None:
+            con = sidecar.open_meta(self.folder)
+            self.save_state(con)
+            con.commit()
+            con.close()
+        return result
+
+
 def account(server, folder=None):
-    return imap.ImapAccount(
+    return Saving(
         ADDRESS, SETTINGS, "secret", folder=folder, connect=lambda: server, sleep=lambda s: None
     )
 

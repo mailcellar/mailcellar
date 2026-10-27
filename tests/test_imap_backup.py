@@ -1,0 +1,166 @@
+"""An IMAP account through the commands: backup, count, meta, verify, and what refuses it."""
+
+import sqlite3
+
+import pytest
+
+from fake_imap import FakeImap
+from mailcellar import cli, gmailapi, imap
+from mailcellar.backup import sidecar
+from mailcellar.paths import backup_folder
+from test_index import make_eml
+
+ADDRESS = "alex@example.org"
+
+
+@pytest.fixture
+def server(tmp_path, monkeypatch):
+    """A configured IMAP account `home` whose server is a FakeImap."""
+    root = tmp_path / "config"
+    (root / "home").mkdir(parents=True)
+    (root / "accounts.toml").write_text(f'home = "{ADDRESS}"\n')
+    (root / "home" / gmailapi.IMAP_SETTINGS).write_text('host = "imap.example.org"\n')
+    password = root / "home" / gmailapi.IMAP_PASSWORD
+    password.write_text("secret\n")
+    password.chmod(0o600)
+    monkeypatch.setenv("MAILCELLAR_CONFIG", str(root))
+    s = FakeImap()
+    s.add_folder("Sent", special=["\\Sent"])
+    s.add_folder("Trash", special=["\\Trash"])
+    s.add_folder("Projects")
+    s.add("INBOX", msgid="<a@x>", flags={"\\Seen"})
+    s.add("INBOX", msgid="<b@x>")
+    s.add("Sent", msgid="<c@x>", flags={"\\Seen"})
+    s.add("Trash", msgid="<t@x>", flags={"\\Seen"})  # already in Trash: not backed up
+    monkeypatch.setattr(imap.ImapAccount, "_connect_ssl", lambda self: s)
+    return s
+
+
+def rows(sql, *args):
+    con = sqlite3.connect(backup_folder(ADDRESS) / "msg-db.sqlite")
+    try:
+        return con.execute(sql, args).fetchall()
+    finally:
+        con.close()
+
+
+def labels():
+    """{Message-ID: labels} from the backup's gyb index."""
+    out = {}
+    for filename, num in rows("SELECT message_filename, message_num FROM messages"):
+        raw = (backup_folder(ADDRESS) / filename).read_bytes()
+        mid = raw.split(b"Message-ID: ")[1].split(b"\n")[0].decode().strip()
+        out[mid] = {lb for (lb,) in rows("SELECT label FROM labels WHERE message_num = ?", num)}
+    return out
+
+
+def test_an_imap_account_backs_up_and_follows_changes(server, capsys):
+    assert cli.main(["backup", "home"]) == 0
+    assert labels() == {"<a@x>": {"INBOX"}, "<b@x>": {"INBOX", "UNREAD"}, "<c@x>": {"SENT"}}
+    assert sidecar.provider(backup_folder(ADDRESS)) == "imap"
+    capsys.readouterr()
+
+    server.move("INBOX", 1, "Projects")  # a@x filed
+    server.folders["INBOX"]["uids"][2]["flags"].add("\\Seen")  # b@x read
+    server.add("INBOX", msgid="<d@x>", flags={"\\Seen"})  # new mail
+    del server.folders["Sent"]["uids"][1]  # c@x deleted for good
+    assert cli.main(["backup", "home"]) == 0
+    out = capsys.readouterr().out
+    assert "Downloaded 1 messages" in out
+    assert "1 backed-up messages were permanently deleted from the server" in out
+    got = labels()
+    assert got["<a@x>"] == {"Projects"} and got["<b@x>"] == {"INBOX"}
+    assert got["<d@x>"] == {"INBOX"} and "<c@x>" in got  # still in the backup
+
+    assert cli.main(["count", "home"]) == 0
+    out = capsys.readouterr().out
+    assert "On the server (excl. junk/trash)" in out and "Gmail" not in out
+    assert cli.main(["verify", "home", "--chain"]) == 0
+    assert cli.main(["meta", "home"]) == 0
+    assert all(c[0] in ("LOGIN", "LIST", "EXAMINE", "UID") for c in server.commands)
+
+
+def test_a_message_without_a_message_id_is_backed_up(server):
+    server.add("INBOX", raw=make_eml(msgid=None, body="no id here"), flags={"\\Seen"})
+    assert cli.main(["backup", "home"]) == 0
+    assert len(rows("SELECT uid FROM uids")) == 4
+
+
+def test_a_password_others_can_read_is_refused(server, tmp_path):
+    (tmp_path / "config" / "home" / gmailapi.IMAP_PASSWORD).chmod(0o644)
+    with pytest.raises(SystemExit, match="can be read by others"):
+        cli.main(["backup", "home"])
+
+
+def test_a_refused_login_is_recorded_for_an_unattended_backup(server):
+    assert cli.main(["backup", "home"]) == 0  # recorded in the backup's own sidecar
+    server.password = "changed"
+    with pytest.raises(SystemExit, match="refused the login"):
+        cli.main(["backup", "home", "--unattended"])
+    con = sidecar.open_meta(backup_folder(ADDRESS))
+    last = con.execute(
+        "SELECT status, reason FROM runs WHERE command = 'backup' ORDER BY rowid DESC LIMIT 1"
+    ).fetchone()
+    con.close()
+    assert last == ("error", "access-refused")
+
+
+def test_restore_refuses_an_imap_backup(server):
+    assert cli.main(["backup", "home"]) == 0
+    with pytest.raises(SystemExit, match="backup of an IMAP account"):
+        cli.main(["restore", "home", "--all"])
+
+
+def test_the_uid_map_is_kept_with_the_backup_and_spares_rereading(server):
+    assert cli.main(["backup", "home"]) == 0
+    assert sidecar.read_imap_map(backup_folder(ADDRESS))  # saved with the backup
+    server.commands.clear()
+    assert cli.main(["backup", "home"]) == 0
+    assert not [c for c in server.commands if "MESSAGE-ID" in str(c)]  # nothing new to read
+
+
+def test_a_scan_writes_nothing_until_backup_saves_it(server, tmp_path):
+    folder = tmp_path / "data"
+    box = imap.ImapAccount(
+        ADDRESS,
+        gmailapi.ImapSettings("imap.example.org"),
+        "secret",
+        folder=folder,
+        connect=lambda: server,
+    )
+    box.list_message_ids()
+    assert not sidecar.meta_path(folder).exists()
+
+
+def test_an_unattended_backup_that_cant_get_in_is_recorded(server, tmp_path):
+    assert cli.main(["backup", "home"]) == 0
+    (tmp_path / "config" / "home" / gmailapi.IMAP_PASSWORD).chmod(0o644)
+    with pytest.raises(SystemExit, match="can be read by others"):
+        cli.main(["backup", "home", "--unattended"])
+    con = sidecar.open_meta(backup_folder(ADDRESS))
+    last = con.execute(
+        "SELECT status, reason FROM runs WHERE command = 'backup' ORDER BY rowid DESC LIMIT 1"
+    ).fetchone()
+    con.close()
+    assert last == ("error", "no-access")
+
+
+def test_restore_refuses_imap_mail_from_any_source(server, tmp_path):
+    assert cli.main(["backup", "home"]) == 0
+    (tmp_path / "config" / "work").mkdir()
+    (tmp_path / "config" / "accounts.toml").write_text(
+        f'home = "{ADDRESS}"\nwork = "sam@example.org"\n'
+    )
+    for args in (
+        ["home", "--from-pruned", "2026-01-01-000000"],
+        ["work", "--from-folder", str(backup_folder(ADDRESS))],  # ACCOUNT: restored into
+    ):
+        with pytest.raises(SystemExit, match="backup of an IMAP account"):
+            cli.main(["restore", *args])
+
+
+def test_restore_refuses_a_backup_whose_sidecar_cant_be_read(server):
+    assert cli.main(["backup", "home"]) == 0
+    sidecar.meta_path(backup_folder(ADDRESS)).write_bytes(b"not a database")
+    with pytest.raises(SystemExit, match="can't be read"):
+        cli.main(["restore", "home", "--all"])
