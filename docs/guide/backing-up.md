@@ -124,6 +124,31 @@ that any mail client can read, without mailcellar
 ([Exporting mail](exporting.md)). It is useful for what you have offloaded,
 but it does not replace a copy of the data root, which can be restored.
 
+## Encryption
+
+mailcellar doesn't encrypt the backup, and won't: the `.eml` files and
+databases stay plain so that gyb, a mail client or any other tool can read
+them, and so `verify` can check them. If your mail needs protecting at
+rest, and legal, medical or financial mail usually does, encrypt what it
+is stored on:
+
+- **The disk.** FileVault on a Mac, or full-disk encryption (LUKS) on
+  Linux, covers the data root and the config folder with nothing to set
+  up in mailcellar.
+- **A volume of its own.** An encrypted disk image (Disk Utility on a Mac)
+  or a LUKS container on Linux, with `data_dir` in `settings.toml` (or
+  `MAILCELLAR_DATA`) pointing inside it. Mounted, it is an ordinary folder,
+  so gyb reads it too. Mount it before any backup runs, the scheduled one
+  included: while it is not mounted the data root isn't there.
+- **The second copy.** [restic](https://restic.net/) and
+  [borg](https://www.borgbackup.org/) take encrypted, deduplicated
+  snapshots to another disk or to cloud storage; take them while no
+  mailcellar command is running. For Time Machine, encrypt the backup
+  disk.
+
+Exports are copies outside all of this: see
+[Exporting mail](exporting.md).
+
 ## Mail deleted from Gmail: `--prune`
 
 Mail you delete in Gmail and then empty from Trash is permanently gone from
