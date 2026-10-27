@@ -290,3 +290,17 @@ def test_an_unattended_backup_whose_key_is_refused_is_recorded(
     ).fetchone()
     con.close()
     assert last == ("error", "access-refused")  # health and schedule status show it
+
+
+def test_auth_renew_says_it_doesnt_apply_to_the_service_account(
+    configured, fake_google, monkeypatch, capsys
+):
+    root, folder, _key = configured
+    monkeypatch.setattr(gmailapi, "GmailAccount", FakeAccount)
+    cli.main(["auth", "alex", "--scope", "readonly"])
+    out = capsys.readouterr().out
+    assert "OK, through the service account" in out and "--renew" not in out
+    cli.main(["auth", "alex", "--scope", "readonly", "--renew"])
+    out = capsys.readouterr().out
+    assert "--renew doesn't apply" in out
+    assert str(folder / gmailapi.SERVICE_ACCOUNT_MARKER) in out
