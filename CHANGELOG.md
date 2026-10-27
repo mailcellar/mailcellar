@@ -7,6 +7,12 @@ in beta, so commands and options may still change before 1.0.
 
 ## Unreleased
 
+## 0.16.0 (2026-10-27)
+
+**Upgrading from 0.15.2:** nothing to do: no database's schema changes,
+and accounts set up before keep signing in as they did; the service
+account applies only to an address set up with `--service-account`.
+
 ### Added
 - Workspace accounts can be backed up through a service account with
   domain-wide delegation, so backups run unattended with no sign-in and
