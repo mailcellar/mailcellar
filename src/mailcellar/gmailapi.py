@@ -838,7 +838,10 @@ class GmailAccount:
         exact = next((i for i, n in labels.items() if n == name), None)
         if exact is not None:
             return exact
-        return next((i for i, n in labels.items() if n.casefold() == name.casefold()), None)
+        # System labels are named by their ID (INBOX); only a user label matches case aside.
+        return next(
+            (i for i, n in labels.items() if i != n and n.casefold() == name.casefold()), None
+        )
 
     def ensure_label(self, name: str) -> str:
         """
@@ -915,8 +918,12 @@ class GmailAccount:
         return out
 
     def remove_label(self, gmail_ids: list[str], label_name: str) -> None:
-        """Remove a user label from messages; nothing to do if the label doesn't exist."""
-        label_id = next((i for i, n in self._labels().items() if n == label_name), None)
+        """
+        Remove a user label from messages; nothing to do if the label doesn't
+        exist. Found as add_label finds it: Gmail counts names that differ only
+        in case as one label.
+        """
+        label_id = self._find_label(label_name)
         if label_id is None:
             return
         for start in range(0, len(gmail_ids), MODIFY_CHUNK):

@@ -265,6 +265,19 @@ def test_remove_label_sends_chunks_of_a_thousand():
     assert all(add == [] and remove == ["Label_1"] for _chunk, add, remove in sent)
 
 
+def test_remove_label_finds_a_label_differing_only_in_case():
+    service, gmail = mailbox()
+    gmail.remove_label(["g1"], "WORK")  # Gmail counts "work" and "WORK" as one label
+    (sent,) = service.of("batchModify")
+    assert sent == (["g1"], [], ["Label_1"])
+
+
+def test_a_name_differing_only_in_case_never_finds_a_system_label():
+    service, gmail = mailbox()
+    gmail.remove_label(["g1"], "inbox")  # not INBOX
+    assert service.of("batchModify") == []
+
+
 def test_remove_label_that_does_not_exist_does_nothing():
     service, gmail = mailbox()
     gmail.remove_label(["g1"], "never-made")
