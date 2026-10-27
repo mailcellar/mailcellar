@@ -41,7 +41,13 @@ def env(tmp_path, monkeypatch):
     live = LiveGmail({f"w{i}": {"work"} for i in range(5)})
     scopes = []
     monkeypatch.setattr(gmailapi, "find_config_folder", lambda root, account: Path("cfg"))
-    monkeypatch.setattr(gmailapi, "load_credentials", lambda f, account, scope: scope)
+    monkeypatch.setattr(
+        gmailapi,
+        "load_credentials",
+        lambda f, account, scope, interactive=True: (
+            scope if interactive else pytest.fail("signed in non-interactively")
+        ),
+    )
 
     def account(name, scope):
         scopes.append(scope)

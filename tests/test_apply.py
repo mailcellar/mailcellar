@@ -232,7 +232,13 @@ def test_cli_limit_and_log(tmp_path, monkeypatch):
     from mailcellar import gmailapi
 
     monkeypatch.setattr(gmailapi, "find_config_folder", lambda root, acct: tmp_path)
-    monkeypatch.setattr(gmailapi, "load_credentials", lambda folder, acct, scope: None)
+    monkeypatch.setattr(
+        gmailapi,
+        "load_credentials",
+        lambda folder, acct, scope, interactive=True: (
+            None if interactive else pytest.fail("signed in non-interactively")
+        ),
+    )
     monkeypatch.setattr(gmailapi, "GmailAccount", lambda acct, creds: gmail[acct])
 
     log_path = tmp_path / "log.csv"
@@ -323,7 +329,13 @@ def cli(tmp_path, monkeypatch):
     from mailcellar import gmailapi
 
     monkeypatch.setattr(gmailapi, "find_config_folder", lambda root, acct: tmp_path)
-    monkeypatch.setattr(gmailapi, "load_credentials", lambda folder, acct, scope: None)
+    monkeypatch.setattr(
+        gmailapi,
+        "load_credentials",
+        lambda folder, acct, scope, interactive=True: (
+            None if interactive else pytest.fail("signed in non-interactively")
+        ),
+    )
     monkeypatch.setattr(gmailapi, "GmailAccount", lambda acct, creds: gmail[acct])
     log = tmp_path / "log.csv"
 

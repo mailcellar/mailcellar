@@ -51,7 +51,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from mailcellar import gmailapi
+from mailcellar import gmailapi, mailbox
 from mailcellar.backup import chain, gyb, sidecar
 from mailcellar.message import PARSER_VERSION, parse_eml, parse_message
 from mailcellar.paths import backup_folder, config_root, pruned_folder
@@ -68,14 +68,14 @@ def now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def connect(args) -> tuple[str, Path, gmailapi.GmailAccount]:
+def connect(args) -> tuple[str, Path, mailbox.Mailbox]:
     config_root = Path(args.config)
     account, config_folder = gmailapi.resolve_account(config_root, args.account)
-    creds = gmailapi.load_credentials(
-        config_folder, account, "readonly", interactive=not getattr(args, "unattended", False)
+    gmail = mailbox.open_mailbox(
+        account, config_folder, "readonly", interactive=not getattr(args, "unattended", False)
     )
     folder = Path(args.folder) if args.folder else backup_folder(account)
-    return account, folder, gmailapi.GmailAccount(account, creds)
+    return account, folder, gmail
 
 
 def write_meta(mcon, response: dict, raw: bytes | None = None) -> bool:
@@ -699,8 +699,7 @@ def cmd_meta(args) -> int:
     folder = Path(args.folder) if args.folder else backup_folder(account)
     gmail = None
     if not args.offline:
-        creds = gmailapi.load_credentials(config_folder, account, "readonly")
-        gmail = gmailapi.GmailAccount(account, creds)
+        gmail = mailbox.open_mailbox(account, config_folder, "readonly")
     st = backfill(gmail, account, folder)
     print(
         f"{account}: {st['backed_up']:,} backed up; {st['current']:,} already in "

@@ -201,7 +201,7 @@ def main(argv=None, prog: str | None = None) -> int:
     if source:
         return restore_from_elsewhere(p, args, narrowing, log)
 
-    from mailcellar import gmailapi
+    from mailcellar import gmailapi, mailbox
 
     config = Path(args.config)
     try:
@@ -250,10 +250,7 @@ def main(argv=None, prog: str | None = None) -> int:
         if problem := why_missing(target, target_folder):
             sys.exit(f"error: {problem}")
     try:
-        gmail = gmailapi.GmailAccount(
-            target,
-            gmailapi.load_credentials(target_config, target, "modify" if args.yes else "readonly"),
-        )
+        gmail = mailbox.open_mailbox(target, target_config, "modify" if args.yes else "readonly")
         decisions = plan(gmail, cands, same_account=not other, progress=progress)
         with RestoreLog(Path(args.log), mode, account, target if other else "") as log:
             if args.yes:
@@ -285,7 +282,7 @@ def main(argv=None, prog: str | None = None) -> int:
 
 def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowing, log) -> int:
     """restore --from-pruned, --from-mbox or --from-folder: the same staging, another source."""
-    from mailcellar import gmailapi
+    from mailcellar import gmailapi, mailbox
 
     config = Path(args.config)
     try:
@@ -325,10 +322,7 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
     mode = "restore" if args.yes else "dry-run"
     progress = logger.info
     try:
-        gmail = gmailapi.GmailAccount(
-            target,
-            gmailapi.load_credentials(target_config, target, "modify" if args.yes else "readonly"),
-        )
+        gmail = mailbox.open_mailbox(target, target_config, "modify" if args.yes else "readonly")
         decisions = plan(gmail, cands, same_account=False, progress=progress)
         target_name = target if target != account else ""
         with RestoreLog(Path(args.log), mode, account, target_name) as log:
