@@ -251,9 +251,16 @@ def gmail_files(folder: Path) -> list[str]:
 
 def server_report(info) -> list[str]:
     """What setup says about an IMAP server: its folders, and what it allows. Pure."""
-    from mailcellar.imap import HIDDEN
+    from mailcellar.imap import BY_NAME, HIDDEN
 
     kept = [f for f in info.folders if f.label not in HIDDEN]
+    # Roles taken from a name, where the server flags no folder for them: a folder of
+    # the user's own that happens to be called Spam or Trash would be left out.
+    by_name = [
+        f"{f.name!r} as {f.label}"
+        for f in info.folders
+        if f.label in set(BY_NAME.values()) - info.marked and f.name.upper() != "INBOX"
+    ]
     labels = sorted({f.label for f in kept})
     shown = ", ".join(labels[:8]) + (", …" if len(labels) > 8 else "")
     left_out = sorted({f.label for f in info.folders} & HIDDEN)
@@ -262,6 +269,14 @@ def server_report(info) -> list[str]:
         *(
             [f"  read, not backed up: {', '.join(left_out)} (mail moved there stays backed up)"]
             if left_out
+            else []
+        ),
+        *(
+            [
+                f"  known by name (the server flags none): {', '.join(by_name)}; "
+                "rename a folder of your own that is taken for one"
+            ]
+            if by_name
             else []
         ),
         "  backup: read-only (EXAMINE and BODY.PEEK: not even \\Seen changes)",

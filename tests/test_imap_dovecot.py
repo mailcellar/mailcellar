@@ -20,13 +20,13 @@ import sqlite3
 import ssl
 import subprocess
 import time
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
-from mailcellar import cli, imap
+from mailcellar import cli, gmailapi, imap
 from mailcellar.paths import backup_folder
 from mailcellar.setup import cli as setup
 from test_index import make_eml
@@ -246,6 +246,43 @@ def test_setup_then_backups_follow_the_mailbox(dovecot, monkeypatch, capsys):
 
         assert cli.main(["count", "home"]) == 0
         assert cli.main(["verify", "home", "--chain"]) == 0
+
+
+class CutShort:
+    """A real connection whose SEARCH ALL keeps only the highest UIDs, as MESSAGELIMIT does."""
+
+    def __init__(self, conn, limit: int):
+        self._conn, self._limit = conn, limit
+
+    def uid(self, command, *args):
+        typ, data = self._conn.uid(command, *args)
+        if command == "SEARCH" and args == (None, "ALL"):
+            kept = sorted(imap.search_uids(data))[-self._limit :]
+            data = [b" ".join(str(u).encode() for u in kept)]
+        return typ, data
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
+def test_a_real_server_answers_the_listings_later_passes(dovecot):
+    user = "passes@example.org"
+    with dovecot.session(user) as c:
+        for n in range(5):
+            c.append("INBOX", r"(\Seen)", None, make_eml(msgid=f"<p{n}@x>"))
+    context = ssl.create_default_context(cafile=dovecot.cafile)
+    settings = gmailapi.ImapSettings("localhost", dovecot.port, user, dovecot.cafile)
+    box = imap.ImapAccount(
+        user,
+        settings,
+        PASSWORD,
+        connect=lambda: CutShort(
+            imaplib.IMAP4_SSL("localhost", dovecot.port, ssl_context=context, timeout=30), 2
+        ),
+    )
+    with closing(box):
+        # Dovecot parses UID SEARCH UID 1:n for the passes below the first 2.
+        assert len(box.list_message_ids()) == 5
 
 
 def test_a_wrong_password_writes_nothing(dovecot, monkeypatch, tmp_path):

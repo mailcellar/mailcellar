@@ -110,6 +110,12 @@ def test_server_report_says_when_offload_wont_be_possible():
     named = imap.ServerInfo(frozenset({"MOVE"}), folders, frozenset({"SENT"}))
     assert not named.can_offload
     assert imap.ServerInfo(frozenset({"MOVE"}), folders, frozenset({"TRASH"})).can_offload
+    by_name = imap.ServerInfo(
+        frozenset(), (imap.Folder("INBOX", "INBOX"), imap.Folder("Spam", "SPAM")), frozenset()
+    )
+    assert "known by name (the server flags none): 'Spam' as SPAM" in "\n".join(
+        setup.server_report(by_name)
+    )
     settings = gmailapi.ImapSettings("imap.example.org", 993, ADDRESS)
     assert setup.imap_toml(settings, ADDRESS) == 'host = "imap.example.org"\n'
 

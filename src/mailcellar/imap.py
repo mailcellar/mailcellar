@@ -189,13 +189,43 @@ def folders_from(entries) -> tuple[Folder, ...]:
 
 
 def marked_roles(entries) -> frozenset[str]:
-    """The roles (SENT, TRASH…) the server marks a folder for, special-use. Pure."""
-    return frozenset(SPECIAL[flag] for _n, _d, flags in entries for flag in flags & set(SPECIAL))
+    """
+    The roles (SENT, TRASH…) the server marks a folder for, special-use;
+    only folders that can be opened count. Pure.
+    """
+    return frozenset(
+        SPECIAL[flag]
+        for _n, _d, flags in entries
+        if not flags & SKIP
+        for flag in flags & set(SPECIAL)
+    )
 
 
 def search_uids(data) -> frozenset[int]:
     """SEARCH's answer as UIDs. Pure."""
     return frozenset(int(u) for u in b" ".join(d for d in data if d).split())
+
+
+def exists_from(data) -> int | None:
+    """EXAMINE's message count (its EXISTS), or None if it gave none. Pure."""
+    first = data[0] if data else None
+    return int(first) if isinstance(first, bytes) and first.strip().isdigit() else None
+
+
+def next_search(before: frozenset[int], got: frozenset[int], exists: int | None):
+    """
+    After a SEARCH pass that found `got`, with `before` found by the passes
+    ahead of it: the criteria for the next pass, or None when the listing is
+    done. A server with MESSAGELIMIT (RFC 9738) answers with the highest UIDs
+    only, so the next pass searches below the lowest; done when a pass finds
+    nothing new (a server ignoring the range can't loop it), UID 1 is
+    reached, or EXAMINE's count is. Pure.
+    """
+    if not got - before or min(got) <= 1:
+        return None
+    if exists is not None and len(before | got) >= exists:
+        return None
+    return ("UID", f"1:{min(got) - 1}")
 
 
 def capabilities_from(data) -> frozenset[str]:
@@ -606,30 +636,27 @@ class ImapAccount:
     def _read_folders(self) -> tuple[Folder, ...]:
         return folders_from(self._read_entries())
 
-    def _list_uids(self, conn, exists: int) -> list[int]:
+    def _list_uids(self, conn, exists: int | None) -> list[int]:
         """
-        The examined folder's UIDs. A server with MESSAGELIMIT (RFC 9738;
-        Yahoo's is 1,000) answers a SEARCH over more messages with the
-        highest UIDs only, and says so in an OK that imaplib doesn't return;
-        so search again below the lowest UID found until EXAMINE's count is
-        reached or a pass finds nothing.
+        The examined folder's UIDs, in as many SEARCH passes as next_search
+        asks for: a server with MESSAGELIMIT says it cut a SEARCH short in an
+        OK that imaplib doesn't return.
         """
-        found: set[int] = set()
-        criteria: tuple[str, ...] = ("ALL",)
-        while True:
+        found: frozenset[int] = frozenset()
+        criteria: tuple[str, ...] | None = ("ALL",)
+        while criteria is not None:
             typ, data = conn.uid("SEARCH", None, *criteria)
             got = search_uids(self._ok(typ, data, "SEARCH"))
+            criteria = next_search(found, got, exists)
             found |= got
-            if not got or len(found) >= exists or min(got) <= 1:
-                return sorted(found)
-            criteria = ("UID", f"1:{min(got) - 1}")
+        return sorted(found)
 
     def _read_folder(self, folder: Folder) -> FolderRead | None:
         """One folder's UIDs, flags and new headers; None if it can't be examined."""
 
         def run(conn):
             typ, data = conn.select(quote(folder.name), readonly=True)
-            exists = int(self._ok(typ, data, f"EXAMINE {folder.name}")[0])
+            exists = exists_from(self._ok(typ, data, f"EXAMINE {folder.name}"))
             _code, (uidvalidity, *_rest) = conn.response("UIDVALIDITY")
             uidvalidity = int(uidvalidity)
             uids = self._list_uids(conn, exists)

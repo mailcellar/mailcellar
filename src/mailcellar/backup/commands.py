@@ -170,30 +170,32 @@ def history_plan(
     logger.info(
         history_summary(
             gmail.provider,
-            len(touched),
-            len(touched - deleted),
-            len(indexed - have),
-            len(todo),
-            stats["labels_changed"],
-            stats["skipped"],
+            changed=len(touched),
+            # An IMAP account's mail outside Junk and Trash, as backup and count say it
+            # elsewhere; its scan is already read, so listing it costs nothing.
+            present=len(gmail.list_message_ids()) if gmail.provider != "gmail" else 0,
+            missing=len(indexed - have),
+            todo=len(todo),
+            labels=stats["labels_changed"],
+            skipped=stats["skipped"],
         )
     )
     return todo, new_history_id
 
 
 def history_summary(
-    provider: str, changed: int, present: int, missing: int, todo: int, labels: int, skipped: int
+    provider: str, *, changed: int, present: int, missing: int, todo: int, labels: int, skipped: int
 ) -> str:
     """
     What a history-based run found. An IMAP account has no history: every
     message on the server is read again and compared, so it says how many
-    are there (`present`: changed, less those deleted), not that they all
+    are there (`present`, outside Junk and Trash), not that they all
     changed. Pure.
     """
     lead = (
         f"History since last run: {changed:,} messages changed"
         if provider == "gmail"
-        else f"Read the server's {present:,} messages again"
+        else f"Read the server's {present:,} messages again (excl. junk/trash)"
     )
     return (
         lead
