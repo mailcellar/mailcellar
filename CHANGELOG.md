@@ -57,7 +57,8 @@ in beta, so commands and options may still change before 1.0.
   account, offload, dedup and restore speak of "the server". Reasons that
   hold for either kind of account now say "its mailbox": a skipped
   message is "no longer in its mailbox" or "couldn't read it from its
-  mailbox" (it was "… Gmail"). Commands' help, the reports' notes and the
+  mailbox", and restore's outcome "already in the mailbox" (they were
+  "… Gmail"). Commands' help, the reports' notes and the
   docs cover IMAP accounts.
 
 **Upgrading:** `meta.sqlite` schema 11 → 13 (two new tables for IMAP

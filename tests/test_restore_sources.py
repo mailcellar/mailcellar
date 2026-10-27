@@ -256,7 +256,7 @@ def test_pruned_mail_dry_run_says_what_it_would_do(env, capsys):
     assert run("--from-pruned", PRUNED) == 0
     out = capsys.readouterr().out
     assert f"from pruned batch {PRUNED}: 3 messages" in out
-    assert "would import" in out and "would record (found in Gmail)" in out
+    assert "would import" in out and "would record (found in the mailbox)" in out
     assert imports(env) == {} and env.calls == [("search", 3)]
     assert backup_state(env.folder) == before
 
