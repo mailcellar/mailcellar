@@ -186,7 +186,7 @@ def test_pruned_batches_and_cli(report, capsys, tmp_path):
     assert report()["pruned"].rows == [(A, "2026-09-01-120000", 2)]
     cli.main(["health", "--csv", "reports"])
     assert capsys.readouterr().out.startswith(f"Backup health report — {A}, {B}")
-    assert len(list((tmp_path / "reports").glob("health-*.csv"))) == 7
+    assert len(list((tmp_path / "reports").glob("health-*.csv"))) == 8
 
 
 def test_forget_runs_held_and_due(report, tmp_path):

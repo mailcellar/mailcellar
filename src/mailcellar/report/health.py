@@ -249,6 +249,74 @@ def pruned(folders: list[Path]) -> Table:
     )
 
 
+HOLD_LAPSE_DAYS = 7  # a hold in force with no backup this long is warned about
+
+
+def holds_table(folders: list[Path], now: int) -> Table:
+    """
+    The legal holds in force: what each keeps, how much of it only the
+    backup has now, and whether backups have lapsed, since a hold can only
+    keep what has been backed up.
+    """
+    from mailcellar.backup import sidecar
+    from mailcellar.hold import holds
+
+    rows = []
+    for folder in folders:
+        account = backup_account(folder)
+        active = [h for h in holds.read_holds(folder) if h.active(now)]
+        if not active:
+            continue
+        facts = holds.read_facts(folder)
+        con = sqlite3.connect(f"file:{sidecar.meta_path(folder)}?mode=ro", uri=True)
+        try:
+            (last,) = con.execute(
+                "SELECT max(finished_ms) FROM runs WHERE command = 'backup' AND status != 'error'"
+            ).fetchone()
+        finally:
+            con.close()
+        lapsed = last is None or now - last > HOLD_LAPSE_DAYS * DAY_MS
+        for h in active:
+            covered = [f for f in facts if f.known and holds.covers(h.criteria, f)]
+            rows.append(
+                (
+                    account,
+                    h.name,
+                    h.reason,
+                    day(h.created_ms),
+                    day(h.until_ms) if h.until_ms else "",
+                    len(covered),
+                    sum(1 for f in covered if not f.in_gmail),
+                    when(last),
+                    f"no backup in {HOLD_LAPSE_DAYS} days" if lapsed else "",
+                )
+            )
+    return Table(
+        "holds",
+        "Legal holds in force",
+        [
+            ("Account", "text"),
+            ("Hold", "text"),
+            ("Reason", "text"),
+            ("Since", "text"),
+            ("Until", "text"),
+            ("Keeps", "int"),
+            ("Only in backup", "int"),
+            ("Last backup", "text"),
+            ("Warning", "text"),
+        ],
+        rows,
+        notes=[
+            "Mail a hold keeps is left alone by offload, dedup, backup --prune and offload "
+            "forget, in Gmail and in the backup; mail that matches later is kept too. Only in "
+            "backup: Gmail no longer has it, so the backup holds the only copy. A hold can "
+            "only keep what has been backed up: run backups while one is in force "
+            "('mailcellar hold show NAME' has the details)."
+        ],
+        limit=False,
+    )
+
+
 def chains(folders: list[Path]) -> Table:
     """Each backup's hash chain: its head to note down, and whether the anchor agrees."""
     rows = []
@@ -358,5 +426,6 @@ def build(
         by_month(con),
         pruned(folders),
         forgotten(folders, now),
+        holds_table(folders, now),
         chains(folders),
     ]

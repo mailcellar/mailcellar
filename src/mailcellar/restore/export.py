@@ -239,9 +239,15 @@ def main(argv=None, prog: str | None = None) -> int:
         metavar="FILE",
         help="Where to write it: a name ending .mbox or .zip (it must not exist yet)",
     )
+    p.add_argument(
+        "--hold",
+        metavar="NAME",
+        help="The mail a legal hold keeps (see mailcellar hold), e.g. for counsel; the other "
+        "options narrow it",
+    )
     p.add_argument("--limit", type=int, default=None, help="Only the first N (oldest first)")
     args = p.parse_args(argv)
-    narrowing = selection(p, args)
+    narrowing = selection(p, args, required=not args.hold)
     dest = Path(args.to).expanduser()
     try:
         fmt = export_format(dest)
@@ -262,12 +268,27 @@ def main(argv=None, prog: str | None = None) -> int:
     if not dest.parent.is_dir():
         sys.exit(f"error: the folder {dest.parent} does not exist")
 
+    ids = set(args.id)
+    if args.hold:
+        from mailcellar.hold import holds
+
+        mine = [h for h in holds.read_holds(folder) if h.name == args.hold]
+        if not mine:
+            sys.exit(f"error: no hold {args.hold!r} in {folder.name}")
+        covered = {
+            f.gmail_id
+            for f in holds.read_facts(folder)
+            if f.known and holds.covers(mine[-1].criteria, f)
+        }
+        if not covered:
+            sys.exit(f"Nothing to export: hold {args.hold!r} keeps no messages in the backup.")
+        ids = (ids & covered) if ids else covered
     try:
         cands = candidates(
             folder,
             set(args.batch),
             set(args.rule),
-            set(args.id),
+            ids,
             everything=args.all,
             narrow=narrowing,
             include_restored=True,

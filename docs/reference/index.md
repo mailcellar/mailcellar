@@ -13,4 +13,5 @@ Every command and option. For a task from start to finish, see the
 | [Restoring mail](restore.md) | `restore` |
 | [Exporting mail](export.md) | `export` |
 | [Searching mail](search.md) | `search` |
+| [Legal holds](hold.md) | `hold` |
 | [Reports](report.md) | `report` |

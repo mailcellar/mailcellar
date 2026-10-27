@@ -19,6 +19,10 @@ exportable and restorable whenever you need it.
 - **Deduplicate, export and report**: remove duplicate copies within and
   across accounts, copy mail out as an mbox or a zip, and see what takes up
   the space.
+- **Keep mail as it is**: a hash chain shows the backup hasn't changed
+  since each message was saved (`verify --chain`), and a legal hold keeps
+  the mail a dispute or an audit needs out of reach of offloading, pruning
+  and dedup, in Gmail and in the backup.
 
 **What changes Gmail.** Only `dedup apply`, `offload apply` and
 `restore --yes`, and each is a dry run until you add a flag. The first two
@@ -47,6 +51,7 @@ mailcellar offload …               take old mail out of Gmail, keeping it in t
 mailcellar restore ACCOUNT …       put backed-up mail back into Gmail
 mailcellar export  ACCOUNT …       copy mail out as an mbox file or a zip of .eml files
 mailcellar search  QUERY …         find mail in the backups, offloaded mail included
+mailcellar hold    add|list|show|release   keep mail for a dispute or an audit
 mailcellar report  …               storage, bulk mail, volume, threads, labels, correspondents,
                                    backup health, top senders
 mailcellar config                  where the config and data live; each account's state
@@ -135,6 +140,8 @@ The [documentation site](https://mailcellar.github.io/mailcellar/) has the guide
 - [Restoring mail](https://mailcellar.github.io/mailcellar/guide/restore/): undo an offload, recover one
   message, rebuild or copy an account, load a Takeout file.
 - [Exporting mail](https://mailcellar.github.io/mailcellar/guide/exporting/): copy mail out as an mbox or a zip.
+- [Keeping mail on hold](https://mailcellar.github.io/mailcellar/guide/legal-holds/): keep mail for a dispute or an
+  audit, in Gmail and the backup, and hand it over.
 - [Recovering when something goes wrong](https://mailcellar.github.io/mailcellar/guide/recovery/): an expired
   token, a long gap, an interrupted run, a lost data root.
 - [Troubleshooting and FAQ](https://mailcellar.github.io/mailcellar/guide/troubleshooting/): slow runs, `count`

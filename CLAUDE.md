@@ -2,9 +2,10 @@
 
 mailcellar: Gmail backups, with verify and scheduling (`backup/`),
 account setup (`setup/`), deduplication (`dedup/`), offloading old mail out
-of Gmail (`offload/`) and back, with export (`restore/`), search
-(`search/`), and reports (`report/`) for the configured accounts, all in
-one package, `src/mailcellar/`, behind one `mailcellar` command (`cli.py`).
+of Gmail (`offload/`) and back, with export (`restore/`), legal holds
+(`hold/`), search (`search/`), and reports (`report/`) for the configured
+accounts, all in one package, `src/mailcellar/`, behind one `mailcellar`
+command (`cli.py`).
 Read [docs/architecture.md](docs/architecture.md) first.
 User-facing usage: [README.md](README.md); every command and option is in
 [docs/reference/](docs/reference/index.md).
@@ -28,7 +29,8 @@ uv run mailcellar offload <plan [--review]|apply> [options]
 uv run mailcellar restore ACCOUNT <--batch|--rule|--id|--offloaded|--all> [--to ACCOUNT] [--yes]
 uv run mailcellar restore ACCOUNT <--from-pruned BATCH|--from-mbox FILE|--from-folder DIR> [--yes]
 uv run mailcellar search QUERY [ACCOUNT ...] [--offloaded] [--rule R] [--before DATE]
-uv run mailcellar export ACCOUNT <--batch|--rule|--id|--offloaded|--all> --to FILE.mbox|FILE.zip
+uv run mailcellar export ACCOUNT <--batch|--rule|--id|--offloaded|--all|--hold H> --to FILE.mbox|FILE.zip
+uv run mailcellar hold <add|list|show|release> [NAME] [ACCOUNT ...]   # legal holds
 uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|health|senders>
 ```
 

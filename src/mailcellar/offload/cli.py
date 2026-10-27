@@ -16,6 +16,8 @@ from mailcellar.backup import sidecar
 from mailcellar.backup.gyb import backup_account
 from mailcellar.dedup.apply import apply_plan, unusable_label, write_apply_log
 from mailcellar.dedup.report import report_apply
+from mailcellar.hold import holds
+from mailcellar.hold.holds import HoldCheck
 from mailcellar.offload import forget
 from mailcellar.offload.apply import (
     APPLY_LOG_COLUMNS,
@@ -214,10 +216,17 @@ def cmd_apply(args) -> None:
 
     batch = datetime.now().strftime("%Y-%m-%d-%H%M%S")
     checks = BackupChecks(folders)
+    held = HoldCheck(folders, int(time.time() * 1000))  # legal holds keep their mail in Gmail
     record = recorder(folders, batch, manifest_path(offload_dir(), batch))
     try:
         log = apply_plan(
-            rows, mode, gmail_for, confirm, label, local_check=checks, on_trashed=record
+            rows,
+            mode,
+            gmail_for,
+            confirm,
+            label,
+            local_check=lambda row: held(row) or checks(row),
+            on_trashed=record,
         )
     except gmailapi.GmailError as exc:
         sys.exit(f"error: {exc}")
@@ -276,9 +285,10 @@ def cmd_forget(args) -> None:
         found = forget.candidates(folder, set(args.batch or ()), set(args.rule or ()))
         if not found:
             continue
-        gone = [c.gmail_id for c in found if c.gone_ms is not None]
+        held = holds.held(folder, int(time.time() * 1000), [c.gmail_id for c in found])
+        gone = [c.gmail_id for c in found if c.gone_ms is not None and c.gmail_id not in held]
         live, unread = gmail_state(account, Path(args.config), gone) if gone else ({}, {})
-        choice = forget.choose(found, live, unread)
+        choice = forget.choose(found, live, unread, held)
         print(f"Forget — {account}: {len(found):,} offloaded messages selected")
         print(f"  can be forgotten                {len(choice.forget):>8,}")
         if choice.not_gone:
@@ -290,6 +300,13 @@ def cmd_forget(args) -> None:
             print(
                 f"  Gmail has them again            {len(choice.in_gmail):>8,}  (restored, or "
                 "moved back from Trash; left alone)"
+            )
+        if choice.held:
+            names = sorted({name for _c, name in choice.held})
+            print(
+                f"  held                            {len(choice.held):>8,}  (hold "
+                + ", ".join(names)
+                + "; left as they are)"
             )
         if choice.unchecked:
             print(
@@ -355,6 +372,13 @@ def forget_empty(folders: list[Path], yes: bool) -> None:
         waiting = [r for r in runs if r not in due]
         for run in waiting:
             print(f"{account}: run {run} is held until {forget.held_until(run):%Y-%m-%d}")
+        under_hold = forget.runs_under_hold(folder, account, due, int(now.timestamp() * 1000))
+        for run, names in under_hold.items():
+            print(
+                f"{account}: run {run} may hold mail under hold {', '.join(names)}; "
+                "it is kept (release the hold, or --undo the run)"
+            )
+        due = [r for r in due if r not in under_hold]
         if not due:
             continue
         print(
