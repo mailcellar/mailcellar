@@ -181,6 +181,15 @@ def open_mailbox(
     return gmailapi.GmailAccount(account, creds)
 
 
+def mailbox_name(provider: str, start: bool = False) -> str:
+    """
+    How output names an account's mailbox: Gmail, or "the server" for an
+    IMAP account; capitalised to start a sentence. Pure.
+    """
+    name = "Gmail" if provider == "gmail" else "the server"
+    return name[:1].upper() + name[1:] if start else name
+
+
 def opener(config_root: Path, folders=None) -> Callable[[str, str], Mailbox]:
     """
     open(account, scope) for accounts named in `config_root`'s accounts.toml:

@@ -63,9 +63,9 @@ def outcomes(log):
     "cand, keeper, labels, mode, expected",
     [
         ({"INBOX"}, {"INBOX"}, "", "label", ""),
-        (None, {"INBOX"}, "", "label", "message no longer in Gmail"),
+        (None, {"INBOX"}, "", "label", "message no longer in its mailbox"),
         ({"TRASH"}, {"INBOX"}, "", "label", "already in trash"),
-        ({"INBOX"}, None, "", "label", "keeper no longer in Gmail"),
+        ({"INBOX"}, None, "", "label", "keeper no longer in its mailbox"),
         ({"INBOX"}, {"SPAM"}, "", "label", "keeper in trash or spam"),
         # system-label churn (read, archived, re-categorised) is not a change
         ({"UNREAD", "CATEGORY_UPDATES"}, set(), "INBOX;IMPORTANT", "label", ""),
@@ -154,8 +154,8 @@ def test_a_message_gmail_could_not_read_is_skipped_and_the_rest_carry_on(tmp_pat
     by_id = {r.row["gmail_id"]: r for r in log}
     assert by_id["b1"].outcome == "labelled"
     assert (by_id["b2"].outcome, by_id["b3"].outcome) == ("skipped", "skipped")
-    assert by_id["b2"].detail.startswith("couldn't read it from Gmail: HttpError 400")
-    assert by_id["b3"].detail.startswith("couldn't read the keeper from Gmail")
+    assert by_id["b2"].detail.startswith("couldn't read it from its mailbox: HttpError 400")
+    assert by_id["b3"].detail.startswith("couldn't read the keeper from its mailbox")
     assert gmail[B].events[-1] == ("label", ["b1"], DEDUP_LABEL)  # nothing done on a guess
     assert "1 messages couldn't be read from Gmail" in caplog.text
 
@@ -439,7 +439,11 @@ def test_checked_asks_the_local_check_only_of_rows_that_pass_the_gmail_checks(tm
     passed = dedup_apply.checked(good, "label", {"INBOX"}, {"INBOX"}, DEDUP_LABEL, local)
     assert (passed.outcome, passed.detail) == ("skipped", "not in the sidecar")
     gone = dedup_apply.checked(bad, "label", None, {"INBOX"}, DEDUP_LABEL, local)
-    assert (gone.outcome, gone.detail, gone.live) == ("skipped", "message no longer in Gmail", None)
+    assert (gone.outcome, gone.detail, gone.live) == (
+        "skipped",
+        "message no longer in its mailbox",
+        None,
+    )
     assert asked == ["b1"]  # b2 failed the Gmail check first
     fine = dedup_apply.checked(good, "label", {"INBOX"}, {"INBOX"}, DEDUP_LABEL, None)
     assert (fine.outcome, fine.detail, fine.live) == ("ok", "", frozenset({"INBOX"}))

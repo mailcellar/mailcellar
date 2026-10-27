@@ -41,6 +41,11 @@ in beta, so commands and options may still change before 1.0.
   couldn't be added (or, on an IMAP account, whose offload mark couldn't be
   taken off) gets a second row with the note; the note used to be lost,
   the message's row having been written before it.
+- Output names the account's mailbox rather than always Gmail: on an IMAP
+  account, offload, dedup and restore speak of "the server". Reasons that
+  hold for either kind of account now say "its mailbox": a skipped
+  message is "no longer in its mailbox" or "couldn't read it from its
+  mailbox" (it was "… Gmail"), and `restore --help` covers IMAP accounts.
 
 **Upgrading:** `meta.sqlite` schema 11 → 13 (two new tables for IMAP
 accounts), on the first run, after copying the file aside.

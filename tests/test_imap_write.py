@@ -271,6 +271,25 @@ def test_the_servers_words_are_shown_as_it_sent_them(text, said):
     assert imap.server_said(imaplib.IMAP4.error(text)) == said
 
 
+def test_an_unreadable_message_is_said_to_be_the_servers(server, tmp_path, caplog):
+    server.add("INBOX", msgid="<a@x>", flags={"\\Seen"})
+    box = account(server)
+    (gid,) = box.list_message_ids()
+    read = box.message_labels
+
+    def one_unread(ids, failures=None):
+        failures.append(f"{gid}: timed out")
+        return {i: v for i, v in read(ids).items() if i != gid}
+
+    box.message_labels = one_unread
+    (entry,) = apply_plan([row(tmp_path, gid)], "label", lambda a, s: box, lambda p: True)
+    assert (entry.outcome, entry.detail) == (
+        "skipped",
+        "couldn't read it from its mailbox: timed out",
+    )
+    assert "1 messages couldn't be read from the server" in caplog.text
+
+
 # ── marking and trashing ─────────────────────────────────────────────────────
 
 
@@ -539,9 +558,14 @@ def test_offload_label_on_a_keywordless_folder_fails_its_mail_and_goes_on(home, 
 # ── restore into an IMAP account ─────────────────────────────────────────────
 
 
-def test_restore_takes_offloaded_mail_out_of_trash_home(home, tmp_path):
+def test_restore_takes_offloaded_mail_out_of_trash_home(home, tmp_path, capsys):
     offload_two(home, tmp_path)
+    out = capsys.readouterr().out
+    assert "The server frees their space when its Trash is emptied." in out
     assert cli.main(["restore", "home", "--offloaded", "--yes"]) == 0
+    out, err = capsys.readouterr()
+    assert "Reading the server's state" in err and "Gmail" not in err
+    assert "where the server keeps keywords, they carry 'restored/" in out
     assert not home.folders["Trash"]["uids"] and len(home.folders["Projects"]["uids"]) == 3
     flags = [m["flags"] for m in home.folders["Projects"]["uids"].values()]
     assert not any("$mailcellar-offload-candidate" in f for f in flags)  # the mark taken off
@@ -553,7 +577,10 @@ def test_restore_appends_mail_the_server_no_longer_has(home, tmp_path, capsys):
     offload_two(home, tmp_path)
     home.folders["Trash"]["uids"].clear()  # the server, or a mail client, emptied Trash
     assert cli.main(["backup", "home"]) == 0
+    capsys.readouterr()
     assert cli.main(["restore", "home", "--offloaded", "--yes"]) == 0
+    err = capsys.readouterr().err
+    assert "Searching the server for the Message-IDs" in err and "Gmail" not in err
     back = home.folders["Projects"]["uids"].values()
     assert len(back) == 3 and all("\\Seen" in m["flags"] for m in back)
     assert {m["date"] for m in back} == {OLD}  # the Date header's date, as Gmail's import takes it

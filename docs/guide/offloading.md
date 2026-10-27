@@ -134,7 +134,7 @@ changes. Per message it checks that:
 
 Fix what the reasons point at, or accept the skips; skipped messages simply
 stay in Gmail. A message Gmail doesn't answer for, even after retries, is
-skipped too (`couldn't read it from Gmail`), and the next run tries it
+skipped too (`couldn't read it from its mailbox`), and the next run tries it
 again; it never stops the run.
 
 ## 4. Label

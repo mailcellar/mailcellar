@@ -512,3 +512,47 @@ def test_an_interrupted_forget_changes_neither_database_and_a_rerun_completes(
     run("--batch", BATCH, "--yes", typed="2", monkeypatch=monkeypatch)
     assert "Forgot 2 messages" in capsys.readouterr().out
     assert not {"p0", "p1"} & {m.gmail_id for m in gyb.iter_backup(folder)}
+
+
+def test_forget_rows_name_the_mailbox_by_provider():
+    choice = forget.Choice(
+        forget=[], not_gone=["a"], in_gmail=["b"], held=[], unchecked=[("c", "timed out")]
+    )
+    rows = offload_cli.forget_rows(choice, "imap")
+    assert rows[0] == "  can be forgotten                       0"
+    assert rows[1].startswith("  not yet gone from the server           1")
+    assert "after the server empties its Trash" in rows[1]
+    assert rows[2].startswith("  The server has them again              1")
+    assert rows[3].endswith("(asking the server, e.g. timed out; tried again next run)")
+    assert not any("Gmail" in r for r in rows)
+
+
+def test_an_unreadable_sidecar_stops_forget_with_an_error(env, monkeypatch):
+    def unreadable(folder):
+        raise sidecar.MetaError("meta.sqlite can't be read: file is not a database")
+
+    monkeypatch.setattr(offload_cli.sidecar, "provider", unreadable)
+    with pytest.raises(SystemExit, match="error: meta.sqlite can't be read"):  # not a traceback
+        run("--batch", BATCH)
+
+
+@pytest.mark.parametrize(
+    "providers, said",
+    [
+        ({"gmail"}, "Gmail frees their space when it empties its Trash, after 30 days."),
+        ({"imap"}, "The server frees their space when its Trash is emptied."),
+        ({"gmail", "imap"}, "each mailbox's Trash is emptied (Gmail's after 30 days)"),
+        ({""}, "each mailbox's Trash is emptied"),  # a sidecar that couldn't be read
+    ],
+)
+def test_the_space_line_names_only_the_mailboxes_trashed_in(providers, said):
+    assert said in offload_cli.space_freed(providers)
+
+
+def test_providers_come_from_each_backup_or_are_unknown(tmp_path):
+    (tmp_path / "bad").mkdir()
+    sidecar.meta_path(tmp_path / "bad").write_bytes(b"not a database")
+    assert offload_cli.providers_of({"a": tmp_path / "none", "b": tmp_path / "bad"}) == {
+        "a": "gmail",  # no sidecar: a Gmail backup, as sidecar.provider has it
+        "b": "",
+    }

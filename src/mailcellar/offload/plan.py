@@ -6,7 +6,7 @@ rules with a `query`, the IDs Gmail's search found, which the caller gets.
 
 Rules apply in file order; a message taken by one rule is not offered to
 the next. Never selected, whatever the rule: messages already offloaded,
-already in Trash or Spam, no longer in Gmail (thread unknown), or missing
+already in Trash or Spam, no longer in its mailbox (thread unknown), or missing
 from the backup's index.
 """
 
@@ -38,7 +38,7 @@ PLANNED_FORMAT = "%Y-%m-%d %H:%M:%S"
 EXCLUSIONS = {
     "offloaded": "already offloaded",
     "trash": "already in Trash or Spam",
-    "gone": "no longer in Gmail",
+    "gone": "no longer in its mailbox",  # Gmail or IMAP: a plan spans both
     "unindexed": "not in the backup index",
     "earlier": "taken by an earlier rule",
 }
@@ -56,7 +56,7 @@ class Message:
     labels: list[str]  # names, sorted
     user_labels: set[str]  # lower case
     flags: dict[str, bool]  # protection and exclusion name → applies
-    thread_id: str = ""  # '' when unknown (gone from Gmail)
+    thread_id: str = ""  # '' when unknown (gone from its mailbox)
 
 
 Hits = dict[tuple[str, str], list[str]]  # (account, Gmail search) → message IDs found
@@ -410,10 +410,10 @@ def summary(results: list[RuleResult], top: int) -> list[Table]:
             rules,
             notes=[
                 "In scope: the rule's scope, before its cut-off. Left out: already offloaded, in "
-                "Trash or Spam, gone from Gmail, not indexed, or taken by an earlier rule. "
-                "Kept: a protection applies. Offload: in the plan. Sizes are Gmail's estimates. "
-                "Forget after: 'offload forget --due' deletes what the rule offloaded from the "
-                "backup once it is that old and Gmail has deleted it."
+                "Trash or Spam, gone from its mailbox, not indexed, or taken by an earlier rule. "
+                "Kept: a protection applies. Offload: in the plan. Sizes are the mailbox's own "
+                "figures. Forget after: 'offload forget --due' deletes what the rule offloaded "
+                "from the backup once it is that old and its mailbox has deleted it."
             ],
             limit=False,
         ),
