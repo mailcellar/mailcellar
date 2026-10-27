@@ -187,6 +187,13 @@ def test_pruned_batches_and_cli(report, capsys, tmp_path):
     cli.main(["health", "--csv", "reports"])
     assert capsys.readouterr().out.startswith(f"Backup health report — {A}, {B}")
     assert len(list((tmp_path / "reports").glob("health-*.csv"))) == 9
+    headers = {
+        h
+        for path in (tmp_path / "reports").glob("health-*.csv")
+        for h in path.read_text(encoding="utf-8").splitlines()[0].split(",")
+    }
+    assert {"Deleted in mailbox", "Not yet gone from mailbox"} <= headers  # Gmail or IMAP
+    assert not any("Gmail" in h for h in headers)
 
 
 def test_forget_runs_held_and_due(report, tmp_path):

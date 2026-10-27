@@ -16,6 +16,12 @@ Each run is logged in `<data root>/dedup/dedup-apply-log.csv`. How
 copies are matched and which one is kept:
 [docs/architecture.md](../architecture.md#deduplication).
 
+On an IMAP account (one the server lets mailcellar move mail on), the
+label is a `$mailcellar-` keyword, or with `setup --review folder` a move
+into `mailcellar/review/<label>`: clearing the keyword, or moving the
+message out, vetoes it. Trash is the folder the server marks `\Trash`.
+See [Backing up an IMAP account](../guide/imap.md#3-offload-and-remove-duplicates).
+
 ## Options
 
 The index, plan and log default to files in `<data root>/dedup/`.

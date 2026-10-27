@@ -71,8 +71,9 @@ def totals(con) -> Table:
         ],
         rows,
         notes=[
-            "Size is Gmail's sizeEstimate (equal to the stored .eml size on these "
-            "backups); attachments are decoded bytes, so their share is approximate. "
+            "Size is the mailbox's own figure (Gmail's sizeEstimate, an IMAP server's "
+            "RFC822.SIZE), equal to the stored .eml size on these backups; attachments "
+            "are decoded bytes, so their share is approximate. "
             "Sizes use binary units (1 GB = 1024³ bytes)."
         ],
         limit=False,
@@ -171,7 +172,7 @@ def largest_messages(con) -> Table:
             ("Size", "size"),
             ("Attachments", "int"),
             ("Labels", "text"),
-            ("Gmail ID", "text"),
+            ("ID", "text"),  # the backup's: Gmail's, or an IMAP account's
         ],
         rows,
     )
@@ -222,7 +223,7 @@ def largest_attachments(con) -> Table:
             ("Date", "text"),
             ("Sender", "text"),
             ("Subject", "text"),
-            ("Gmail ID", "text"),
+            ("ID", "text"),  # the backup's: Gmail's, or an IMAP account's
         ],
         rows,
     )
@@ -309,7 +310,7 @@ def candidates(con, opts: Options) -> Table:
             ("Size", "size"),
             ("Attachments", "int"),
             ("Labels", "text"),
-            ("Gmail ID", "text"),
+            ("ID", "text"),  # the backup's: Gmail's, or an IMAP account's
         ],
         rows,
         notes=notes,
@@ -349,7 +350,7 @@ def batch_rows(raw: list[tuple]) -> list[tuple]:
 
 
 def offload_batches(con) -> Table:
-    """What each offload batch took out of Gmail, and how much of it Gmail has let go."""
+    """What each offload batch took out of its mailbox, and how much of it has been let go."""
     raw = con.execute("""
         SELECT o.account, o.batch, group_concat(o.rule, char(31)), count(*),
                sum(o.restored_ms IS NOT NULL),
@@ -366,7 +367,7 @@ def offload_batches(con) -> Table:
         GROUP BY o.account, o.batch ORDER BY min(o.trashed_ms), o.account, o.batch""").fetchall()
     return Table(
         "offload-batches",
-        "Offload batches: space freed in Gmail",
+        "Offload batches: space freed in their mailboxes",
         [
             ("Account", "text"),
             ("Batch", "text"),

@@ -148,7 +148,7 @@ def cmd_plan(args) -> None:
     size = sum(r["size"] for r in rows)
     logger.info(
         f"Plan → {args.plan}: {len(rows):,} messages, {human_size(size)} (kept as {kept}). "
-        "Nothing in Gmail or the backup was changed."
+        "Nothing in the mailboxes or the backup was changed."
     )
 
 
@@ -506,7 +506,7 @@ def main(argv=None, prog: str | None = None) -> None:
     )
     p = argparse.ArgumentParser(
         prog=prog or "mailcellar offload",
-        description="Take old mail out of Gmail, keeping it in the backup.",
+        description="Take old mail out of its mailbox, Gmail or IMAP, keeping it in the backup.",
     )
     sub = p.add_subparsers(dest="command", required=True)
 
@@ -541,7 +541,7 @@ def main(argv=None, prog: str | None = None) -> None:
     pl.set_defaults(func=cmd_plan)
 
     ap = sub.add_parser(
-        "apply", help="Check the plan against Gmail and the backup; label, then trash"
+        "apply", help="Check the plan against the mailbox and the backup; label, then trash"
     )
     ap.add_argument(
         "accounts", nargs="*", help="Only these accounts' plan rows (default: all of them)"
@@ -554,7 +554,7 @@ def main(argv=None, prog: str | None = None) -> None:
         default=None,
         metavar="NAME",
         help="Add the label NAME (default: %(const)s) to messages that pass the checks; "
-        "it is created if missing. Removing it in Gmail vetoes a message",
+        "it is created if missing. Removing it in the mailbox vetoes a message",
     )
     stage.add_argument(
         "--trash",
@@ -580,7 +580,7 @@ def main(argv=None, prog: str | None = None) -> None:
 
     fg = sub.add_parser(
         "forget",
-        help="Delete offloaded mail Gmail no longer has from the backup, held "
+        help="Delete offloaded mail its mailbox no longer has from the backup, held "
         f"{forget.HOLD_DAYS} days first",
     )
     fg.add_argument(

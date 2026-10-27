@@ -188,7 +188,9 @@ def test_cli_text_and_csv(two_accounts, tmp_path, capsys):
     files = sorted(p.name for p in (tmp_path / "reports").iterdir())
     assert "storage-candidates.csv" in files and len(files) == 12  # with offload-batches
     with (tmp_path / "reports" / "storage-largest-messages.csv").open() as fh:
-        assert len(list(csv.reader(fh))) == 1 + 7  # header + every message
+        rows = list(csv.reader(fh))
+    assert len(rows) == 1 + 7  # header + every message
+    assert "ID" in rows[0] and not any("Gmail" in h for h in rows[0])  # Gmail's or IMAP's
 
 
 def test_cli_rejects_unmigrated_sidecar(tmp_path, monkeypatch):

@@ -119,10 +119,10 @@ def state(con, folders: list[Path], opts: Options, now: int) -> Table:
         notes=[
             "No .eml: indexed in msg-db.sqlite but the file is missing (backup re-fetches it). "
             "Not in sidecar / Older parser: run mailcellar meta. Offloaded: removed from "
-            "Gmail on purpose and kept in the backup; in Trash until Gmail empties it (30 "
-            "days), as last seen by count, a prune or a backup. Start point: a stored "
-            "history ID; its age is the time since the last backup that stored one. Times "
-            "are UTC."
+            "its mailbox on purpose and kept in the backup; in Trash until the mailbox "
+            "empties it (Gmail after 30 days), as last seen by count, a prune or a backup. "
+            "Start point: a stored history ID; its age is the time since the last backup "
+            "that stored one. Times are UTC."
         ],
         limit=False,
     )
@@ -148,7 +148,7 @@ def runs(con) -> Table:
             ("Downloaded", "int"),
             ("Label updates", "int"),
             ("Skipped", "int"),
-            ("Deleted in Gmail", "int"),
+            ("Deleted in mailbox", "int"),
             ("Pruned", "int"),
             ("Offloaded", "int"),
             ("Missing", "int"),
@@ -166,7 +166,7 @@ def runs(con) -> Table:
             "backup that could not sign in (status error; renew with mailcellar auth), and "
             "access-refused one whose service account Google refused (an admin fixes the "
             "domain-wide delegation). "
-            "Deleted in Gmail: backed-up "
+            "Deleted in mailbox: backed-up "
             "messages permanently deleted there (backup, count), offloaded mail apart. Offloaded: "
             "offloaded messages in the backup (count, prune). Missing / Only in backup: count's "
             "comparison (only in backup includes mail in Trash or Spam, not offloaded mail)."
@@ -310,9 +310,9 @@ def holds_table(folders: list[Path], now: int) -> Table:
         rows,
         notes=[
             "Mail a hold keeps is left alone by offload, dedup, backup --prune and offload "
-            "forget, in Gmail and in the backup; mail that matches later is kept too. Only in "
-            "backup: Gmail no longer has it, so the backup holds the only copy. A hold can "
-            "only keep what has been backed up: run backups while one is in force "
+            "forget, in its mailbox and in the backup; mail that matches later is kept too. "
+            "Only in backup: its mailbox no longer has it, so the backup holds the only "
+            "copy. A hold can only keep what has been backed up: run backups while one is in force "
             "('mailcellar hold show NAME' has the details)."
         ],
         limit=False,
@@ -399,14 +399,14 @@ def retention_table(folders: list[Path], now: int) -> Table:
             ("Rule", "text"),
             ("Forget after", "text"),
             ("Due", "int"),
-            ("Not yet gone from Gmail", "int"),
+            ("Not yet gone from mailbox", "int"),
             ("Held", "int"),
         ],
         rows,
         notes=[
-            "Mail a rule offloaded that is older than its forget_after. Due: Gmail has deleted "
-            "it, as last seen by a backup or count; 'mailcellar offload forget --due' checks "
-            "with Gmail again, then deletes it from the backup, held "
+            "Mail a rule offloaded that is older than its forget_after. Due: its mailbox has "
+            "deleted it, as last seen by a backup or count; 'mailcellar offload forget --due' "
+            "checks with the mailbox again, then deletes it from the backup, held "
             f"{forget.HOLD_DAYS} days first. Held: a legal hold keeps it."
         ],
         limit=False,

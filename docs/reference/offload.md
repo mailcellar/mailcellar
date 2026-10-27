@@ -57,6 +57,12 @@ about, even after retries, is skipped and tried again by the next run. Trashed m
 offloaded, so `backup --prune` keeps them in the backup after Gmail empties
 its Trash.
 
+On an IMAP account (one the server lets mailcellar move mail on), the
+label is a `$mailcellar-` keyword, or with `setup --review folder` a move
+into `mailcellar/review/<label>`: clearing the keyword, or moving the
+message out, vetoes it. Trash is the folder the server marks `\Trash`.
+See [Backing up an IMAP account](../guide/imap.md#3-offload-and-remove-duplicates).
+
 **How long it takes:**
 - labelling is fast: thousands of messages a minute;
 - trashing adds Gmail's `TRASH` label a thousand messages per call, then
@@ -157,7 +163,7 @@ A dry run unless `--label` or `--trash` is given.
 | Option | What it does |
 | --- | --- |
 | `ACCOUNT ...` | Only these accounts' plan rows (default: all) |
-| `--label [NAME]` | Add the label NAME (default `offload-candidate`) to messages that pass the checks; it is created if missing. Removing it in Gmail vetoes a message |
+| `--label [NAME]` | Add the label NAME (default `offload-candidate`) to messages that pass the checks; it is created if missing. Removing it in the mailbox vetoes a message |
 | `--trash [NAME]` | Move messages that pass the checks and carry the label NAME to Trash, and record them as offloaded |
 | `--rule RULE` | Only this rule's rows (repeatable) |
 | `--limit N` | Only the first N plan rows |

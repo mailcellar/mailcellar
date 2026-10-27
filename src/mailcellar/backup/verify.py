@@ -304,7 +304,7 @@ def main(argv=None, prog: str | None = None) -> int:
         description="Check that each backup's files are intact: every indexed message "
         "has its .eml, it parses, and its content (visible text and attachments) matches "
         "meta.sqlite. --chain also checks every byte against the hash chain. "
-        "Changes nothing; needs no Gmail access. Exits 1 if anything is wrong.",
+        "Changes nothing; needs no access to the mailbox. Exits 1 if anything is wrong.",
     )
     p.add_argument(
         "accounts",

@@ -189,7 +189,7 @@ def cmd_show(args) -> int:
         gone = [f for f in known if not f.in_gmail]
         if gone:
             print(
-                f"  {len(gone):,} of them Gmail no longer has, as far as the backup knows: "
+                f"  {len(gone):,} of them no longer in their mailbox, as far as the backup knows: "
                 "it holds the only copy"
             )
         unknown = len(facts) - len(known)
@@ -207,8 +207,9 @@ def main(argv=None, prog: str | None = None) -> int:
     p = argparse.ArgumentParser(
         prog=prog or "mailcellar hold",
         description="Legal holds: mail that offload, dedup, backup --prune and offload forget "
-        "leave alone, in Gmail and in the backup. A hold follows its criteria, so mail that "
-        "matches later is held too. Placing or releasing one changes nothing in Gmail.",
+        "leave alone, in its mailbox and in the backup. A hold follows its criteria, so mail "
+        "that matches later is held too. Placing or releasing one changes nothing in the "
+        "mailbox.",
     )
     sub = p.add_subparsers(dest="command", required=True)
 

@@ -36,6 +36,16 @@ in beta, so commands and options may still change before 1.0.
   folders it came from recorded in the backup. Setting an IMAP account up again
   keeps its port, username, CA file and review mode unless given.
 
+### Changed
+- Report columns that named Gmail name the mailbox, for IMAP accounts:
+  `report health`'s "Deleted in Gmail" and "Not yet gone from Gmail" are
+  "Deleted in mailbox" and "Not yet gone from mailbox", and `report
+  storage`'s "Gmail ID" is "ID". `report --csv`'s headers change with them.
+- The message ID's field is `id`, not `gmail_id`, in `search --format json`
+  and in an `export` zip's `index.csv`: it is the backup's ID, Gmail's or
+  an IMAP account's. Plans, apply logs and manifests, which mailcellar
+  reads back, keep calling it `gmail_id`, and the restore log `source_id`.
+
 ### Fixed
 - `restore`'s notes reach its log. A restored message whose restore label
   couldn't be added (or, on an IMAP account, whose offload mark couldn't be
@@ -45,7 +55,8 @@ in beta, so commands and options may still change before 1.0.
   account, offload, dedup and restore speak of "the server". Reasons that
   hold for either kind of account now say "its mailbox": a skipped
   message is "no longer in its mailbox" or "couldn't read it from its
-  mailbox" (it was "… Gmail"), and `restore --help` covers IMAP accounts.
+  mailbox" (it was "… Gmail"). Commands' help, the reports' notes and the
+  docs cover IMAP accounts.
 
 **Upgrading:** `meta.sqlite` schema 11 → 13 (two new tables for IMAP
 accounts), on the first run, after copying the file aside.

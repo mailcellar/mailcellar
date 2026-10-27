@@ -14,7 +14,7 @@ message as stored, preceded by an X-Gmail-Labels header (comma-separated,
 system labels by Takeout's English names, as Google Takeout writes it, and
 user labels first), with lines that start with `From ` escaped the mboxrd way.
 zip: the .eml files under their paths in the backup (<year>/<month>/<day>/),
-and index.csv with the date, sender, subject, labels, Gmail ID and file.
+and index.csv with the date, sender, subject, labels, ID and file.
 
 The decisions (export_format, inside, takeout_names, mbox_entry, index_row,
 safe_cell) are pure; reading the backup and writing the file are a thin layer around them.
@@ -44,7 +44,7 @@ from mailcellar.restore.cli import add_selection_arguments, selection
 
 logger = logging.getLogger(__name__)
 
-INDEX_COLUMNS = ["date", "sender", "subject", "labels", "gmail_id", "file"]
+INDEX_COLUMNS = ["date", "sender", "subject", "labels", "id", "file"]  # id: Gmail's or IMAP's
 INDEX_NAME = "index.csv"
 # Takeout's English names for Gmail's system labels, by the label IDs the
 # backup stores; the categories are "Category Updates" and so on. Readers of
@@ -177,7 +177,7 @@ def index_row(c: Candidate, sender: str, subject: str, file: str) -> dict[str, s
         "sender": safe_cell(sender),
         "subject": safe_cell(subject),
         "labels": safe_cell(";".join(takeout_names(c.labels))),
-        "gmail_id": c.source_id,
+        "id": c.source_id,
         "file": file,
     }
 

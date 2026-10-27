@@ -1,4 +1,4 @@
-# What changes Gmail
+# What changes your mailbox
 
 Everything is read-only except these, and each one asks for confirmation
 or stages its changes:
@@ -31,3 +31,23 @@ or stages its changes:
 
 Backups need only read access. `dedup apply`, `offload apply` and
 `restore --yes` ask for modify access to the account they change.
+
+## On an IMAP account
+
+The same commands, and only they, change an IMAP account's server, and
+only one that has MOVE and a special-use Trash; any other is refused,
+saying what's missing. Backing up opens folders read-only (`EXAMINE`) and
+leaves even the read state alone.
+
+- **`--label`** adds a `$mailcellar-` keyword, or, with review by folder,
+  moves the message into a `mailcellar/review/` folder.
+- **`--trash`** moves it to the folder the server marks `\Trash`.
+- **`restore --yes`** moves it back out of Trash, or appends it where the
+  server no longer has it, with its flags and date.
+- **Nothing is expunged**, ever: when Trash is emptied is up to the server
+  or a mail client, so the backup check before each move is what keeps
+  offloading safe.
+
+There are no scopes: the password allows reading and writing, so the
+server's abilities are the check. Details:
+[Backing up an IMAP account](../guide/imap.md).

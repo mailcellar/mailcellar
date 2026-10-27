@@ -57,7 +57,7 @@ ignore. This has not been tried in every client, so check a small export
 first (`--limit 20`) before exporting a lot.
 
 **The zip's index.** `index.csv` has one row per message: date (UTC), sender,
-subject, labels (separated by `;`), Gmail ID and the file's path inside the
+subject, labels (separated by `;`), ID and the file's path inside the
 zip. A subject or sender that begins with `=`, `+`, `-` or `@` is written with
 a `'` in front. Mail is written by other people, and without the `'` a
 spreadsheet could run such a subject as a formula. If you see a `'`, that is

@@ -229,7 +229,7 @@ def export_csv(data: dict, csv_path: Path):
 
 
 def main(argv=None, prog: str | None = None):
-    p = argparse.ArgumentParser(prog=prog, description="Sender/Domain analysis of a Gmail backup.")
+    p = argparse.ArgumentParser(prog=prog, description="Sender/Domain analysis of a backup.")
     # Filled in by `report senders ACCOUNT` from the account, so it stays out of --help.
     p.add_argument("--folder", required=True, help=argparse.SUPPRESS)
     p.add_argument(

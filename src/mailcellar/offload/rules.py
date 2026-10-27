@@ -117,8 +117,8 @@ def short_retention(rule: Rule) -> str:
         return ""
     return (
         f"rule {rule.name!r}: forget_after ({years_text(rule.forget_after)}) is no longer than "
-        f"before ({rule.before}), so all it offloads is due to be forgotten once Gmail has "
-        "deleted it"
+        f"before ({rule.before}), so all it offloads is due to be forgotten once its mailbox "
+        "has deleted it"
     )
 
 
