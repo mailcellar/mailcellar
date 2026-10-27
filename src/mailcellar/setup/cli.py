@@ -160,47 +160,47 @@ def existing_client(config: Path, entries: dict[str, str]) -> Path | None:
     return None
 
 
+def private_status(data: bytes, dest: Path, force: bool, what: str, why: str) -> str:
+    """
+    What writing `data` to `dest` would do: 'added', 'kept' or 'replaced'.
+    Raises SetupError for a different file there without --force. Writes nothing.
+    """
+    if not dest.is_file():
+        return "added"
+    if dest.read_bytes() == data:
+        return "kept"
+    if not force:
+        raise SetupError(f"{dest} holds a different {what}; --force replaces it ({why})")
+    return "replaced"
+
+
 def install_private(data: bytes, dest: Path, force: bool, what: str, why: str) -> str:
     """Write `data` to `dest`, owner-only, in a private folder. 'added', 'kept' or 'replaced'."""
-    status = "added"
-    if dest.is_file():
-        if dest.read_bytes() == data:
-            return "kept"
-        if not force:
-            raise SetupError(f"{dest} holds a different {what}; --force replaces it ({why})")
-        status = "replaced"
-    dest.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    write_private(dest, data)
+    status = private_status(data, dest, force, what, why)
+    if status != "kept":
+        dest.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        write_private(dest, data)
     return status
+
+
+CLIENT_WHY = "the account's tokens belong to the old client, so Google asks for consent again"
+KEY_WHY = "every account in the domain set up with it reads through the new one"
 
 
 def install_client(source: Path, folder: Path, force: bool) -> str:
     """Copy the client into the account's folder, owner-only. 'added', 'kept' or 'replaced'."""
-    return install_private(
-        source.read_bytes(),
-        folder / CLIENT_FILE,
-        force,
-        "client",
-        "the account's tokens belong to the old client, so Google asks for consent again",
-    )
+    return install_private(source.read_bytes(), folder / CLIENT_FILE, force, "client", CLIENT_WHY)
 
 
-def install_service_account(source: Path, config: Path, address: str, force: bool) -> Path:
-    """Check the key and install it for the address's domain, owner-only. Returns where."""
+def read_service_account(source: Path, config: Path, address: str) -> tuple[bytes, Path]:
+    """The key's bytes, checked, and where it goes for the address's domain. Writes nothing."""
     text = source.read_text()
     try:
         gmailapi.check_service_account(text)
         dest = gmailapi.service_account_path(config, address.rpartition("@")[2])
     except gmailapi.GmailError as exc:
         raise SetupError(f"{source}: {exc}") from None
-    install_private(
-        text.encode(),
-        dest,
-        force,
-        "service-account key",
-        "every account in the domain reads through the new one",
-    )
-    return dest
+    return text.encode(), dest
 
 
 def show_steps() -> None:
@@ -274,20 +274,36 @@ def run_service_account(args, config: Path, accounts_file: Path, text: str, entr
     source = parse_path(args.service_account)
     if not source.is_file():
         raise SetupError(f"{source}: no such file")
-    key = install_service_account(source, config, address, args.force)
     folder = config / name
-    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
-    # This account, and only this one, reads through the key (gmailapi.service_account_key).
-    (folder / gmailapi.SERVICE_ACCOUNT_MARKER).write_text(f"{key.name}\n")
+    # Everything is checked before anything is written: a key, once installed, serves
+    # every account in the domain set up with it.
+    data, key = read_service_account(source, config, address)
+    key_status = private_status(data, key, args.force, "service-account key", KEY_WHY)
+    client = None
     if args.client is not None:
         client = parse_path(args.client)
         if not client.is_file():
             raise SetupError(f"{client}: no such file")
         check_client(client.read_text())
+        private_status(client.read_bytes(), folder / CLIENT_FILE, args.force, "client", CLIENT_WHY)
+
+    install_private(data, key, args.force, "service-account key", KEY_WHY)
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # This account, and only this one, reads through the key (gmailapi.service_account_key).
+    (folder / gmailapi.SERVICE_ACCOUNT_MARKER).write_text(f"{key.name}\n")
+    if client is not None:
         install_client(client, folder, args.force)
     if name not in entries:
         accounts_file.write_text(add_account(text, name, address))
     print(f"{address} is account '{name}', read through the service account in {key}")
+    print(
+        f"  key: {key_status}"
+        + (
+            " (every account in the domain set up with it reads through the new one)"
+            if key_status == "replaced"
+            else ""
+        )
+    )
     print(f"  accounts.toml: {'already listed' if name in entries else 'added'}")
     print("  read-only: backups need no sign-in; anything that changes Gmail needs the")
     if (folder / CLIENT_FILE).is_file():
