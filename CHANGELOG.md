@@ -28,6 +28,8 @@ in beta, so commands and options may still change before 1.0.
   known, where it let such a message go.
 - `report health` and `schedule status` warn when the offload rules can't
   be read, where they showed nothing due under retention.
+- A number of years (`--before 5`, `forget_after`) counted from 29 February
+  lands on the 28th in a year without one, where it failed.
 
 ## 0.15.1 (2026-10-27)
 
