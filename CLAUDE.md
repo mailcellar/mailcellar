@@ -51,7 +51,8 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
   `restore --yes`, `backup --prune`, `offload forget --yes`,
   `offload forget --empty --yes` and `--undo` (they delete from, or move
   within, the backup), `auth --scope modify` (also as
-  `dedup auth`), `schedule install/remove`, and
+  `dedup auth`), `setup` (it installs an OAuth client or a
+  service-account key and opens a sign-in), `schedule install/remove`, and
   moving or deleting the data root or config folder. Fine without asking:
   - dry runs, `config`, `count`, `verify`, `schedule status`, the reports;
   - `export`, read-only, with `--to` in the scratchpad (it copies mail);
