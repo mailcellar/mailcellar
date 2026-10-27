@@ -249,7 +249,10 @@ since the plan. Removing the label in Gmail vetoes a message.
    the backup of the account restored into.
 
 Gmail matches an import to the message already holding its Message-ID, so
-a retried upload returns the same message rather than a copy. The old ID
+a retried upload returns the same message rather than a copy. A message
+with no Message-ID has nothing to match, so `import_messages` sends it
+again only after a rate limit, which Gmail refuses before acting on; after
+a server error or a timeout it is reported as possibly imported. The old ID
 of an imported message stays in the backup: `sidecar.kept_ids()` protects
 it from `--prune`, and `superseded_ids()` keeps it out of reports and
 dedup. With `--to`, restored rows carry the target account and leave the

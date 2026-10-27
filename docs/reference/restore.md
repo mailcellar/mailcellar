@@ -73,7 +73,12 @@ included, is skipped and logged; a backup from before the chain is checked
 by its content hash only. The backup indexes each new Gmail ID, sharing the existing `.eml`, so the
 next backup doesn't download it again. A message whose Message-ID Gmail
 already holds with *other* content is skipped: Gmail would match the
-upload to that message instead of storing this one.
+upload to that message instead of storing this one. A message with no
+Message-ID is uploaded again after an error only if Gmail refused it for
+its rate limit: after a server error or a timeout Gmail may have stored
+it, and a second upload would store a second copy. Such a message is
+reported as failed, "it may have been imported"; look for it in Gmail
+before running the restore again, which would upload it again.
 
 **Into another account** (`--to`): every message is looked up by
 Message-ID there, and new IDs go into that account's backup. It needs

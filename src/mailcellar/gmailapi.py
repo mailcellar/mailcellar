@@ -66,6 +66,10 @@ MAX_ATTEMPTS = 8
 # more than two minutes.
 BATCH_ATTEMPTS = MAX_ATTEMPTS + 4
 RETRY_STATUSES = {429, 500, 502, 503, 504}
+MAYBE_IMPORTED = (
+    "it may have been imported, and with no Message-ID it was not sent again: "
+    "check Gmail for it before running again"
+)
 # Waits at least this long (seconds) are logged at INFO, so a run held up by
 # Gmail's quota says so; shorter ones, and every retried request, at DEBUG (-v).
 LONG_WAIT = 10
@@ -511,6 +515,27 @@ def is_retryable(exc) -> bool:
     return exc.status_code == 403 and b"ateLimitExceeded" in content
 
 
+def is_rate_limit(exc) -> bool:
+    """
+    429, or 403 rate limit exceeded: Gmail refused the request without
+    acting on it, so sending it again can't do it twice.
+    """
+    from googleapiclient.errors import HttpError
+
+    if not isinstance(exc, HttpError):
+        return False
+    return exc.status_code == 429 or (
+        exc.status_code == 403 and b"ateLimitExceeded" in (exc.content or b"")
+    )
+
+
+def has_message_id(raw: bytes) -> bool:
+    """Whether a message's headers carry a Message-ID. Pure."""
+    from email.parser import BytesHeaderParser
+
+    return bool((BytesHeaderParser().parsebytes(raw).get("Message-ID") or "").strip())
+
+
 def describe(exc) -> str:
     """A short name for a retryable failure, for the log."""
     from googleapiclient.errors import HttpError
@@ -595,23 +620,32 @@ class GmailAccount:
         progress.waited(delay)
         self._sleep(delay)
 
-    def _execute(self, request):
-        """Execute one request, retrying rate-limit and transient errors."""
+    def _execute(self, request, resend=is_retryable):
+        """
+        Execute one request, retrying rate-limit and transient errors, or only
+        those resend(exc) allows.
+        """
         for attempt in range(MAX_ATTEMPTS):
             try:
                 return request.execute()
             except Exception as exc:
-                if not is_retryable(exc) or attempt == MAX_ATTEMPTS - 1:
+                if not (is_retryable(exc) and resend(exc)) or attempt == MAX_ATTEMPTS - 1:
                     raise
                 self._backoff(attempt, f"{describe(exc)}, attempt {attempt + 1} of {MAX_ATTEMPTS}")
 
     def _run_batches(
-        self, ids: list[str], make_request, on_result, batch_size: int = BATCH_SIZE
+        self,
+        ids: list[str],
+        make_request,
+        on_result,
+        batch_size: int = BATCH_SIZE,
+        resend=lambda _id, _exc: True,
     ) -> None:
         """
         Send make_request(id) for every id in batches. on_result(id, response,
         exception) is called once per id with its final outcome; retryable
-        failures are re-sent first, up to BATCH_ATTEMPTS attempts per id.
+        failures are re-sent first, up to BATCH_ATTEMPTS attempts per id,
+        unless resend(id, exception) is false: then the failure is final.
         Each final outcome advances the open Progress, if the caller made one.
 
         Gmail answers 429 "Too many concurrent requests" when a batch runs
@@ -632,7 +666,11 @@ class GmailAccount:
             refused: Counter = Counter()  # why requests in this batch were refused
 
             def callback(request_id, response, exception, retry=retry, refused=refused):
-                if exception is not None and is_retryable(exception):
+                if (
+                    exception is not None
+                    and is_retryable(exception)
+                    and resend(request_id, exception)
+                ):
                     attempts[request_id] = attempts.get(request_id, 0) + 1
                     refused[describe(exception)] += 1
                     if attempts[request_id] < BATCH_ATTEMPTS:
@@ -648,8 +686,10 @@ class GmailAccount:
                 progress.advance()
 
             # A failure of the batch request itself means no callbacks ran;
-            # rebuild and resend the whole chunk.
+            # rebuild and resend the chunk, less what resend() holds back.
             for batch_attempt in range(MAX_ATTEMPTS):
+                if not chunk:
+                    break
                 batch = self.service.new_batch_http_request(callback=callback)
                 for gid in chunk:
                     batch.add(make_request(gid), request_id=gid)
@@ -659,6 +699,10 @@ class GmailAccount:
                 except Exception as exc:
                     if not is_retryable(exc) or batch_attempt == MAX_ATTEMPTS - 1:
                         raise
+                    for gid in [g for g in chunk if not resend(g, exc)]:
+                        chunk.remove(gid)
+                        on_result(gid, None, exc)
+                        progress.advance()
                     size = max(1, len(chunk) // 2)
                     self._backoff(batch_attempt, f"a batch request failed with {describe(exc)}")
             if retry:
@@ -1064,7 +1108,10 @@ class GmailAccount:
 
         Retrying is safe for a message with a Message-ID: Gmail matches an
         import to the message already holding that Message-ID and returns
-        its ID (tested against Gmail, 2026-10-25).
+        its ID (tested against Gmail, 2026-10-25). One with none is sent
+        again only after a rate limit, which Gmail refuses before acting on:
+        after a server error or a timeout it may have been stored, and a
+        second import would store a second copy.
         """
         from googleapiclient.http import MediaIoBaseUpload
 
@@ -1086,18 +1133,28 @@ class GmailAccount:
             upload = MediaIoBaseUpload(io.BytesIO(raw), mimetype="message/rfc822", resumable=True)
             return self.service.users().messages().import_(body=body, media_body=upload, **params)
 
+        no_id = {k for k, (raw, _labels) in messages.items() if not has_message_id(raw)}
+
+        def resend(key, exc) -> bool:
+            return key not in no_id or is_rate_limit(exc)
+
         def on_result(key, response, exception):
             if exception is None:
                 on_imported(key, response["id"])
+            elif is_retryable(exception) and not resend(key, exception):
+                failed.append(f"{key}: {describe(exception)}; {MAYBE_IMPORTED}")
             else:
                 failed.append(f"{key}: {exception}")
 
         small = [k for k, (raw, _labels) in messages.items() if len(raw) <= IMPORT_INLINE_LIMIT]
         large = [k for k in messages if len(messages[k][0]) > IMPORT_INLINE_LIMIT]
-        self._run_batches(small, request, on_result, batch_size=IMPORT_BATCH_SIZE)
+        self._run_batches(small, request, on_result, IMPORT_BATCH_SIZE, resend)
         for key in large:
             try:
-                on_result(key, self._execute(request(key, media=True)), None)
+                response = self._execute(
+                    request(key, media=True), lambda exc, k=key: resend(k, exc)
+                )
+                on_result(key, response, None)
             except Exception as exc:
                 on_result(key, None, exc)
             progress.advance()

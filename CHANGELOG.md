@@ -21,6 +21,10 @@ in beta, so commands and options may still change before 1.0.
   Cloud steps.
 
 ### Fixed
+- `restore` no longer uploads a message with no Message-ID a second time
+  after a server error or a timeout, when Gmail may have stored the first
+  upload: it reports it as possibly imported instead, so a second copy
+  isn't made. It is still retried after a rate limit.
 - `setup` creates a new config folder readable only by you; it was left
   open to other users (listing the account names) when `setup` made it.
 
