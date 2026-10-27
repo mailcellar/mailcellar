@@ -9,9 +9,8 @@ and legal holds cover it too.
 messages fetched with `BODY.PEEK[]`, so nothing on the server changes,
 not even a message's read state. **Offloading and removing duplicates**
 also work, on servers that can move mail to Trash safely (step 3 below),
-and so does **restoring** it (step 4). Between Gmail and IMAP accounts,
-restore comes later
-([#113](https://github.com/mailcellar/mailcellar/issues/113)).
+and so does **restoring** it (step 4), also between Gmail and IMAP
+accounts.
 
 ## 1. Add the account
 
@@ -107,10 +106,10 @@ what keeps offloading safe, not the Trash.
 ## 4. Restore
 
 `restore` puts an IMAP backup's mail back into its account, or into
-another IMAP account (`--to`), as it does for Gmail:
+another account (`--to`), IMAP or Gmail, as it does for Gmail:
 
 - a message still in Trash is moved back to the folders it lived in (a
-  folder review's record, else its labels in the backup; INBOX if none),
+  folder review's record, else its labels in the backup; the archive folder if none),
   and its review mark taken off;
 - a message the server no longer has is appended with its flags and the
   date the server first received it (as the backup recorded it), into
@@ -118,6 +117,15 @@ another IMAP account (`--to`), as it does for Gmail:
   ID, so the next backup has nothing new to fetch;
 - restored mail gets a `$mailcellar-restored.<date>` keyword, where the
   server keeps keywords (otherwise restore says so and carries on).
+
+**Between Gmail and IMAP accounts** the target decides: a Gmail backup
+restored into an IMAP account has its labels made folders (INBOX and the
+server's Sent and Drafts for Gmail's own, a folder per user label,
+matched whatever its case and nested at `/` only; archived mail into the
+folder the server marks as its archive, else Archive), unread
+and starred as flags, and Important and the categories left out; an
+IMAP backup restored into Gmail has its folders made labels. A message
+filed under several labels goes into each of those folders.
 
 The message goes back byte for byte: no Date header is added, as it is
 for Gmail, since an IMAP server keeps the date apart. mailcellar's own
@@ -127,8 +135,6 @@ folders when restoring a Takeout mbox.
 
 ## What it doesn't do
 
-- Restore an IMAP backup into a Gmail account, or a Gmail backup into an
-  IMAP one (coming, #113).
 - Gmail searches (`query` in offload rules): an IMAP account has none.
 - Keep IMAP keywords other than read, flagged and mailcellar's own
   (`$Forwarded` and the like).

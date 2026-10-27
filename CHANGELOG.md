@@ -24,8 +24,10 @@ in beta, so commands and options may still change before 1.0.
 - `restore` works on IMAP accounts: an IMAP backup goes back into its
   account, or another IMAP account. Mail still in Trash is moved back to
   the folders it lived in; mail the server no longer has is appended with
-  its flags and date, under the same ID. Between Gmail and IMAP accounts
-  it is refused for now.
+  its flags and date, under the same ID. `restore --to` also goes between
+  Gmail and IMAP accounts: Gmail labels become folders (archived mail
+  into Archive, Important and the categories left out), IMAP folders
+  become labels.
 - `setup --imap --review keyword|folder` chooses how offload and dedup
   mark an IMAP account's mail for review: a `$mailcellar-` keyword, or a
   move into a `mailcellar/review/` folder (moving it out keeps it), the
