@@ -69,7 +69,9 @@ def test_judge_compares_hashes_only_with_a_current_row():
     assert verify.judge(Read(problem=UNREADABLE), None) == UNREADABLE  # damage needs no row
     assert verify.judge(Read(content_hash="xyz"), None) == UNCHECKED
     assert verify.judge(Read(content_hash="xyz"), Stored("abc", "0")) == UNCHECKED  # old parser
-    assert verify.judge(Read(content_hash="xyz"), Stored("", PARSER_VERSION)) == UNCHECKED
+    # Recorded with no text or attachments: still none is EMPTY; some now is a change.
+    assert verify.judge(Read(content_hash=""), Stored("", PARSER_VERSION)) == verify.EMPTY
+    assert verify.judge(Read(content_hash="xyz"), Stored("", PARSER_VERSION)) == MISMATCH
 
 
 def test_select_keeps_index_order_and_samples_within_the_scope():
@@ -141,6 +143,36 @@ def test_rows_from_an_older_parser_are_unchecked_not_wrong(folder, capsys):
     assert cli.main(["verify"]) == 0  # nothing to compare with is a warning, not a failure
     captured = capsys.readouterr()
     assert "3 unchecked" in captured.out and "mailcellar meta" in captured.err
+
+
+@pytest.fixture
+def link_only(tmp_path, monkeypatch):
+    """A backup of g1 and l1, whose body is only a link: no text left to hash."""
+    monkeypatch.chdir(tmp_path)
+    msgs = {"g1": eml("g1"), "l1": eml("l1", "https://example.com/shared/doc")}
+    gmail = FakeGmail({g: raw_response(g, body=b) for g, b in msgs.items()})
+    path = backup_folder(ACCOUNT)
+    commands.backup(gmail, ACCOUNT, path)
+    return path
+
+
+def test_a_message_with_nothing_to_hash_is_counted_apart_without_the_meta_advice(link_only, capsys):
+    report = verify.verify_backup(link_only)
+    assert (report.checked, report.empty, report.unchecked) == (1, 1, 0) and report.ok
+    assert cli.main(["verify"]) == 0
+    captured = capsys.readouterr()
+    assert (
+        "1 messages verified, 1 with no text or attachments to compare "
+        "(--chain checks their bytes), no problems"
+    ) in captured.out
+    assert "mailcellar meta" not in captured.err
+    assert cli.main(["verify", "--chain"]) == 0
+    assert "(their bytes are in the hash chain check)" in capsys.readouterr().out
+
+
+def test_a_message_recorded_empty_that_now_has_text_is_a_change(link_only):
+    eml_path(link_only, "l1").write_bytes(eml("l1", "words added later"))
+    assert problems(verify.verify_backup(link_only)) == {("l1", MISMATCH)}
 
 
 def test_without_meta_sqlite_nothing_can_be_compared(folder):

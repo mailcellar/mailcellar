@@ -41,6 +41,9 @@ content hash matches the one `meta.sqlite` recorded. It also checks that
 listed (`--top N` sets how many) and the exit status is 1 if there are any.
 A message with no current `meta.sqlite` row has nothing to compare with: it
 is counted as unchecked, with a warning, and `mailcellar meta` fills it in.
+A message with no visible text or attachments (a body that is only a link,
+images or nothing) has no content hash, by design; it is counted apart, as
+having nothing to compare, and `verify --chain` checks its bytes instead.
 A full run parses every message, so it takes a while on a large backup;
 progress goes to stderr.
 
