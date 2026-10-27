@@ -470,7 +470,7 @@ def run_imap(args, config: Path, text: str, entries) -> int:
     install_private(f"{password}\n".encode(), folder / gmailapi.IMAP_PASSWORD, True, "", "")
     write_account(config, text, entries, name, address, None, args.force)
     print(f"{address} is account '{name}', an IMAP account at {settings.host}")
-    print(f"  imap.toml: {toml_status}; password: owner-only in {folder / gmailapi.IMAP_PASSWORD}")
+    print(f"  imap.toml: {toml_status}; password: kept owner-only beside it, in {folder}")
     print(f"  accounts.toml: {'already listed' if name in entries else 'added'}")
     if info is None:
         print(f"\nNot signed in (--no-auth): mailcellar backup {name} will check it.")
