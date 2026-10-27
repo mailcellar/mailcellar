@@ -304,3 +304,24 @@ def test_auth_renew_says_it_doesnt_apply_to_the_service_account(
     out = capsys.readouterr().out
     assert "--renew doesn't apply" in out
     assert str(folder / gmailapi.SERVICE_ACCOUNT_MARKER) in out
+
+
+def test_setup_checks_the_client_before_it_changes_the_key(tmp_path, fake_google, capsys):
+    root = tmp_path / "config"
+    first, second = tmp_path / "first.json", tmp_path / "second.json"
+    first.write_text(json.dumps(KEY))
+    second.write_text(json.dumps({**KEY, "client_id": "999"}))
+    base = (ADDRESS, "--no-auth", "--config", str(root))
+    assert setup_run(*base, "--service-account", str(first)) == 0
+    assert "key: added" in capsys.readouterr().out
+    bad = tmp_path / "client.json"
+    bad.write_text('{"web": {}}')  # a Web application client: refused
+    with pytest.raises(SystemExit, match="Web application client"):
+        setup_run(*base, "--service-account", str(second), "--client", str(bad), "--force")
+    key = gmailapi.service_account_path(root, "example.org")
+    assert json.loads(key.read_text())["client_id"] == KEY["client_id"]  # unchanged
+    assert setup_run(*base, "--service-account", str(first)) == 0
+    assert "key: kept" in capsys.readouterr().out
+    assert setup_run(*base, "--service-account", str(second), "--force") == 0
+    out = capsys.readouterr().out
+    assert "key: replaced (every account in the domain set up with it" in out
