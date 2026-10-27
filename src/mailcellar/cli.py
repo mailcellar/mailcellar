@@ -177,6 +177,11 @@ def _config(argv: list[str]) -> int:
         tokens = []
         if cfg is not None and gmailapi.service_account_key(cfg, account) is not None:
             tokens.append("readonly (service account)")
+        if cfg is not None and gmailapi.is_imap(cfg):
+            try:
+                tokens.append(f"imap ({gmailapi.imap_settings(cfg, account).host})")
+            except gmailapi.GmailError as exc:
+                tokens.append(f"imap (can't be used: {exc})")
         for scope in gmailapi.SCOPES:
             if cfg is not None and gmailapi.token_file(cfg, scope).is_file():
                 authorised = gmailapi.token_authorised_at(cfg, scope)

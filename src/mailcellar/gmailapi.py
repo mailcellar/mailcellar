@@ -37,6 +37,7 @@ import random
 import re
 import time
 from collections import Counter, deque
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -121,6 +122,9 @@ SERVICE_ACCOUNTS_DIR = "service-accounts"  # <config>/service-accounts/<domain>.
 SERVICE_ACCOUNT_MARKER = "service-account"  # in an account's folder: it reads through the key
 SERVICE_ACCOUNT_KEYS = ("type", "client_email", "client_id", "private_key", "token_uri")
 DOMAIN_RE = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)+$")  # a host name: no /, no ..
+IMAP_SETTINGS = "imap.toml"  # in an account's folder: an IMAP account, and where its server is
+IMAP_PASSWORD = "imap-password"  # in an account's folder, owner-only
+HOST_RE = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)*$")  # a host name or IPv4 address
 
 
 def config_accounts(config_root: Path) -> dict[str, Path]:
@@ -166,6 +170,53 @@ def resolve_account(config_root: Path, name: str) -> tuple[str, Path]:
     return hits[0], known[hits[0]]
 
 
+@dataclass(frozen=True)
+class ImapSettings:
+    """Where an IMAP account's server is, from its imap.toml."""
+
+    host: str
+    port: int = 993
+    username: str = ""
+    cafile: Path | None = None  # a CA to trust besides the system's, for a private server
+
+
+def is_imap(config_folder: Path) -> bool:
+    """Whether the account in this config folder is an IMAP account (it has imap.toml)."""
+    return (config_folder / IMAP_SETTINGS).is_file()
+
+
+def imap_settings(config_folder: Path, account: str) -> ImapSettings | None:
+    """
+    An IMAP account's settings from <config_folder>/imap.toml, checked:
+    host, and optionally port (993), username (the address) and cafile.
+    None for a Gmail account. Raises GmailError for a file that can't be used.
+    """
+    import tomllib
+
+    path = config_folder / IMAP_SETTINGS
+    if not is_imap(config_folder):
+        return None
+    try:
+        data = tomllib.loads(path.read_text())
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
+        raise GmailError(f"{path}: {exc}") from None
+    host = data.get("host")
+    if not isinstance(host, str) or not HOST_RE.match(host.lower()):
+        raise GmailError(f"{path}: host = {host!r} is not a host name")
+    port = data.get("port", 993)
+    if isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536:
+        raise GmailError(f"{path}: port = {port!r} is not a port number")
+    username = data.get("username", account)
+    if not isinstance(username, str) or not username:
+        raise GmailError(f"{path}: username = {username!r} is not a user name")
+    cafile = data.get("cafile")
+    if cafile is not None:
+        if not isinstance(cafile, str) or not Path(cafile).expanduser().is_file():
+            raise GmailError(f"{path}: cafile = {cafile!r} is not a file")
+        cafile = Path(cafile).expanduser()
+    return ImapSettings(host.lower(), port, username, cafile)
+
+
 def find_config_folder(config_root: Path, account: str) -> Path:
     """The config/<folder> that accounts.toml assigns to `account`."""
     folder = config_accounts(config_root).get(account.lower())
@@ -174,6 +225,7 @@ def find_config_folder(config_root: Path, account: str) -> Path:
     if (
         not (folder / "client_secrets.json").is_file()
         and service_account_key(folder, account) is None
+        and not is_imap(folder)
     ):
         raise GmailError(f"{folder} has no client_secrets.json")
     return folder
