@@ -1,6 +1,6 @@
 """
 FakeImap: an IMAP server as imaplib.IMAP4 presents one, for ImapAccount's
-tests. It answers LOGIN, LIST, EXAMINE (select with readonly=True),
+tests. It answers LOGIN, CAPABILITY, LIST, EXAMINE (select with readonly=True),
 UID SEARCH and UID FETCH in imaplib's own shapes: (typ, data), a fetched
 literal as a (prefix, bytes) tuple followed by b")". It fails any command
 that would change the server, SELECT without readonly included, so a test
@@ -31,6 +31,8 @@ class FakeImap:
         self.drops = 0  # how many of the next commands fail as a dropped connection
         self.refused: set[str] = set()  # folders EXAMINE answers NO for
         self.bodiless: set[int] = set()  # UIDs whose BODY.PEEK[] comes back without a body
+        self.capabilities = ("IMAP4REV1", "LITERAL+", "AUTH=PLAIN")  # the greeting's, as imaplib
+        self.signed_in = ("IMAP4rev1", "LITERAL+", "SPECIAL-USE", "MOVE", "UIDPLUS")  # CAPABILITY
         self.add_folder("INBOX")
 
     # ── setting it up ────────────────────────────────────────────────────────
@@ -83,6 +85,10 @@ class FakeImap:
             for name, f in self.folders.items()
         ]
         return "OK", lines
+
+    def capability(self):
+        self._command("CAPABILITY")
+        return "OK", [" ".join(self.signed_in).encode()]
 
     def select(self, mailbox="INBOX", readonly=False):
         self._command("SELECT" if not readonly else "EXAMINE", mailbox)

@@ -16,13 +16,18 @@ it, so its backups need no sign-in. Other accounts in the domain are
 unchanged until they are set up the same way. Anything that
 changes Gmail still needs the user's own OAuth client and sign-in.
 
+An IMAP account (--imap HOST, #111) is set up with its server and password:
+imap.toml in its config folder, the password owner-only beside it. It is
+backed up only; nothing on the server changes.
+
 The decisions (check_client, accounts_entries, pick_name, add_account,
-latest_download) are pure; reading, writing and asking are a thin layer
+latest_download, imap_toml, server_report) are pure; reading, writing and asking are a thin layer
 around them. Prompts are skipped for what the command line already gives, so
 a fully specified call (ADDRESS and --client) asks nothing.
 """
 
 import argparse
+import getpass
 import json
 import logging
 import re
@@ -184,6 +189,7 @@ def install_private(data: bytes, dest: Path, force: bool, what: str, why: str) -
 
 
 CLIENT_WHY = "the account's tokens belong to the old client, so Google asks for consent again"
+IMAP_WHY = "the account reads from the server it names"
 KEY_WHY = "every account in the domain set up with it reads through the new one"
 
 
@@ -211,6 +217,60 @@ def read_service_account(source: Path, config: Path, address: str) -> tuple[byte
     except gmailapi.GmailError as exc:
         raise SetupError(f"{source}: {exc}") from None
     return text.encode(), dest
+
+
+def toml_string(text: str) -> str:
+    """A TOML basic string: quotes, backslashes and control characters escaped. Pure."""
+    escaped = (
+        "\\" + ch if ch in '"\\' else f"\\u{ord(ch):04x}" if ch < " " or ch == "\x7f" else ch
+        for ch in text
+    )
+    return '"' + "".join(escaped) + '"'
+
+
+def imap_toml(settings: gmailapi.ImapSettings, address: str) -> str:
+    """imap.toml's text for these settings, leaving out what is the default. Pure."""
+    lines = [f"host = {toml_string(settings.host)}"]
+    if settings.port != 993:
+        lines.append(f"port = {settings.port}")
+    if settings.username != address:
+        lines.append(f"username = {toml_string(settings.username)}")
+    if settings.cafile is not None:
+        lines.append(f"cafile = {toml_string(str(settings.cafile))}")
+    return "\n".join(lines) + "\n"
+
+
+def gmail_files(folder: Path) -> list[str]:
+    """What in an account's config folder makes it a Gmail account: client, tokens, key."""
+    if not folder.is_dir():
+        return []
+    named = [n for n in (CLIENT_FILE, gmailapi.SERVICE_ACCOUNT_MARKER) if (folder / n).is_file()]
+    return named + sorted(p.name for p in folder.glob("*token-*.json"))
+
+
+def server_report(info) -> list[str]:
+    """What setup says about an IMAP server: its folders, and what it allows. Pure."""
+    from mailcellar.imap import HIDDEN
+
+    kept = [f for f in info.folders if f.label not in HIDDEN]
+    labels = sorted({f.label for f in kept})
+    shown = ", ".join(labels[:8]) + (", …" if len(labels) > 8 else "")
+    left_out = sorted({f.label for f in info.folders} & HIDDEN)
+    return [
+        f"  folders backed up: {len(kept)} ({shown})",
+        *(
+            [f"  read, not backed up: {', '.join(left_out)} (mail moved there stays backed up)"]
+            if left_out
+            else []
+        ),
+        "  backup: read-only (EXAMINE and BODY.PEEK: not even \\Seen changes)",
+        "  offload, later: "
+        + (
+            "possible (MOVE and a special-use Trash)"
+            if info.can_offload
+            else "not on this server (it needs MOVE and a special-use Trash)"
+        ),
+    ]
 
 
 def show_steps() -> None:
@@ -261,6 +321,11 @@ def run(args) -> int:
     text = accounts_file.read_text() if accounts_file.is_file() else ""
     entries = accounts_entries(text)
 
+    if args.imap is not None:
+        return run_imap(args, config, text, entries)
+    stray = [o for o in ("port", "username", "cafile") if getattr(args, o) is not None]
+    if stray:
+        raise SetupError(f"{', '.join('--' + o for o in stray)}: only with --imap")
     if args.service_account is not None:
         return run_service_account(args, config, text, entries)
     if args.client is None:
@@ -353,6 +418,66 @@ def run_service_account(args, config: Path, text: str, entries) -> int:
     return 0
 
 
+def run_imap(args, config: Path, text: str, entries) -> int:
+    """setup ADDRESS --imap HOST: an IMAP account, backed up only."""
+    if not args.address:
+        raise SetupError("--imap needs the address to back up")
+    if args.service_account is not None or args.client is not None:
+        raise SetupError("--imap takes neither --client nor --service-account")
+    address = checked_address(args.address)
+    name = pick_name(entries, address, args.name)
+    folder = config / name
+    held = gmail_files(folder)
+    if held and not gmailapi.is_imap(folder):
+        raise SetupError(
+            f"{address} is set up as a Gmail account ({', '.join(held)} in {folder}), "
+            "and its backup holds Gmail's message IDs; an address is backed up one way only"
+        )
+    # Absolute: a scheduled backup runs from another folder.
+    cafile = str(Path(args.cafile).expanduser().resolve()) if args.cafile else None
+    given = {"host": args.imap, "port": args.port, "username": args.username, "cafile": cafile}
+    try:
+        settings = gmailapi.settings_from(
+            {k: v for k, v in given.items() if v is not None}, address, "--imap"
+        )
+    except gmailapi.GmailError as exc:
+        raise SetupError(str(exc)) from None
+    toml = imap_toml(settings, address).encode()
+    dest = folder / gmailapi.IMAP_SETTINGS
+    toml_status = private_status(toml, dest, args.force, "imap.toml", IMAP_WHY)
+    try:
+        password = getpass.getpass(f"Password for {settings.username} at {settings.host}: ")
+    except EOFError:
+        raise SetupError("the password: nothing to read; run setup in a terminal") from None
+    if not password:
+        raise SetupError("no password given")
+    # Everything is checked before anything is written: signing in, unless --no-auth.
+    info = None
+    if not args.no_auth:
+        from mailcellar import imap
+
+        print(f"Signing in to {settings.host} as {settings.username} (read-only)...")
+        try:
+            info = imap.ImapAccount(address, settings, password).server_info()
+        except gmailapi.GmailError as exc:
+            raise SetupError(f"{exc}; nothing was written") from None
+
+    # The account's line last: listed without imap.toml, it would be taken for Gmail.
+    make_config_root(config)
+    install_private(toml, dest, args.force, "imap.toml", IMAP_WHY)
+    install_private(f"{password}\n".encode(), folder / gmailapi.IMAP_PASSWORD, True, "", "")
+    write_account(config, text, entries, name, address, None, args.force)
+    print(f"{address} is account '{name}', an IMAP account at {settings.host}")
+    print(f"  imap.toml: {toml_status}; password: owner-only in {folder / gmailapi.IMAP_PASSWORD}")
+    print(f"  accounts.toml: {'already listed' if name in entries else 'added'}")
+    if info is None:
+        print(f"\nNot signed in (--no-auth): mailcellar backup {name} will check it.")
+        return 0
+    print("\n".join(server_report(info)))
+    print(f"\nNext: mailcellar backup {name}")
+    return 0
+
+
 def main(argv=None, prog: str | None = None) -> int:
     p = argparse.ArgumentParser(
         prog=prog or "mailcellar setup",
@@ -372,10 +497,25 @@ def main(argv=None, prog: str | None = None) -> int:
         help="A Workspace address: read it through this service-account key, granted "
         "domain-wide delegation for gmail.readonly (installed once for the domain; no sign-in)",
     )
+    p.add_argument(
+        "--imap",
+        metavar="HOST",
+        help="An IMAP account on this server (port 993, TLS): backed up only, read-only; "
+        "asks for the password and keeps it owner-only in the config folder",
+    )
+    p.add_argument("--port", type=int, help="With --imap: the server's port (default 993)")
+    p.add_argument("--username", help="With --imap: the login name (default: the address)")
+    p.add_argument(
+        "--cafile",
+        metavar="FILE",
+        help="With --imap: a CA certificate to trust besides the system's (a private server)",
+    )
     p.add_argument("--name", help="Config name for the account (default: from the address)")
     p.add_argument("--no-auth", action="store_true", help="Don't sign in now")
     p.add_argument(
-        "--force", action="store_true", help="Replace the account's client if it holds another"
+        "--force",
+        action="store_true",
+        help="Replace the account's client, service-account key or imap.toml if it holds another",
     )
     p.add_argument(
         "--config",

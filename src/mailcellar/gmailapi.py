@@ -200,19 +200,27 @@ def imap_settings(config_folder: Path, account: str) -> ImapSettings | None:
         data = tomllib.loads(path.read_text())
     except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
         raise GmailError(f"{path}: {exc}") from None
+    return settings_from(data, account, str(path))
+
+
+def settings_from(data: dict, account: str, where: str) -> ImapSettings:
+    """
+    IMAP settings from imap.toml's keys, checked; GmailError naming `where`
+    for a value that can't be used. Pure, apart from cafile having to exist.
+    """
     host = data.get("host")
     if not isinstance(host, str) or not HOST_RE.match(host.lower()):
-        raise GmailError(f"{path}: host = {host!r} is not a host name")
+        raise GmailError(f"{where}: host = {host!r} is not a host name")
     port = data.get("port", 993)
     if isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536:
-        raise GmailError(f"{path}: port = {port!r} is not a port number")
+        raise GmailError(f"{where}: port = {port!r} is not a port number")
     username = data.get("username", account)
     if not isinstance(username, str) or not username:
-        raise GmailError(f"{path}: username = {username!r} is not a user name")
+        raise GmailError(f"{where}: username = {username!r} is not a user name")
     cafile = data.get("cafile")
     if cafile is not None:
         if not isinstance(cafile, str) or not Path(cafile).expanduser().is_file():
-            raise GmailError(f"{path}: cafile = {cafile!r} is not a file")
+            raise GmailError(f"{where}: cafile = {cafile!r} is not a file")
         cafile = Path(cafile).expanduser()
     return ImapSettings(host.lower(), port, username, cafile)
 
