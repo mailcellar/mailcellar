@@ -30,6 +30,8 @@ in beta, so commands and options may still change before 1.0.
   be read, where they showed nothing due under retention.
 - A number of years (`--before 5`, `forget_after`) counted from 29 February
   lands on the 28th in a year without one, where it failed.
+- Removing the `offload-candidate` label after a restore finds a label
+  whose name differs only in case, as adding it does.
 
 ## 0.15.1 (2026-10-27)
 
