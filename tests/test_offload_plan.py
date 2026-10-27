@@ -384,3 +384,13 @@ def test_years_before_29_february():
     assert years_before(leap, 1) == datetime(2027, 2, 28, 12, tzinfo=UTC)
     assert years_before(leap, 4) == datetime(2024, 2, 29, 12, tzinfo=UTC)
     assert years_before(datetime(2026, 10, 27, tzinfo=UTC), 7) == datetime(2019, 10, 27, tzinfo=UTC)
+
+
+def test_a_forget_after_no_longer_than_before_is_warned_about(data, caplog):
+    rules = (
+        '[[rule]]\nname = "slip"\nbefore = "7"\nlabel = "a"\nforget_after = 2\n'
+        '[[rule]]\nname = "fine"\nbefore = "2"\nlabel = "a"\nforget_after = 7\n'
+    )
+    run(data, rules)
+    assert "rule 'slip': forget_after (2 years) is no longer than before (7)" in caplog.text
+    assert "'fine'" not in caplog.text
