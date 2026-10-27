@@ -94,6 +94,7 @@ class FakeMailbox:
         self.calls: list[tuple] = []
         self.lookups: list[tuple] = []
         self.events: list[tuple] = []
+        self.closed = False  # close() called: a command let go of it
         self.fetched: list[str] = []
         self.detail_lookups: list[str] = []
         self.queries: list[str | None] = []
@@ -283,6 +284,9 @@ class FakeMailbox:
 
     def save_state(self, con):
         pass
+
+    def close(self):
+        self.closed = True
 
     # ── upload ───────────────────────────────────────────────────────────────
     def _with_message_id(self, wanted: str) -> list[str]:

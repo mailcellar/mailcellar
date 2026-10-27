@@ -78,7 +78,9 @@ def test_an_imap_account_backs_up_and_follows_changes(server, capsys):
     assert "On the server (excl. junk/trash)" in out and "Gmail" not in out
     assert cli.main(["verify", "home", "--chain"]) == 0
     assert cli.main(["meta", "home"]) == 0
-    assert all(c[0] in ("LOGIN", "LIST", "EXAMINE", "UID") for c in server.commands)
+    assert all(c[0] in ("LOGIN", "LIST", "EXAMINE", "UID", "LOGOUT") for c in server.commands)
+    # Each command logged out when done: backup twice, count, meta.
+    assert [c[0] for c in server.commands].count("LOGOUT") == 4
 
 
 def test_a_backup_of_another_provider_is_refused(server, capsys):

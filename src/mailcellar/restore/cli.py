@@ -8,6 +8,7 @@ import logging
 import sys
 import time
 from collections import Counter
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
@@ -264,28 +265,30 @@ def main(argv=None, prog: str | None = None) -> int:
         if problem := why_missing(target, target_folder):
             sys.exit(f"error: {problem}")
     try:
-        gmail = mailbox.open_mailbox(target, target_config, "modify" if args.yes else "readonly")
-        decisions = plan(gmail, cands, same_account=not other, progress=progress)
-        with RestoreLog(Path(args.log), mode, account, target if other else "") as log:
-            if args.yes:
-                run = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-                results = apply(
-                    gmail,
-                    folder,
-                    decisions,
-                    run,
-                    args.label or restored_label(),
-                    target=target if other else "",
-                    target_folder=target_folder,
-                    prefix=args.label_prefix,
-                    strip=args.strip_labels,
-                    progress=progress,
-                    on_result=log.add,
-                )
-            else:
-                results = dry_run(decisions)
-                for r in results:
-                    log.add(r)
+        with closing(
+            mailbox.open_mailbox(target, target_config, "modify" if args.yes else "readonly")
+        ) as gmail:
+            decisions = plan(gmail, cands, same_account=not other, progress=progress)
+            with RestoreLog(Path(args.log), mode, account, target if other else "") as log:
+                if args.yes:
+                    run = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+                    results = apply(
+                        gmail,
+                        folder,
+                        decisions,
+                        run,
+                        args.label or restored_label(),
+                        target=target if other else "",
+                        target_folder=target_folder,
+                        prefix=args.label_prefix,
+                        strip=args.strip_labels,
+                        progress=progress,
+                        on_result=log.add,
+                    )
+                else:
+                    results = dry_run(decisions)
+                    for r in results:
+                        log.add(r)
     except gmailapi.GmailError as exc:
         sys.exit(f"error: {exc} (the log has what was done: {args.log})")
 
@@ -338,28 +341,30 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
     mode = "restore" if args.yes else "dry-run"
     progress = logger.info
     try:
-        gmail = mailbox.open_mailbox(target, target_config, "modify" if args.yes else "readonly")
-        decisions = plan(gmail, cands, same_account=False, progress=progress)
-        target_name = target if target != account else ""
-        with RestoreLog(Path(args.log), mode, account, target_name) as log:
-            if args.yes:
-                run = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-                results = apply(
-                    gmail,
-                    None,
-                    decisions,
-                    run,
-                    args.label or restored_label(),
-                    target=target,
-                    prefix=args.label_prefix,
-                    strip=args.strip_labels,
-                    progress=progress,
-                    on_result=log.add,
-                )
-            else:
-                results = dry_run(decisions)
-                for r in results:
-                    log.add(r)
+        with closing(
+            mailbox.open_mailbox(target, target_config, "modify" if args.yes else "readonly")
+        ) as gmail:
+            decisions = plan(gmail, cands, same_account=False, progress=progress)
+            target_name = target if target != account else ""
+            with RestoreLog(Path(args.log), mode, account, target_name) as log:
+                if args.yes:
+                    run = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+                    results = apply(
+                        gmail,
+                        None,
+                        decisions,
+                        run,
+                        args.label or restored_label(),
+                        target=target,
+                        prefix=args.label_prefix,
+                        strip=args.strip_labels,
+                        progress=progress,
+                        on_result=log.add,
+                    )
+                else:
+                    results = dry_run(decisions)
+                    for r in results:
+                        log.add(r)
     except gmailapi.GmailError as exc:
         sys.exit(f"error: {exc} (the log has what was done: {args.log})")
 

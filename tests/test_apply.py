@@ -102,6 +102,7 @@ def test_dry_run_reads_only(tmp_path):
     assert outcomes(log) == {"b1": ("would label or trash", "")}
     assert scopes == {A: "readonly", B: "readonly"}
     assert all(g.calls == [] for g in gmail.values())  # only read
+    assert all(g.closed for g in gmail.values())  # each mailbox let go of when done
 
 
 def test_label_stage_labels_only_passing_rows(tmp_path):

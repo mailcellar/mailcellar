@@ -39,6 +39,7 @@ def test_setup_signs_in_then_writes_the_account(server, tmp_path, capsys):
     assert "folders backed up: 1 (INBOX)" in out and "read, not backed up: TRASH" in out
     assert "offload, later: possible" in out  # MOVE named only after LOGIN, as Dovecot does
     assert "secret" not in out
+    assert server.commands[-1] == ("LOGOUT",)  # setup's session ended, not left open
     assert cli.main(["backup", "home"]) == 0  # what setup wrote is what backup reads
 
 

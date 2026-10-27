@@ -29,6 +29,8 @@ class FakeImap:
         self.commands: list[tuple] = []
         self.selected: str | None = None
         self.drops = 0  # how many of the next commands fail as a dropped connection
+        self.stalls = 0  # how many of the next commands time out
+        self.breaks = 0  # how many of the next commands stop halfway (Ctrl-C, say)
         self.refused: set[str] = set()  # folders EXAMINE answers NO for
         self.bodiless: set[int] = set()  # UIDs whose BODY.PEEK[] comes back without a body
         self.capabilities = ("IMAP4REV1", "LITERAL+", "AUTH=PLAIN")  # the greeting's, as imaplib
@@ -71,6 +73,12 @@ class FakeImap:
         if self.drops:
             self.drops -= 1
             raise imaplib.IMAP4.abort("socket error: EOF")
+        if self.stalls:
+            self.stalls -= 1
+            raise TimeoutError("timed out")
+        if self.breaks:
+            self.breaks -= 1
+            raise KeyboardInterrupt
 
     def login(self, user, password):
         self._command("LOGIN", user)
@@ -141,6 +149,9 @@ class FakeImap:
                 data.append(((prefix + f" {{{len(literal)}}}").encode(), literal))
                 data.append(b")")
         return "OK", data or [None]
+
+    def shutdown(self):
+        self._command("SHUTDOWN")  # the socket closed: not an IMAP command
 
     def logout(self):
         self._command("LOGOUT")

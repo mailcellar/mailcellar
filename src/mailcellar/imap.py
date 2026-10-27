@@ -1,8 +1,8 @@
 """
 imap: an IMAP account as a read-only Mailbox (#108, step 2 #111).
 
-    box = ImapAccount(account, settings, password, folder=backup_folder)
-    ids = box.list_message_ids()
+    with closing(ImapAccount(account, settings, password, folder=backup_folder)) as box:
+        ids = box.list_message_ids()
 
 Nothing on the server changes: folders are opened with EXAMINE and bodies
 fetched with BODY.PEEK[], so not even \\Seen is set; every write method
@@ -419,6 +419,23 @@ def by_folder(messages, ids) -> dict[str, list[tuple[int, str]]]:
 # ── the account: reading, then writing the map ───────────────────────────────
 
 
+def drop(conn) -> None:
+    """Close a connection's socket, whatever state it is in; None is nothing to close."""
+    if conn is not None:
+        try:
+            conn.shutdown()
+        except OSError:
+            pass
+
+
+def log_out(conn) -> None:
+    """LOGOUT, then the socket closed, whatever LOGOUT answers. Never raises."""
+    try:
+        conn.logout()  # imaplib closes the socket only if LOGOUT gets its answer
+    except OSError, imaplib.IMAP4.error:
+        drop(conn)
+
+
 class ImapAccount:
     """The read half of mailbox.Mailbox, over IMAP; see the module docstring."""
 
@@ -460,26 +477,38 @@ class ImapAccount:
                 raise gmailapi.GmailError(
                     f"{self.account}: can't reach {self.settings.host}: {exc}"
                 ) from None
+            self._conn = conn  # before LOGIN: a timeout or drop in it is _retrying's to close
             try:
                 conn.login(self.settings.username, self._password)
             except imaplib.IMAP4.abort:  # a dropped connection, not a refusal: retried
                 raise
-            except imaplib.IMAP4.error as exc:
+            except imaplib.IMAP4.error as exc:  # AccessRefused isn't retried, nor dropped there
+                drop(conn)
+                self._conn = None
                 said = exc.args[0] if exc.args else exc
                 said = said.decode("utf-8", "replace") if isinstance(said, bytes) else said
                 raise gmailapi.AccessRefused(
                     f"{self.account}: {self.settings.host} refused the login: {said}"
                 ) from None
-            self._conn = conn
         return self._conn
 
     def _retrying(self, what: str, fn):
-        """fn(conn), reconnecting after a dropped connection, ATTEMPTS times."""
+        """
+        fn(conn), reconnecting after a dropped connection, ATTEMPTS times. Any
+        other failure but the server's own NO also drops the connection: the
+        command may have stopped halfway through a reply, so close() would
+        send LOGOUT into the middle of it.
+        """
         for attempt in range(ATTEMPTS):
             try:
                 return fn(self._session())
-            except (OSError, imaplib.IMAP4.abort) as exc:  # timeouts are OSErrors
+            except gmailapi.GmailError:  # the server answered: the session is in step
+                raise
+            except BaseException as exc:
+                drop(self._conn)
                 self._conn = None
+                if not isinstance(exc, (OSError, imaplib.IMAP4.abort)):  # timeouts are OSErrors
+                    raise
                 if attempt == ATTEMPTS - 1:
                     raise gmailapi.GmailError(f"{self.account}: {what} failed: {exc}") from None
                 delay = 2**attempt
@@ -499,6 +528,15 @@ class ImapAccount:
             lambda conn: capabilities_from(self._ok(*conn.capability(), "CAPABILITY")),
         )
         return ServerInfo(caps, folders_from(entries), marks_special(entries))
+
+    def close(self) -> None:
+        """
+        Log out, if signed in: the server sees the session end, not a dropped
+        socket. Never raises: a backup that is done stays done.
+        """
+        conn, self._conn = self._conn, None
+        if conn is not None:
+            log_out(conn)
 
     def sign_in(self) -> None:
         """Connect and log in now; AccessRefused if the server refuses."""

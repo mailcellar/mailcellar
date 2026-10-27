@@ -83,14 +83,14 @@ def search_gmail(account: str, config: Path, queries: list[str]) -> dict[str, li
     """Gmail's own search, read-only: each query's message IDs (Spam and Trash left out)."""
     from mailcellar import gmailapi, mailbox
 
-    gmail = mailbox.opener(config)(account, "readonly")
     found = {}
-    for q in queries:
-        logger.info(f"{account}: searching Gmail for {q!r}")
-        try:
-            found[q] = gmail.list_message_ids(q)
-        except gmailapi.GmailError as exc:
-            sys.exit(f"error: {account}: Gmail's search for {q!r} failed: {exc}")
+    with closing(mailbox.opener(config)(account, "readonly")) as gmail:
+        for q in queries:
+            logger.info(f"{account}: searching Gmail for {q!r}")
+            try:
+                found[q] = gmail.list_message_ids(q)
+            except gmailapi.GmailError as exc:
+                sys.exit(f"error: {account}: Gmail's search for {q!r} failed: {exc}")
     return found
 
 
@@ -255,9 +255,11 @@ def gmail_state(account: str, config: Path, ids: list[str]):
     from mailcellar import mailbox
     from mailcellar.progress import Progress
 
-    gmail = mailbox.opener(config)(account, "readonly")
     failures: list[str] = []
-    with Progress(f"{account}: asking Gmail", len(ids)):
+    with (
+        closing(mailbox.opener(config)(account, "readonly")) as gmail,
+        Progress(f"{account}: asking Gmail", len(ids)),
+    ):
         live = gmail.message_labels(ids, failures)
     return live, dict(f.split(": ", 1) for f in failures)
 
