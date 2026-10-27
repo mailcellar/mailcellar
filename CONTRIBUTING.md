@@ -88,7 +88,7 @@ Co-Authored-By: <model or agent> <address>   (only if AI helped)
   `test`, `refactor`, `perf`, `build` (`pyproject.toml`, `uv.lock`), `ci`,
   `chore`.
 - **Scopes,** optional: `backup`, `dedup`, `offload`, `restore`, `search`,
-  `report`, `setup`, `gmailapi`, `message`, `cli`, `paths`.
+  `report`, `setup`, `hold`, `gmailapi`, `message`, `cli`, `paths`.
 - **Summary** at most 72 characters.
 - **Breaking changes** (a CLI option or output format changes, or the
   backup format) take `!` after the scope and a `BREAKING CHANGE:` footer
