@@ -373,3 +373,14 @@ def test_every_plan_is_kept(data, monkeypatch):
     assert kept[-1].read_text() == (data / "plan.csv").read_text()
     with open(kept[0], newline="", encoding="utf-8") as fh:
         assert {r["planned"] for r in csv.DictReader(fh)} == {"2027-01-15 08:00:00"}
+
+
+def test_years_before_29_february():
+    from datetime import UTC, datetime
+
+    from mailcellar.report.cli import years_before
+
+    leap = datetime(2028, 2, 29, 12, tzinfo=UTC)
+    assert years_before(leap, 1) == datetime(2027, 2, 28, 12, tzinfo=UTC)
+    assert years_before(leap, 4) == datetime(2024, 2, 29, 12, tzinfo=UTC)
+    assert years_before(datetime(2026, 10, 27, tzinfo=UTC), 7) == datetime(2019, 10, 27, tzinfo=UTC)

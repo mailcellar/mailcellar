@@ -50,6 +50,14 @@ def resolve_folders(names: list[str], config: Path | None = None) -> list[Path]:
     return folders
 
 
+def years_before(when: datetime, years: int) -> datetime:
+    """`when`, `years` years earlier; 29 February becomes the 28th in a year without one."""
+    try:
+        return when.replace(year=when.year - years)
+    except ValueError:
+        return when.replace(year=when.year - years, day=28)
+
+
 def parse_before(value: str | None) -> int | None:
     """--before: a date (YYYY-MM-DD) or a number of years ago; ms since epoch, UTC."""
     if value is None:
@@ -57,8 +65,7 @@ def parse_before(value: str | None) -> int | None:
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
         when = datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=UTC)
     elif re.fullmatch(r"\d+(\.\d+)?", value):
-        now = datetime.now(UTC)
-        when = now.replace(year=now.year - int(float(value)))
+        when = years_before(datetime.now(UTC), int(float(value)))
     else:
         raise AnalyticsError(f"--before {value!r}: give a date (YYYY-MM-DD) or a number of years")
     return int(when.timestamp() * 1000)
