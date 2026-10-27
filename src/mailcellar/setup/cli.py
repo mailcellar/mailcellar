@@ -222,6 +222,39 @@ def show_steps() -> None:
     print()
 
 
+def checked_address(raw: str) -> str:
+    address = raw.strip()
+    if not ADDRESS_RE.match(address):
+        raise SetupError(f"{address!r} is not an email address")
+    return address
+
+
+def checked_client(raw: str) -> Path:
+    """The OAuth client file named, checked to be a Desktop app client."""
+    source = parse_path(raw)
+    if not source.is_file():
+        raise SetupError(f"{source}: no such file")
+    check_client(source.read_text())
+    return source
+
+
+def write_account(
+    config: Path, text: str, entries, name: str, address: str, client: Path | None, force: bool
+) -> str | None:
+    """
+    Write what any account needs: the config root (owner-only), the account's
+    folder, its OAuth client if one is given, and its line in accounts.toml.
+    Returns the client's status ('added', 'kept', 'replaced'), or None.
+    """
+    make_config_root(config)
+    folder = config / name
+    folder.mkdir(exist_ok=True, mode=0o700)
+    status = install_client(client, folder, force) if client is not None else None
+    if name not in entries:
+        (config / gmailapi.ACCOUNTS_FILE).write_text(add_account(text, name, address))
+    return status
+
+
 def run(args) -> int:
     config = Path(args.config)
     accounts_file = config / gmailapi.ACCOUNTS_FILE
@@ -229,29 +262,19 @@ def run(args) -> int:
     entries = accounts_entries(text)
 
     if args.service_account is not None:
-        return run_service_account(args, config, accounts_file, text, entries)
+        return run_service_account(args, config, text, entries)
     if args.client is None:
         show_steps()
-    address = (args.address or ask("Gmail or Workspace address to back up")).strip()
-    if not ADDRESS_RE.match(address):
-        raise SetupError(f"{address!r} is not an email address")
+    address = checked_address(args.address or ask("Gmail or Workspace address to back up"))
     name = pick_name(entries, address, args.name)
-
-    if args.client is not None:
-        source = parse_path(args.client)
-    else:
+    if args.client is None:
         offer = latest_download(Path.home() / "Downloads") or existing_client(config, entries)
-        source = parse_path(ask("Path to the downloaded client JSON", str(offer or "")))
-    if not source.is_file():
-        raise SetupError(f"{source}: no such file")
-    check_client(source.read_text())
+        source = checked_client(ask("Path to the downloaded client JSON", str(offer or "")))
+    else:
+        source = checked_client(args.client)
 
     folder = config / name
-    make_config_root(config)
-    installed = install_client(source, folder, args.force)
-    if name not in entries:
-        config.mkdir(parents=True, exist_ok=True, mode=0o700)
-        accounts_file.write_text(add_account(text, name, address))
+    installed = write_account(config, text, entries, name, address, source, args.force)
     print(f"{address} is account '{name}': client {installed} in {folder}")
     print(f"  accounts.toml: {'already listed' if name in entries else 'added'}")
 
@@ -276,7 +299,7 @@ def run(args) -> int:
     return 0
 
 
-def run_service_account(args, config: Path, accounts_file: Path, text: str, entries) -> int:
+def run_service_account(args, config: Path, text: str, entries) -> int:
     """setup ADDRESS --service-account KEY: a Workspace address read through the key."""
     if not args.address or not ADDRESS_RE.match(args.address.strip()):
         raise SetupError("--service-account needs the address to back up")
@@ -292,21 +315,14 @@ def run_service_account(args, config: Path, accounts_file: Path, text: str, entr
     key_status = private_status(data, key, args.force, "service-account key", KEY_WHY)
     client = None
     if args.client is not None:
-        client = parse_path(args.client)
-        if not client.is_file():
-            raise SetupError(f"{client}: no such file")
-        check_client(client.read_text())
+        client = checked_client(args.client)
         private_status(client.read_bytes(), folder / CLIENT_FILE, args.force, "client", CLIENT_WHY)
 
     make_config_root(config)
     install_private(data, key, args.force, "service-account key", KEY_WHY)
-    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    write_account(config, text, entries, name, address, client, args.force)
     # This account, and only this one, reads through the key (gmailapi.service_account_key).
     (folder / gmailapi.SERVICE_ACCOUNT_MARKER).write_text(f"{key.name}\n")
-    if client is not None:
-        install_client(client, folder, args.force)
-    if name not in entries:
-        accounts_file.write_text(add_account(text, name, address))
     print(f"{address} is account '{name}', read through the service account in {key}")
     print(
         f"  key: {key_status}"
