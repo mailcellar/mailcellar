@@ -80,7 +80,7 @@ def test_folders_become_labels():
         "INBOX": "INBOX",
         "Sent Messages": "SENT",
         "Archive.2026": "Archive/2026",
-        "Trash": "Trash",  # this server marks Sent: names don't stand for special folders
+        "Trash": "TRASH",  # marks Sent, not Trash: the name stands for Trash
         "Plain": "Plain",
     }
     plain = [b'(\\HasNoChildren) "/" "INBOX"', b'(\\HasNoChildren) "/" "Trash"']
@@ -322,6 +322,30 @@ def test_a_copy_in_trash_doesnt_hide_mail_that_lives_in_the_inbox(server):
     assert box.message_labels([inbox]) == {inbox: {"INBOX"}}
     hidden = set(box.list_message_ids(include_spam_trash=True)) - {inbox}
     assert [box.message_labels([g])[g] for g in hidden] == [{"SPAM"}]
+
+
+def test_names_stand_in_for_the_roles_a_server_marks_no_folder_for():
+    # iCloud's LIST: Sent and Trash marked, Junk and Drafts known only by name.
+    lines = [
+        b'(\\Noinferiors) "/" "INBOX"',
+        b'(\\HasNoChildren) "/" "Archive"',
+        b'(\\HasNoChildren \\Trash) "/" "Deleted Messages"',
+        b'(\\HasNoChildren) "/" "Junk"',
+        b'(\\HasNoChildren \\Sent) "/" "Sent Messages"',
+        b'(\\HasNoChildren) "/" "Drafts"',
+        b'(\\HasNoChildren) "/" "Trash"',  # a user's own: the server marks its Trash
+    ]
+    entries = imap.list_entries(lines)
+    assert {f.name: f.label for f in imap.folders_from(entries)} == {
+        "INBOX": "INBOX",
+        "Archive": "Archive",
+        "Deleted Messages": "TRASH",
+        "Junk": "SPAM",
+        "Sent Messages": "SENT",
+        "Drafts": "DRAFT",
+        "Trash": "Trash",
+    }
+    assert imap.marked_roles(entries) == {"SENT", "TRASH"}
 
 
 def test_a_users_own_junk_folder_is_backed_up_on_a_special_use_server(server):
