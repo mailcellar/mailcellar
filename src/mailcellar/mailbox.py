@@ -84,10 +84,12 @@ class Mailbox(Protocol):
         """IDs for gyb-style label names, creating user labels that don't exist."""
         raise NotImplementedError
 
-    def add_label(self, gmail_ids: list[str], label_name: str) -> list[str]:
+    def add_label(self, gmail_ids: list[str], label_name: str, review: bool = True) -> list[str]:
         """
         Add a user label to messages, creating it if needed; returns "<id>: <why>"
-        for those it couldn't mark, as trash() does.
+        for those it couldn't mark, as trash() does. `review`: the label marks
+        mail for review (offload, dedup), which an IMAP account may do by moving
+        it into a review folder; restore's label is only a mark.
         """
         raise NotImplementedError
 
@@ -113,8 +115,13 @@ class Mailbox(Protocol):
         self,
         messages: dict[str, tuple[bytes, list[str]]],
         on_imported: Callable[[str, str], None],
+        dates: dict[str, int] | None = None,
     ) -> list[str]:
-        """Upload {key: (raw, label IDs)}, calling on_imported(key, new ID); returns failures."""
+        """
+        Upload {key: (raw, label IDs)}, calling on_imported(key, new ID); returns
+        failures. `dates` (key → ms) is when the backup says each was received,
+        for a mailbox that keeps it (IMAP's INTERNALDATE); Gmail dates by header.
+        """
         raise NotImplementedError
 
     # ── state kept in the backup ─────────────────────────────────────────────

@@ -42,6 +42,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from mailcellar import gmailapi, progress
+from mailcellar.message import normalise_message_id
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,7 @@ SKIP = {"\\Noselect", "\\NonExistent", "\\All", "\\Flagged"}  # not mail, or cop
 SYSTEM = {"INBOX", "SENT", "DRAFT", "SPAM", "TRASH", "UNREAD", "STARRED"}
 HIDDEN = frozenset({"SPAM", "TRASH"})  # left out of listings unless include_spam_trash
 TOKEN = "imap:1"  # a history point: the UID map is the state
+GMAIL_ONLY = frozenset({"IMPORTANT", "CHAT", "CHATS"})  # Gmail labels with no folder to be
 # Review marks (step 3): mailcellar's own labels as keywords, or as folders under REVIEW_ROOT,
 # reserved so a user's own folders under mailcellar/ keep their names.
 KEYWORD_PREFIX = "$mailcellar-"
@@ -783,6 +785,163 @@ def marking_failures(marking: Marking, refused: Mapping[str, str]) -> list[str]:
     return [*marking.failures, *stuck.values()]
 
 
+def home_folders(labels, folders: tuple[Folder, ...]) -> tuple[str, ...]:
+    """
+    The folders a message with these labels belongs in, by the server's names:
+    its folder labels that are folders now (not Trash, Junk or a review
+    folder), INBOX first; INBOX when none is. Pure.
+    """
+    by_label = {f.label: f.name for f in folders if f.label not in HIDDEN and not f.review}
+    found = sorted({by_label[label] for label in labels if label in by_label})
+    if "INBOX" in found:
+        found = ["INBOX", *[n for n in found if n != "INBOX"]]
+    return tuple(found) or ("INBOX",)
+
+
+@dataclass(frozen=True)
+class PutBack:
+    """
+    What untrash or remove_label does: copies to move out of Trash (or a review
+    folder) into each message's first home folder, and the further home folders
+    to copy it into once it's there. Decided by put_back before anything moves.
+    """
+
+    moves: Mapping[str, Mapping[str, tuple[int, ...]]]  # from → to → UIDs
+    owners: Mapping[str, frozenset[str]]  # from folder → the IDs with a copy there
+    homes: Mapping[str, tuple[str, ...]]  # ID → its home folders
+    failures: tuple[str, ...]
+
+
+def put_back(scan: Scan, ids, origins: Mapping, out_of) -> PutBack:
+    """
+    Every copy of each message in a folder `out_of(folder)` says to leave
+    (Trash, a review folder), to go to its homes: `origins` (ID → (folder,
+    label)) where recorded, else the labels it has. Each copy goes to a home
+    of its own, in order (trash took one from each folder), extra copies to
+    the first; the homes left over are filled by COPY afterwards, where the
+    message isn't already. Pure.
+    """
+    moves: dict[str, dict[str, list[int]]] = {}
+    owners: dict[str, set[str]] = {}
+    homes, failures = {}, []
+    for gid in ids:
+        if gid not in scan.messages:
+            failures.append(f"{gid}: not on the server")
+            continue
+        message = scan.messages[gid]
+        recorded = [label for _n, label in origins.get(gid, ())]
+        homes[gid] = home_folders(recorded or message.labels, scan.folders)
+        leaving = sorted(loc for loc in message.places if out_of(loc[0]))
+        for k, (name, uid) in enumerate(leaving):
+            dst = homes[gid][k] if k < len(homes[gid]) else homes[gid][0]
+            moves.setdefault(name, {}).setdefault(dst, []).append(uid)
+            owners.setdefault(name, set()).add(gid)
+    return PutBack(
+        MappingProxyType(
+            {
+                src: MappingProxyType({dst: tuple(sorted(u)) for dst, u in by_dst.items()})
+                for src, by_dst in moves.items()
+            }
+        ),
+        MappingProxyType({name: frozenset(g) for name, g in owners.items()}),
+        MappingProxyType(homes),
+        tuple(failures),
+    )
+
+
+def untrash_result(plan: PutBack, refused: Mapping[str, str], after: Scan) -> list[str]:
+    """
+    untrash()'s failures: the plan's own, the IDs with a copy in a folder whose
+    MOVE was refused, and those a re-read still shows in Trash only. Pure.
+    """
+    stuck = {
+        gid: f"{gid}: moving it out of {name} failed: {why}"
+        for name, why in sorted(refused.items())
+        for gid in sorted(plan.owners.get(name, ()))
+    }
+    still = [
+        f"{gid}: still in Trash"
+        for gid in plan.homes
+        if gid not in stuck and gid in after.messages and "TRASH" in after.messages[gid].labels
+    ]
+    return [*plan.failures, *stuck.values(), *still]
+
+
+@dataclass(frozen=True)
+class Append:
+    """How one restored message goes onto the server: decided by append_plan."""
+
+    folders: tuple[str, ...]  # first the one it's appended to, then those it's copied to
+    create: tuple[str, ...]  # folders to create first
+    flags: str  # the APPEND flag list, keywords included: "(\\Seen $mailcellar-…)"
+
+
+def append_plan(labels, folders: tuple[Folder, ...], delim: str | None) -> Append:
+    """
+    Labels to folders and flags: INBOX and the special-use roles to their
+    folders (Sent, Drafts by name when the server has none), other labels to
+    the folder of that label (created, in the server's hierarchy, if
+    missing); restored/… to mailcellar's keyword, UNREAD and STARRED to
+    \\Seen and \\Flagged; a message with no folder label to INBOX. Pure.
+    """
+    by_label = {f.label: f.name for f in folders if not f.review}
+    defaults = {"SENT": "Sent", "DRAFT": "Drafts"}
+    names, create, keywords = [], [], []
+    gmail_only = {label for label in labels if label in GMAIL_ONLY or label.startswith("CATEGORY_")}
+    for label in sorted(set(labels) - {"UNREAD", "STARRED"} - HIDDEN - gmail_only):
+        if label.startswith("restored/") and KEYWORD_SAFE.match(label):
+            keywords.append(keyword_for(label))
+            continue
+        name = by_label.get(label)
+        if name is None:
+            name = defaults.get(label) or (label.replace("/", delim) if delim else label)
+            create.append(name)
+        names.append(name)
+    names = sorted(set(names), key=lambda n: (n != "INBOX", n)) or ["INBOX"]
+    flags = (["\\Seen"] if "UNREAD" not in labels else []) + (
+        ["\\Flagged"] if "STARRED" in labels else []
+    )
+    return Append(tuple(names), tuple(sorted(set(create))), f"({' '.join(flags + keywords)})")
+
+
+def append_outcome(key: str, folders, refused: Mapping[str, str]) -> tuple[str | None, list]:
+    """
+    (failure, missed) for one message appended to `folders`, in order, given
+    those that refused (`refused`: folder → why): failing the first means it
+    isn't on the server at all; any after is only a copy missing. Pure.
+    """
+    if folders and folders[0] in refused:
+        return f"{key}: {refused[folders[0]]}", []
+    return None, [f"{name} ({refused[name]})" for name in folders if name in refused]
+
+
+def appended_id(raw: bytes, internal_ms: int) -> str:
+    """
+    The ID the next scan gives a message appended with this date: its header
+    ID, or its content's without a Message-ID (as assign_ids does, collisions
+    aside). Pure.
+    """
+    message_id = message_id_of(raw.split(b"\r\n\r\n", 1)[0].split(b"\n\n", 1)[0])
+    if not message_id:
+        return content_id(raw)
+    return header_id(message_id, internal_ms - internal_ms % 1000, len(raw))
+
+
+def date_of(raw: bytes) -> int | None:
+    """The Date header as ms since epoch, or None. Pure."""
+    from email.utils import parsedate_to_datetime
+
+    m = re.search(rb"^date:[ \t]*(.*)$", raw.split(b"\n\n", 1)[0], re.I | re.M)
+    if m is None:
+        return None
+    try:
+        return int(
+            parsedate_to_datetime(m[1].decode("ascii", "replace").strip()).timestamp() * 1000
+        )
+    except TypeError, ValueError:
+        return None
+
+
 def under_review(scan: Scan) -> frozenset[tuple[str, str]] | None:
     """
     (ID, label) for every message in a review folder now, whose record must
@@ -962,6 +1121,9 @@ class ImapAccount:
         for name, (uidvalidity, uids) in scan.maps.items():
             sidecar.replace_imap_folder(con, name, uidvalidity, uids)
         sidecar.drop_imap_folders(con, set(scan.maps) | set(scan.skipped))
+        # The marks it saw, by label: restore leaves them off what it puts back, since a
+        # backup records a keyword or a review folder as a label like any folder's.
+        sidecar.add_mark_labels(con, frozenset().union(*(m.marks for m in scan.messages.values())))
         keep = under_review(scan)
         if keep is not None:  # finished reviews (kept, trashed or put back), not newer ones
             sidecar.keep_imap_reviews(con, keep, before_ms=scan.read_at)
@@ -1205,15 +1367,26 @@ class ImapAccount:
 
         self._retrying(f"{what} in {folder}", run)
 
-    def add_label(self, gmail_ids, label_name):
+    def add_label(self, gmail_ids, label_name, review=True):
         """
         Mark messages for review: mailcellar's keyword for the label on every copy,
         or, with review = "folder", every copy moved into mailcellar/review/<label>,
         the folders it leaves recorded first in the backup's meta.sqlite. Returns
         "<id>: <why>" for those not marked, as trash() does.
         """
+        if not review:  # restore's mark: a keyword in either mode; failing to set it is a note
+            try:
+                return self._keyword(gmail_ids, label_name)
+            except gmailapi.AccessRefused:
+                raise
+            except gmailapi.GmailError as exc:
+                return [f"{gid}: {exc}" for gid in gmail_ids]
         if self.settings.review == "folder":
             return self._move_to_review(gmail_ids, label_name)
+        return self._keyword(gmail_ids, label_name)
+
+    def _keyword(self, gmail_ids, label_name) -> list[str]:
+        """mailcellar's keyword for the label, on every copy of each message."""
         keyword = keyword_for(label_name)
         marking = keyword_marking(self._scan()[1], gmail_ids)
 
@@ -1309,13 +1482,168 @@ class ImapAccount:
 
         return move
 
-    def _refuse(self, *_args, **_kwargs):
-        raise gmailapi.GmailError(
-            f"{self.account} is an IMAP account: restore into it isn't supported yet (#113)"
+    # ── restore (step 3) ─────────────────────────────────────────────────────
+    def _origins(self, gmail_ids) -> dict[str, tuple[tuple[str, str], ...]]:
+        """Where each message lived, by the backup: a review's record, else its labels."""
+        if self.folder is None:
+            return {}
+        from mailcellar.backup import gyb
+
+        reviews = self._reviews()
+        labelled = gyb.labels_of(self.folder, gmail_ids)
+        return {
+            gid: list(reviews[gid].values())[-1]  # the newest review's (read in order)
+            if gid in reviews
+            else tuple(("", label) for label in labelled.get(gid, []))
+            for gid in gmail_ids
+            if gid in reviews or gid in labelled
+        }
+
+    def _put_back(self, plan: PutBack, what: str) -> dict[str, str]:
+        """Move each copy home, then copy into its further homes; folder → why refused."""
+        refused: dict[str, str] = {}
+        try:
+            for src, by_dst in plan.moves.items():
+                for dst, uids in by_dst.items():
+                    try:
+                        self._write(src, list(uids), what, self._mover(dst))
+                    except gmailapi.GmailError as exc:
+                        refused[src] = str(exc)
+        finally:
+            self._changed()
+        more = {gid: homes[1:] for gid, homes in plan.homes.items() if len(homes) > 1}  # unfilled
+        if more:
+            scan = self._scan()[1]
+            for gid, extra in more.items():
+                if gid not in scan.messages:
+                    continue
+                name, uid = scan.messages[gid].where
+                there = {n for n, _u in scan.messages[gid].places}
+                for dst in (d for d in extra if d not in there):  # no second copy
+
+                    def copy(conn, chunk, dst=dst):
+                        self._ok(*conn.uid("COPY", chunk, quote(dst)), "COPY")
+
+                    try:
+                        self._write(name, [uid], f"copying to {dst}", copy)
+                    except gmailapi.GmailError as exc:
+                        refused.setdefault(name, str(exc))
+            self._changed()
+        return refused
+
+    def untrash(self, gmail_ids):
+        """
+        Move each message out of Trash into the folders it lived in (a review's
+        record, else its labels in the backup; INBOX if none), the first by MOVE
+        and the others by COPY; failures as "<id>: <why>".
+        """
+        scan = self._scan()[1]
+        trash = trash_folder(scan)
+        plan = put_back(
+            scan, gmail_ids, self._origins(gmail_ids), lambda name: trash and name == trash.name
+        )
+        refused = self._put_back(plan, "moving out of Trash")
+        return untrash_result(plan, refused, self._scan()[1])
+
+    def remove_label(self, gmail_ids, label_name):
+        """
+        Take a review mark off: the keyword from every copy, and any copy in the
+        label's review folder moved back to the folders it came from.
+        """
+        scan = self._scan()[1]
+        review = {f.name for f in scan.folders if f.review and f.label == label_name}
+        plan = put_back(scan, gmail_ids, self._origins(gmail_ids), lambda n: n in review)
+        self._put_back(plan, f"taking {label_name} off")
+        keyword = keyword_for(label_name)
+        marking = keyword_marking(self._scan()[1], gmail_ids)
+
+        def unstore(conn, uids):
+            self._ok(*conn.uid("STORE", uids, "-FLAGS.SILENT", f"({keyword})"), "STORE")
+
+        self._carry_out(marking, f"taking {label_name} off", unstore)
+
+    def _append(self, name: str, flags: str, ms: int, raw: bytes) -> None:
+        when = imaplib.Time2Internaldate(ms // 1000)
+        self._retrying(
+            f"appending to {name}",
+            lambda c: self._ok(*c.append(quote(name), flags, when, raw), f"APPEND {name}"),
         )
 
-    label_ids = remove_label = untrash = _refuse
-    find_message_ids = import_messages = _refuse
+    def label_ids(self, names):
+        """An IMAP account's labels are their own IDs; folders are made when mail goes in."""
+        return list(names)
+
+    def find_message_ids(self, message_ids):
+        """
+        {key: Message-ID} → {key: IDs of the messages on the server with it}, Trash
+        included: the backup's record of each Message-ID where it has one, the
+        server's headers for the rest (mail newer than the last backup).
+        """
+        scan = self._scan()[1]
+        found: dict[str, list[str]] = {}
+        known: dict[str, str] = {}
+        if self.folder is not None:
+            from mailcellar.backup import sidecar
+
+            known = sidecar.read_message_ids(self.folder)
+        for gid in scan.messages:
+            if known.get(gid):
+                found.setdefault(normalise_message_id(known[gid]), []).append(gid)
+        unknown = [gid for gid in scan.messages if gid not in known]  # newer than the backup
+        for name, places in by_folder(scan.messages, unknown).items():
+            got = self._fetch(
+                name,
+                [u for u, _ in places],
+                "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])",
+                "FETCH Message-IDs",
+            )
+            for uid, gid in places:
+                if uid in got and got[uid].literal is not None:
+                    found.setdefault(
+                        normalise_message_id(message_id_of(got[uid].literal)), []
+                    ).append(gid)
+        # The backup keeps Message-IDs bare and lower-cased: every side compared that way.
+        return {
+            key: sorted(set(found.get(normalise_message_id(mid), [])))
+            for key, mid in message_ids.items()
+        }
+
+    def import_messages(self, messages, on_imported, dates=None):
+        """
+        APPEND each message ({key: (raw, label names)}) to its first folder with its
+        flags and the date the backup says it was received (`dates`, else its Date
+        header's), so it comes back under the same ID, and to its further folders
+        likewise (the copies come back as one message with all those labels);
+        folders are made first. on_imported(key, new ID) once it's in its first
+        folder; a further folder it doesn't reach is logged. Failures: "<key>: <why>".
+        """
+        scan = self._scan()[1]
+        delim = next((d for _n, d, _f in self._read_entries() if d), None)
+        have = {f.name for f in scan.folders}
+        failures = []
+        for key, (raw, labels) in messages.items():
+            plan = append_plan(labels, scan.folders, delim)
+            ms = (dates or {}).get(key) or date_of(raw) or int(time.time() * 1000)
+            refused: dict[str, str] = {}
+            for folder in plan.folders:
+                try:
+                    if folder in plan.create and folder not in have:
+                        self._retrying(f"creating {folder}", lambda c, f=folder: self._create(c, f))
+                        have.add(folder)
+                    self._append(folder, plan.flags, ms, raw)
+                except gmailapi.GmailError as exc:
+                    refused[folder] = str(exc)
+                    if folder == plan.folders[0]:
+                        break  # not on the server: no copies to add
+            failure, missed = append_outcome(key, plan.folders, refused)
+            if failure:
+                failures.append(failure)
+                continue
+            if missed:  # restored all the same: only these copies are missing
+                logger.warning(f"{self.account}: {key} not appended to {', '.join(missed)}")
+            on_imported(key, appended_id(raw, ms))
+        self._changed()
+        return failures
 
 
 def details(message: Message | None, dates: Fetched | None, head: bytes | None) -> dict | None:

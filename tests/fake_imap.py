@@ -5,7 +5,8 @@ UID SEARCH and UID FETCH in imaplib's own shapes: (typ, data), a fetched
 literal as a (prefix, bytes) tuple followed by b")". It fails any command
 that would change the server, SELECT without readonly included, so a test
 that passes shows ImapAccount never writes; unless `writable` is set, when
-it also answers SELECT, CREATE, keyword UID STORE and UID MOVE (step 3's writes),
+it also answers SELECT, CREATE, APPEND, keyword UID STORE, UID MOVE and UID COPY
+(step 3's writes),
 and still fails anything that expunges, sets \\Deleted or deletes.
 """
 
@@ -134,7 +135,7 @@ class FakeImap:
             # Over the limit: the highest UIDs only, and an OK that doesn't say so to imaplib.
             wanted = wanted[-self.message_limit :] if self.message_limit else wanted
             return "OK", [b" ".join(str(u).encode() for u in wanted)]
-        if command in ("STORE", "MOVE"):
+        if command in ("STORE", "MOVE", "COPY"):
             return self._write(command, uids, *args)
         if command != "FETCH":
             raise AssertionError(f"UID {command}: changes the server")
@@ -191,8 +192,23 @@ class FakeImap:
         if name not in self.folders:
             return "NO", [b"[TRYCREATE] no such mailbox"]
         for u in targets:
-            self.move(self.selected, u, name)
+            if command == "MOVE":
+                self.move(self.selected, u, name)
+            else:
+                m = uids[u]
+                self.add(name, raw=m["raw"], flags=set(m["flags"]), date=m["date"])
         return "OK", [None]
+
+    def append(self, mailbox, flags, date_time, message):
+        self._command("APPEND", mailbox, flags)
+        if not self.writable:
+            raise AssertionError(f"APPEND {mailbox}: changes the server")
+        name = mailbox[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+        if name not in self.folders:
+            return "NO", [b"[TRYCREATE] no such mailbox"]
+        names = set((flags or "()").strip("()").split())
+        self.add(name, raw=message, flags=names, date=date_time.strip('"'))
+        return "OK", [b"Append completed"]
 
     def create(self, mailbox):
         self._command("CREATE", mailbox)

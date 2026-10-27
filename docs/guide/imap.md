@@ -8,8 +8,9 @@ and legal holds cover it too.
 **Backing up is read-only.** Folders are opened with IMAP's `EXAMINE` and
 messages fetched with `BODY.PEEK[]`, so nothing on the server changes,
 not even a message's read state. **Offloading and removing duplicates**
-also work, on servers that can move mail to Trash safely (step 3 below);
-restoring into an IMAP account comes later
+also work, on servers that can move mail to Trash safely (step 3 below),
+and so does **restoring** it (step 4). Between Gmail and IMAP accounts,
+restore comes later
 ([#113](https://github.com/mailcellar/mailcellar/issues/113)).
 
 ## 1. Add the account
@@ -101,13 +102,33 @@ delete it for good.
 
 The server, or a mail client, may empty its Trash at any time, not after
 30 days as Gmail does: the check against the backup before each move is
-what keeps offloading safe, not the Trash. Restore into an IMAP account
-isn't supported yet.
+what keeps offloading safe, not the Trash.
+
+## 4. Restore
+
+`restore` puts an IMAP backup's mail back into its account, or into
+another IMAP account (`--to`), as it does for Gmail:
+
+- a message still in Trash is moved back to the folders it lived in (a
+  folder review's record, else its labels in the backup; INBOX if none),
+  and its review mark taken off;
+- a message the server no longer has is appended with its flags and the
+  date the server first received it (as the backup recorded it), into
+  each of its folders (created if missing); it comes back with the same
+  ID, so the next backup has nothing new to fetch;
+- restored mail gets a `$mailcellar-restored.<date>` keyword, where the
+  server keeps keywords (otherwise restore says so and carries on).
+
+The message goes back byte for byte: no Date header is added, as it is
+for Gmail, since an IMAP server keeps the date apart. mailcellar's own
+review marks (`$mailcellar-` keywords, `mailcellar/review/` folders) aren't
+put back, and Gmail-only labels (Important, the categories) make no
+folders when restoring a Takeout mbox.
 
 ## What it doesn't do
 
-- Restore into an IMAP account (coming, #113): a kept message you moved
-  out of a review folder stays where you put it.
+- Restore an IMAP backup into a Gmail account, or a Gmail backup into an
+  IMAP one (coming, #113).
 - Gmail searches (`query` in offload rules): an IMAP account has none.
 - Keep IMAP keywords other than read, flagged and mailcellar's own
   (`$Forwarded` and the like).

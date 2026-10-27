@@ -265,7 +265,9 @@ def test_the_trash_plan_is_decided_before_anything_moves(server):
 # ── offload apply, end to end on an IMAP account ────────────────────────────
 
 
-def test_offload_on_an_imap_account_labels_trashes_and_records(server, tmp_path, monkeypatch):
+@pytest.fixture
+def home(server, tmp_path, monkeypatch):
+    """A configured IMAP account `home` on `server`, three old messages in Projects."""
     root = tmp_path / "config"
     (root / "home").mkdir(parents=True)
     (root / "accounts.toml").write_text(f'home = "{ADDRESS}"\n')
@@ -276,9 +278,16 @@ def test_offload_on_an_imap_account_labels_trashes_and_records(server, tmp_path,
     monkeypatch.setattr(imap.ImapAccount, "_connect_ssl", lambda self: server)
     monkeypatch.setattr(offload_cli, "second_copy_report", lambda d, ms: ["(report)"])
     monkeypatch.chdir(tmp_path)
-    old = "01-Jan-2015 10:00:00 +0000"
     for n in range(3):
-        server.add("Projects", msgid=f"<p{n}@x>", flags={"\\Seen"}, date=old)
+        server.add("Projects", msgid=f"<p{n}@x>", flags={"\\Seen"}, date=OLD)
+    return server
+
+
+OLD = "01-Jan-2015 10:00:00 +0000"
+
+
+def offload_two(server, tmp_path):
+    """Back up, plan the three, label them, keep one, trash the other two."""
     assert cli.main(["backup", "home"]) == 0
     (tmp_path / "rules.toml").write_text(
         '[[rule]]\nname = "old"\nlabel = "Projects"\nbefore = "2020-01-01"\n'
@@ -295,9 +304,11 @@ def test_offload_on_an_imap_account_labels_trashes_and_records(server, tmp_path,
     marked[0]["flags"].discard("$mailcellar-offload-candidate")  # kept, in the mail client
     assert cli.main(["backup", "home"]) == 0  # trashing wants a backup newer than the plan
     cli.main([*offload, "--trash", "--yes"])
-    assert (
-        len(server.folders["Trash"]["uids"]) == 2 and len(server.folders["Projects"]["uids"]) == 1
-    )
+
+
+def test_offload_on_an_imap_account_labels_trashes_and_records(home, tmp_path):
+    offload_two(home, tmp_path)
+    assert len(home.folders["Trash"]["uids"]) == 2 and len(home.folders["Projects"]["uids"]) == 1
     with open("log.csv", newline="", encoding="utf-8") as fh:
         outcomes = sorted(r["outcome"] for r in csv.DictReader(fh) if r["mode"].startswith("trash"))
     assert outcomes == ["skipped", "trashed", "trashed"]
@@ -306,6 +317,32 @@ def test_offload_on_an_imap_account_labels_trashes_and_records(server, tmp_path,
         assert con.execute("SELECT count(*) FROM offloaded").fetchone() == (2,)
     finally:
         con.close()
+
+
+# ── restore into an IMAP account ─────────────────────────────────────────────
+
+
+def test_restore_takes_offloaded_mail_out_of_trash_home(home, tmp_path):
+    offload_two(home, tmp_path)
+    assert cli.main(["restore", "home", "--offloaded", "--yes"]) == 0
+    assert not home.folders["Trash"]["uids"] and len(home.folders["Projects"]["uids"]) == 3
+    flags = [m["flags"] for m in home.folders["Projects"]["uids"].values()]
+    assert not any("$mailcellar-offload-candidate" in f for f in flags)  # the mark taken off
+    assert sum(any(k.startswith("$mailcellar-restored.") for k in f) for f in flags) == 2
+    assert cli.main(["backup", "home"]) == 0
+
+
+def test_restore_appends_mail_the_server_no_longer_has(home, tmp_path, capsys):
+    offload_two(home, tmp_path)
+    home.folders["Trash"]["uids"].clear()  # the server, or a mail client, emptied Trash
+    assert cli.main(["backup", "home"]) == 0
+    assert cli.main(["restore", "home", "--offloaded", "--yes"]) == 0
+    back = home.folders["Projects"]["uids"].values()
+    assert len(back) == 3 and all("\\Seen" in m["flags"] for m in back)
+    assert {m["date"] for m in back} == {OLD}  # the Date header's date, as Gmail's import takes it
+    capsys.readouterr()
+    assert cli.main(["backup", "home"]) == 0
+    assert "Downloaded 0 messages" in capsys.readouterr().out  # the same IDs: nothing new
 
 
 # ── folder review: the review's findings ─────────────────────────────────────
@@ -433,3 +470,238 @@ def test_a_review_folder_that_exists_by_now_is_used(server, tmp_path, monkeypatc
     server.add_folder("mailcellar/review/offload-candidate")
     assert box.add_label([gid], "offload-candidate") == []
     assert len(server.folders["mailcellar/review/offload-candidate"]["uids"]) == 1
+
+
+def test_restore_after_review_by_folder_puts_mail_back_where_it_was(home, tmp_path):
+    (tmp_path / "config" / "home" / gmailapi.IMAP_SETTINGS).write_text(
+        'host = "imap.example.org"\nreview = "folder"\n'
+    )
+    assert cli.main(["backup", "home"]) == 0
+    (tmp_path / "rules.toml").write_text(
+        '[[rule]]\nname = "old"\nlabel = "Projects"\nbefore = "2020-01-01"\n'
+    )
+    offload = ["offload", "apply", "--plan", "plan.csv", "--log", "log.csv"]
+    cli.main(["offload", "plan", "--rules", "rules.toml", "--plan", "plan.csv"])
+    cli.main([*offload, "--label"])
+    review = "mailcellar/review/offload-candidate"
+    assert len(home.folders[review]["uids"]) == 3 and not home.folders["Projects"]["uids"]
+    home.move(review, min(home.folders[review]["uids"]), "Projects")  # kept by the user
+    assert cli.main(["backup", "home"]) == 0
+    cli.main([*offload, "--trash", "--yes"])
+    assert len(home.folders["Trash"]["uids"]) == 2 and not home.folders[review]["uids"]
+    assert cli.main(["restore", "home", "--offloaded", "--yes"]) == 0
+    assert len(home.folders["Projects"]["uids"]) == 3  # home again, by the review's record
+    assert not home.folders["Trash"]["uids"] and not home.folders["INBOX"]["uids"]
+
+
+def test_labels_become_folders_and_flags_for_an_append():
+    folders = (
+        imap.Folder("INBOX", "INBOX"),
+        imap.Folder("Sent Messages", "SENT"),
+        imap.Folder("Projects", "Projects"),
+        imap.Folder("mailcellar.review.offload-candidate", "offload-candidate", review=True),
+    )
+    plan = imap.append_plan(
+        {"Projects", "SENT", "Receipts/2026", "UNREAD", "STARRED", "restored/2026-10-27"},
+        folders,
+        ".",
+    )
+    assert plan.folders == ("Projects", "Receipts.2026", "Sent Messages")
+    assert plan.create == ("Receipts.2026",)  # in the server's own hierarchy
+    assert plan.flags == "(\\Flagged $mailcellar-restored.2026-10-27)"  # unread: no \Seen
+    assert imap.append_plan({"INBOX"}, folders, ".").flags == "(\\Seen)"
+    assert imap.append_plan(set(), folders, ".").folders == ("INBOX",)  # no folder label
+
+
+def test_home_folders_skip_trash_junk_and_review():
+    folders = (
+        imap.Folder("INBOX", "INBOX"),
+        imap.Folder("Trash", "TRASH"),
+        imap.Folder("Projects", "Projects"),
+    )
+    assert imap.home_folders({"Projects", "INBOX", "TRASH", "UNREAD"}, folders) == (
+        "INBOX",
+        "Projects",
+    )
+    assert imap.home_folders({"TRASH", "Gone"}, folders) == ("INBOX",)
+
+
+def test_an_appended_message_gets_the_id_the_next_scan_gives_it():
+    raw = make_eml(msgid="<a@x>")
+    assert imap.appended_id(raw, 1_420_106_400_123) == imap.header_id(
+        "<a@x>", 1_420_106_400_000, len(raw)
+    )
+    no_id = make_eml(msgid=None)
+    assert imap.appended_id(no_id, 0) == imap.content_id(no_id)
+    dated = b"Date: Thu, 01 Jan 2015 10:00:00 +0000\r\nSubject: s\r\n\r\nbody"
+    assert imap.date_of(dated) == 1_420_106_400_000 and imap.date_of(b"Subject: s\r\n\r\n") is None
+
+
+def test_restore_refuses_only_a_provider_mismatch():
+    from mailcellar.restore.cli import provider_problem
+
+    assert provider_problem("imap", "imap") == "" and provider_problem("gmail", "gmail") == ""
+    assert "a Gmail backup into an IMAP account" in provider_problem("gmail", "imap")
+
+
+# ── restore: the review's findings ───────────────────────────────────────────
+
+
+def test_mail_dated_apart_from_its_receipt_comes_back_under_the_same_id(home, tmp_path, capsys):
+    for uids in home.folders["Projects"]["uids"].values():  # Date: nine seconds before receipt
+        uids["raw"] = make_eml(
+            msgid=uids["raw"].split(b"Message-ID: ")[1].split(b"\n")[0].decode(),
+            headers=[("Date", "Thu, 01 Jan 2015 09:59:51 +0000")],
+        )
+    offload_two(home, tmp_path)
+    home.folders["Trash"]["uids"].clear()
+    assert cli.main(["backup", "home"]) == 0
+    assert cli.main(["restore", "home", "--offloaded", "--yes"]) == 0
+    assert {m["date"] for m in home.folders["Projects"]["uids"].values()} == {OLD}  # receipt
+    capsys.readouterr()
+    assert cli.main(["backup", "home"]) == 0
+    assert "Downloaded 0 messages" in capsys.readouterr().out
+
+
+def test_mail_trashed_from_two_folders_goes_back_to_each_once(home, tmp_path):
+    home.add("INBOX", raw=home.folders["Projects"]["uids"][1]["raw"], flags={"\\Seen"}, date=OLD)
+    assert cli.main(["backup", "home"]) == 0
+    box = by_folder(home, "keyword", folder=backup_folder(ADDRESS))
+    gid = next(g for g, m in box._scan()[1].messages.items() if len(m.places) == 2)
+    assert box.trash([gid]) == []
+    assert len(home.folders["Trash"]["uids"]) == 2
+    box = by_folder(home, "keyword", folder=backup_folder(ADDRESS))
+    assert box.untrash([gid]) == []
+    places = sorted(n for n, _u in box._scan()[1].messages[gid].places)
+    assert places == ["INBOX", "Projects"]  # one each, none doubled
+
+
+def test_gmail_only_labels_make_no_folders():
+    folders = (imap.Folder("INBOX", "INBOX"),)
+    plan = imap.append_plan({"INBOX", "IMPORTANT", "CATEGORY_PROMOTIONS", "CHAT"}, folders, "/")
+    assert plan.folders == ("INBOX",) and plan.create == ()
+
+
+def test_the_newest_review_says_where_mail_goes_back(tmp_path):
+    con = sidecar.open_meta(tmp_path)
+    sidecar.record_imap_review(con, "offload-candidate", {"g": (("Archive", "Archive"),)}, 2)
+    sidecar.record_imap_review(con, "dedup-redundant", {"g": (("INBOX", "INBOX"),)}, 1)
+    con.commit()
+    con.close()
+    reviews = sidecar.read_imap_reviews(tmp_path)["g"]
+    assert list(reviews.values())[-1] == (("Archive", "Archive"),)  # marked last
+
+
+def test_a_partly_appended_message_counts_as_restored(server, monkeypatch, caplog):
+    append = server.append
+
+    def refuse_projects(mailbox, flags, date_time, message):
+        if mailbox == '"Projects"':
+            return "NO", [b"[OVERQUOTA] not now"]
+        return append(mailbox, flags, date_time, message)
+
+    monkeypatch.setattr(server, "append", refuse_projects)
+    box = account(server)
+    got = {}
+    raw = make_eml(msgid="<r@x>")
+    failures = box.import_messages({"k": (raw, ["INBOX", "Projects"])}, got.__setitem__, {})
+    assert failures == [] and "k" in got  # back in INBOX
+    assert "k not appended to Projects" in caplog.text
+
+
+def test_message_ids_come_from_the_backup_where_it_has_them(home, tmp_path):
+    assert cli.main(["backup", "home"]) == 0
+    box = by_folder(home, "keyword", folder=backup_folder(ADDRESS))
+    box._scan()
+    home.commands.clear()
+    found = box.find_message_ids({"k": "<p1@x>"})
+    assert len(found["k"]) == 1
+    assert not [c for c in home.commands if "MESSAGE-ID" in str(c)]  # no header fetched
+
+
+def test_untrash_result_is_decided_from_ids(server):
+    server.add("Trash", msgid="<a@x>", flags={"\\Seen"})
+    scan = account(server)._scan()[1]
+    (gid,) = scan.messages
+    plan = imap.PutBack({}, {"Trash": frozenset({gid})}, {gid: ("INBOX",)}, ())
+    assert imap.untrash_result(plan, {"Trash": "no"}, scan) == [
+        f"{gid}: moving it out of Trash failed: no"
+    ]
+    assert imap.untrash_result(plan, {}, scan) == [f"{gid}: still in Trash"]
+
+
+def test_restore_into_another_imap_account(home, tmp_path, monkeypatch, capsys):
+    work = FakeImap()
+    work.writable = True
+    work.signed_in = home.signed_in
+    work.add_folder("Trash", special=["\\Trash"])
+    root = tmp_path / "config"
+    (root / "work").mkdir()
+    (root / "accounts.toml").write_text(f'home = "{ADDRESS}"\nwork = "sam@example.org"\n')
+    (root / "work" / gmailapi.IMAP_SETTINGS).write_text('host = "imap.example.net"\n')
+    (root / "work" / gmailapi.IMAP_PASSWORD).write_text("secret\n")
+    (root / "work" / gmailapi.IMAP_PASSWORD).chmod(0o600)
+    servers = {"imap.example.org": home, "imap.example.net": work}
+    monkeypatch.setattr(imap.ImapAccount, "_connect_ssl", lambda self: servers[self.settings.host])
+    assert cli.main(["backup", "home"]) == 0
+    assert cli.main(["restore", "home", "--all", "--to", "work", "--yes"]) == 0
+    assert len(work.folders["Projects"]["uids"]) == 3  # the folder made, the mail in it
+    capsys.readouterr()
+    assert cli.main(["backup", "work"]) == 0  # the target's backup already has them
+    assert "Downloaded 0 messages" in capsys.readouterr().out
+
+
+# ── restore: the re-review's findings ───────────────────────────────────────
+
+
+def test_a_custom_review_mark_isnt_put_back_as_a_label(home, tmp_path):
+    from mailcellar.restore.apply import candidates
+
+    for m in home.folders["Projects"]["uids"].values():
+        m["flags"].add("$mailcellar-dupes")  # an earlier dedup apply --label dupes
+    assert cli.main(["backup", "home"]) == 0
+    folder = backup_folder(ADDRESS)
+    assert "dupes" in sidecar.read_mark_labels(folder)
+    cands = candidates(folder, everything=True)
+    assert len(cands) == 3 and all(c.labels == ("Projects",) for c in cands)  # mark left off
+
+
+def test_a_message_without_a_date_header_goes_back_byte_for_byte(home, tmp_path):
+    originals = {m["raw"] for m in home.folders["Projects"]["uids"].values()}
+    assert not any(b"\nDate:" in raw for raw in originals)
+    offload_two(home, tmp_path)
+    home.folders["Trash"]["uids"].clear()
+    assert cli.main(["backup", "home"]) == 0
+    assert cli.main(["restore", "home", "--offloaded", "--yes"]) == 0
+    assert {m["raw"] for m in home.folders["Projects"]["uids"].values()} == originals
+
+
+def test_an_append_fails_only_when_its_first_folder_does():
+    assert imap.append_outcome("k", ("INBOX", "Projects"), {}) == (None, [])
+    assert imap.append_outcome("k", ("INBOX", "Projects"), {"INBOX": "no"}) == ("k: no", [])
+    assert imap.append_outcome("k", ("INBOX", "Projects"), {"Projects": "full"}) == (
+        None,
+        ["Projects (full)"],
+    )
+
+
+def test_backed_up_mail_without_a_message_id_isnt_fetched_again(home, tmp_path):
+    home.add("INBOX", raw=make_eml(msgid=None, body="no id"), flags={"\\Seen"})
+    assert cli.main(["backup", "home"]) == 0
+    box = by_folder(home, "keyword", folder=backup_folder(ADDRESS))
+    box._scan()
+    home.commands.clear()
+    box.find_message_ids({"k": "<p1@x>"})
+    assert not [c for c in home.commands if "MESSAGE-ID" in str(c)]
+
+
+def test_a_takeout_mbox_restores_into_an_imap_account_without_gmails_folders(home, tmp_path):
+    mbox = tmp_path / "takeout.mbox"
+    raw = make_eml(msgid="<t@x>").replace(b"\n", b"\r\n")
+    mbox.write_bytes(
+        b"From 1234@xxx Thu Jan 01 10:00:00 +0000 2015\r\n"
+        b"X-Gmail-Labels: Inbox,Important,Category Promotions,Opened,Receipts\r\n" + raw + b"\r\n"
+    )
+    assert cli.main(["restore", "home", "--from-mbox", str(mbox), "--yes"]) == 0
+    assert set(home.folders) == {"INBOX", "Trash", "Projects", "Receipts"}  # no Gmail-only ones
+    assert len(home.folders["INBOX"]["uids"]) == 1 and len(home.folders["Receipts"]["uids"]) == 1

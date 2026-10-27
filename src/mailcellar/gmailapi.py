@@ -1116,8 +1116,11 @@ class GmailAccount:
         self._label_names[created["id"]] = name
         return created["id"]
 
-    def add_label(self, gmail_ids: list[str], label_name: str) -> list[str]:
-        """Label messages; a failed request raises, so there are no failures to return."""
+    def add_label(self, gmail_ids: list[str], label_name: str, review: bool = True) -> list[str]:
+        """
+        Label messages (`review` makes no difference on Gmail); a failed request
+        raises, so there are no failures to return.
+        """
         label_id = self.ensure_label(label_name)
         for start in range(0, len(gmail_ids), MODIFY_CHUNK):
             self._execute(
@@ -1181,7 +1184,9 @@ class GmailAccount:
         """Move messages out of Trash, as trash() moves them in. Returns failures."""
         return self._move(gmail_ids, into_trash=False)
 
-    def import_messages(self, messages: dict[str, tuple[bytes, list[str]]], on_imported):
+    def import_messages(
+        self, messages: dict[str, tuple[bytes, list[str]]], on_imported, dates=None
+    ):
         """
         Upload messages with users.messages.import: {key: (raw bytes, label
         IDs)}, calling on_imported(key, new Gmail ID) for each as it is

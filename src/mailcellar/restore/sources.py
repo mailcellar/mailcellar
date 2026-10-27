@@ -129,20 +129,20 @@ def from_folder(folder: Path) -> list[Candidate]:
         raise SourceError(f"{folder} is not a gyb backup: it has no msg-db.sqlite")
     superseded = sidecar.superseded_ids(folder)
     recorded = chain.held(folder)  # a mailcellar backup's own chain, if it has one
+    marks = sidecar.read_mark_labels(folder)  # an IMAP backup's review marks: not put back
     out = []
     for bm in gyb.iter_backup(folder):
+        labels = [label for label in bm.labels if label not in marks]
         if bm.gmail_id in superseded:
             continue
         ms = local_ms(bm.internal_date)
         try:
             raw = bm.path.read_bytes()
         except OSError:
-            out.append(unreadable(bm.gmail_id, None, bm.labels, ms))
+            out.append(unreadable(bm.gmail_id, None, labels, ms))
             continue
         out.append(
-            candidate(
-                bm.gmail_id, raw, bm.path, bm.labels, ms, sha256=recorded.get(bm.gmail_id, "")
-            )
+            candidate(bm.gmail_id, raw, bm.path, labels, ms, sha256=recorded.get(bm.gmail_id, ""))
         )
     return out
 

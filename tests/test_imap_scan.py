@@ -249,12 +249,6 @@ def test_nothing_on_the_server_changes(server):
     (gid,) = box.list_message_ids()
     box.get_raw([gid], lambda r: None)
     assert server.folders["INBOX"]["uids"][1]["flags"] == set()  # still unread
-    for write in (  # restore's writes come later (#113)
-        lambda: box.untrash([gid]),
-        lambda: box.import_messages({}, None),
-    ):
-        with pytest.raises(gmailapi.GmailError, match="restore into it isn't supported yet"):
-            write()
     assert all(c[0] in ("LOGIN", "LIST", "EXAMINE", "UID") for c in server.commands)
 
 
