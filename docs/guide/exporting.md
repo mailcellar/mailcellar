@@ -63,6 +63,53 @@ a `'` in front. Mail is written by other people, and without the `'` a
 spreadsheet could run such a subject as a formula. If you see a `'`, that is
 why.
 
+## Browsing and searching your mail
+
+mailcellar has no mail viewer: `mailcellar search` finds mail and says
+where its file is. Two free tools can show and search what you keep.
+
+**[Bichon](https://github.com/rustmailer/bichon)**, a self-hosted archive
+with a web interface, can import an mbox export:
+
+```bash
+mailcellar export personal --all --to ~/archive.mbox
+```
+
+In Bichon, add a "local account", then run `bichon-cli`, choose Import,
+then MBOX, and take the folders from the labels in the mail headers
+(`X-Gmail-Labels`). Each message goes into one folder: the first of your
+own labels, or else Inbox, Sent or its category. Its other labels are
+not kept, and mail with no labels at all lands in INBOX. Bichon keeps
+its own compressed copy of the mail, so look after it as you would the
+export. Its first sign-in is a default password: change it, and if you
+run it in Docker, publish its port only on this machine
+(`-p 127.0.0.1:15630:15630`).
+
+**[notmuch](https://notmuch.org/)** indexes a backup folder directly, with
+no export. Give it a configuration of its own, with its database outside
+the data root and file renaming turned off, so it never writes to the
+backup or renames a file in it:
+
+```ini
+[database]
+path=/home/you/.notmuch/personal
+mail_root=/home/you/mailcellar/you@example.com
+
+[new]
+tags=
+ignore=msg-db.sqlite;meta.sqlite;chain.jsonl
+
+[maildir]
+synchronize_flags=false
+```
+
+`mail_root` is one account's backup folder (`mailcellar config` shows the
+data root). Then `NOTMUCH_CONFIG=<that file> notmuch new` indexes it, in
+seconds after the first time, so run it after each backup. Search text,
+subjects, senders, dates and attachment names, and read whole threads,
+in notmuch or a client built on it (alot, neomutt, Emacs). It doesn't
+show Gmail's labels, which the backup keeps apart from the `.eml` files.
+
 ## When it reports missing files
 
 ```
