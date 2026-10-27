@@ -105,7 +105,13 @@ commands then ask them to sign in, as for any account.
 **"Google refused the service account (unauthorized_client …)":** the
 delegation isn't in place yet, or has the wrong client ID or scope. Check
 the entry in **Manage Domain Wide Delegation** lists the client ID with
-`gmail.readonly`, and wait a while after adding it.
+`gmail.readonly`, and wait a while after adding it. A scheduled backup that
+fails this way is recorded as a failed run (`access-refused`), so
+`report health` and `schedule status` show it.
+
+**"… its private key can't be read":** the key file was damaged, perhaps
+in copying; `setup` refuses it before installing anything. Download a new
+key.
 
 **"needs the account's own sign-in, and … has no OAuth client":** a
 command that changes Gmail (offload, dedup, restore) was run for an

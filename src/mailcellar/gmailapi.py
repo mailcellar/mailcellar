@@ -31,6 +31,7 @@ import io
 import json
 import logging
 import random
+import re
 import time
 from collections import Counter, deque
 from datetime import UTC, datetime
@@ -100,6 +101,10 @@ class NeedsConsent(GmailError):
     """A token needs the user to sign in, which an unattended run can't do."""
 
 
+class AccessRefused(GmailError):
+    """Google refused a service account's delegation: an admin has to fix it, nobody can sign in."""
+
+
 class HistoryExpired(GmailError):
     """history.list refused the start ID (404): too old, so do a full sync."""
 
@@ -107,6 +112,7 @@ class HistoryExpired(GmailError):
 ACCOUNTS_FILE = "accounts.toml"
 SERVICE_ACCOUNTS_DIR = "service-accounts"  # <config>/service-accounts/<domain>.json
 SERVICE_ACCOUNT_KEYS = ("type", "client_email", "client_id", "private_key", "token_uri")
+DOMAIN_RE = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)+$")  # a host name: no /, no ..
 
 
 def config_accounts(config_root: Path) -> dict[str, Path]:
@@ -167,9 +173,12 @@ def find_config_folder(config_root: Path, account: str) -> Path:
 
 def check_service_account(text: str) -> dict:
     """
-    The fields of a service-account key file, checked. Raises GmailError
-    for anything else (an OAuth client, say). Pure.
+    The fields of a service-account key file, checked, its private key
+    included (google-auth reads it). Raises GmailError for anything else: an
+    OAuth client, say, or a key damaged in copying.
     """
+    from google.oauth2 import service_account
+
     try:
         data = json.loads(text)
     except ValueError:
@@ -179,16 +188,27 @@ def check_service_account(text: str) -> dict:
     missing = [k for k in SERVICE_ACCOUNT_KEYS if not isinstance(data.get(k), str)]
     if missing:
         raise GmailError(f"the key file is incomplete: no {', '.join(missing)}")
+    try:
+        service_account.Credentials.from_service_account_info(data, scopes=[SCOPES["readonly"]])
+    except ValueError as exc:
+        raise GmailError(f"its private key can't be read ({exc})") from None
     return data
 
 
 def service_account_path(config_root: Path, domain: str) -> Path:
-    return config_root / SERVICE_ACCOUNTS_DIR / f"{domain.lower()}.json"
+    """Where a domain's key goes. Raises GmailError for a domain that isn't a host name."""
+    domain = domain.lower()
+    if not DOMAIN_RE.match(domain):
+        raise GmailError(f"{domain!r} is not a domain name")
+    return config_root / SERVICE_ACCOUNTS_DIR / f"{domain}.json"
 
 
 def service_account_key(config_folder: Path, account: str) -> Path | None:
     """The service-account key for the account's domain, if one is installed."""
-    path = service_account_path(config_folder.parent, account.rpartition("@")[2])
+    try:
+        path = service_account_path(config_folder.parent, account.rpartition("@")[2])
+    except GmailError:
+        return None  # not a domain a key could be installed for
     return path if path.is_file() else None
 
 
@@ -199,7 +219,7 @@ def delegated_credentials(key: Path, account: str):
     what to check. The key must be owner-only: it reads every mailbox in the
     domain.
     """
-    from google.auth.exceptions import RefreshError
+    from google.auth.exceptions import RefreshError, TransportError
     from google.auth.transport.requests import Request
     from google.oauth2 import service_account
 
@@ -214,8 +234,10 @@ def delegated_credentials(key: Path, account: str):
     ).with_subject(account)
     try:
         creds.refresh(Request())
+    except TransportError as exc:
+        raise GmailError(f"{account}: couldn't reach Google for a token ({exc})") from None
     except RefreshError as exc:
-        raise GmailError(
+        raise AccessRefused(
             f"{account}: Google refused the service account ({exc}). In the Workspace Admin "
             "console, Security > Access and data control > API controls > Manage Domain Wide "
             f"Delegation must list client ID {data['client_id']} with the scope "

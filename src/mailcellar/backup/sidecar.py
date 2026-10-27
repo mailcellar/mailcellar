@@ -207,7 +207,9 @@ CREATE TABLE IF NOT EXISTS runs (
     reason           TEXT NOT NULL DEFAULT '',  -- why full: 'no-history' | 'expired' |
                                                 -- 'full' | 'search' | 'refresh-labels';
                                                 -- 'needs-consent': an unattended run
-                                                -- that could not sign in
+                                                -- that could not sign in;
+                                                -- 'access-refused': its service
+                                                -- account was refused
     status           TEXT NOT NULL,       -- 'ok' | 'failures' | 'missing' | 'error' |
                                           -- 'aborted' | 'declined'
     listed           INTEGER,             -- backup (full): messages listed
