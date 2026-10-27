@@ -1072,3 +1072,14 @@ def test_in_another_account_a_message_with_the_same_id_is_another_copy(env):
     found = con.execute("SELECT new_id, how FROM restored WHERE source_id = 'g1'").fetchone()
     con.close()
     assert found == ("g1", "found")
+
+
+def test_restore_into_another_account_refuses_a_backup_it_had_that_is_missing(env):
+    other = env.other
+    b_folder = env.folder.parent / B
+    commands.backup(other, B, b_folder)  # B has been backed up: its chain has an anchor
+    b_folder.rename(env.folder.parent / "unmounted")  # its volume goes away
+    with pytest.raises(SystemExit, match="isn't mounted"):
+        run("--offloaded", "--to", "b", "--yes")
+    assert not [c for c in other.calls if c[0] == "import"]  # nothing restored into Gmail
+    assert not b_folder.exists()  # and no backup started in its place

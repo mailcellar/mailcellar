@@ -241,6 +241,14 @@ def main(argv=None, prog: str | None = None) -> int:
 
     mode = "restore" if args.yes else "dry-run"
     progress = logger.info
+    target_folder = backup_folder(target) if other else None
+    if target_folder is not None:
+        from mailcellar.backup.commands import why_missing
+
+        # A first backup of the other account starts with what is restored; but one it
+        # had that isn't there (a volume not mounted) is refused, as backup refuses it.
+        if problem := why_missing(target, target_folder):
+            sys.exit(f"error: {problem}")
     try:
         gmail = gmailapi.GmailAccount(
             target,
@@ -257,7 +265,7 @@ def main(argv=None, prog: str | None = None) -> int:
                     run,
                     args.label or restored_label(),
                     target=target if other else "",
-                    target_folder=backup_folder(target) if other else None,
+                    target_folder=target_folder,
                     prefix=args.label_prefix,
                     strip=args.strip_labels,
                     progress=progress,
