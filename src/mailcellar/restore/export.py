@@ -10,14 +10,14 @@ an interrupted export never leaves a file that looks finished. It refuses an
 existing file, and a place inside the backup itself.
 
 mbox: one `From ` line per message (the message's date, UTC), then the
-message as stored, preceded by an X-Gmail-Labels header (comma-separated, as
-Google Takeout writes it), with lines that start with `From ` escaped the
-mboxrd way.
+message as stored, preceded by an X-Gmail-Labels header (comma-separated,
+system labels by Takeout's English names, as Google Takeout writes it, and
+user labels first), with lines that start with `From ` escaped the mboxrd way.
 zip: the .eml files under their paths in the backup (<year>/<month>/<day>/),
 and index.csv with the date, sender, subject, labels, Gmail ID and file.
 
-The decisions (export_format, inside, mbox_entry, index_row, safe_cell) are
-pure; reading the backup and writing the file are a thin layer around them.
+The decisions (export_format, inside, takeout_names, mbox_entry, index_row,
+safe_cell) are pure; reading the backup and writing the file are a thin layer around them.
 """
 
 import argparse
@@ -46,6 +46,36 @@ logger = logging.getLogger(__name__)
 
 INDEX_COLUMNS = ["date", "sender", "subject", "labels", "gmail_id", "file"]
 INDEX_NAME = "index.csv"
+# Takeout's English names for Gmail's system labels, by the label IDs the
+# backup stores; the categories are "Category Updates" and so on. Readers of
+# Takeout's mbox know these names, not the IDs (restore --from-mbox reads both).
+TAKEOUT_NAMES = {
+    "INBOX": "Inbox",
+    "SENT": "Sent",
+    "STARRED": "Starred",
+    "IMPORTANT": "Important",
+    "UNREAD": "Unread",
+    "DRAFT": "Drafts",
+    "SPAM": "Spam",
+    "TRASH": "Trash",
+    "CHAT": "Chat",
+}
+# Gmail's other system labels, its "superstars": kept by ID (Takeout's names
+# for them aren't known), but after the user's labels, with the system ones.
+SUPERSTARS = {
+    "YELLOW_STAR",
+    "ORANGE_STAR",
+    "RED_STAR",
+    "PURPLE_STAR",
+    "BLUE_STAR",
+    "GREEN_STAR",
+    "RED_BANG",
+    "ORANGE_GUILLEMET",
+    "YELLOW_BANG",
+    "GREEN_CHECK",
+    "BLUE_INFO",
+    "PURPLE_QUESTION",
+}
 
 
 # ── decisions ────────────────────────────────────────────────────────────────
@@ -89,6 +119,25 @@ def newline_of(raw: bytes) -> bytes:
     return b"\r\n" if b"\r\n" in raw[:4096] else b"\n"
 
 
+def takeout_names(labels: tuple[str, ...]) -> tuple[str, ...]:
+    """
+    The labels as Takeout names them, user labels first: a reader that keeps
+    only one label, as the folder (Bichon does), then keeps yours rather than
+    Important or a category. Pure.
+    """
+    user, system = [], []
+    for label in labels:
+        if label in TAKEOUT_NAMES:
+            system.append(TAKEOUT_NAMES[label])
+        elif label.startswith("CATEGORY_") and label[9:].isalpha():
+            system.append("Category " + label[9:].capitalize())
+        elif label in SUPERSTARS:
+            system.append(label)
+        else:
+            user.append(label)
+    return tuple(user + system)
+
+
 def labels_header(labels: tuple[str, ...], newline: bytes) -> bytes:
     """
     X-Gmail-Labels with the labels comma-separated, as Takeout writes it; empty
@@ -106,7 +155,7 @@ def labels_header(labels: tuple[str, ...], newline: bytes) -> bytes:
 def mbox_entry(raw: bytes, internal_date_ms: int, labels: tuple[str, ...]) -> bytes:
     """One message as it goes into an mbox file."""
     newline = newline_of(raw)
-    body = labels_header(labels, newline) + escape_from(raw)
+    body = labels_header(takeout_names(labels), newline) + escape_from(raw)
     if not body.endswith(b"\n"):
         body += newline
     return from_line(internal_date_ms) + body + b"\n"
@@ -127,7 +176,7 @@ def index_row(c: Candidate, sender: str, subject: str, file: str) -> dict[str, s
         "date": date,
         "sender": safe_cell(sender),
         "subject": safe_cell(subject),
-        "labels": safe_cell(";".join(c.labels)),
+        "labels": safe_cell(";".join(takeout_names(c.labels))),
         "gmail_id": c.source_id,
         "file": file,
     }
