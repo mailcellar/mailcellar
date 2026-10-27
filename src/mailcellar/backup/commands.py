@@ -573,7 +573,13 @@ DETAILS_CHUNK = 1000
 
 
 def local_to_ms(sqlite_internaldate: str) -> int:
-    """gyb's local-time message_internaldate → ms since epoch (UTC)."""
+    """
+    gyb's local-time message_internaldate → ms since epoch (UTC), in this
+    machine's zone now. gyb's format records no zone, so a date written under
+    another zone, or in the hour a clock change repeats, comes back off by the
+    difference. Only messages Gmail no longer has rely on it: backfill takes
+    Gmail's own date for the rest.
+    """
     return int(datetime.fromisoformat(sqlite_internaldate).timestamp() * 1000)
 
 
