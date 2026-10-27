@@ -188,6 +188,17 @@ def missing_backup(account: str, folder: Path, has_backup: bool, anchor_file: Pa
     )
 
 
+def why_missing(account: str, folder: Path) -> str:
+    """missing_backup() for this backup folder and the account's anchor, as they are now."""
+    anchor = chain.anchor_path(account)
+    return missing_backup(
+        account,
+        folder,
+        (folder / gyb.DB_NAME).is_file(),
+        anchor if chain.read_anchor(account) is not None else None,
+    )
+
+
 def backup(
     gmail,
     account: str,
@@ -208,13 +219,7 @@ def backup(
     creating nothing, when the account was backed up before and the
     backup isn't in `folder`.
     """
-    anchor = chain.anchor_path(account)
-    problem = missing_backup(
-        account,
-        folder,
-        (folder / gyb.DB_NAME).is_file(),
-        anchor if chain.read_anchor(account) is not None else None,
-    )
+    problem = why_missing(account, folder)
     if problem:
         raise BackupMissing(problem)
     con = gyb.open_backup(folder, account)

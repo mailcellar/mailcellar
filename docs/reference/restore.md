@@ -160,7 +160,7 @@ account restored into. Without `--yes` it is a dry run.
 
 | Option | What it does |
 | --- | --- |
-| `--to ACCOUNT` | Restore into this configured account instead; its backup gets the new IDs |
+| `--to ACCOUNT` | Restore into this configured account instead; its backup gets the new IDs (a first backup of it starts with them). Refused if that account has been backed up before and its backup isn't there, as `backup` refuses it |
 | `--label NAME` | The label restored messages get (default `restored/<today>`) |
 | `--label-prefix P` | Nest the backed-up user labels under `P/` |
 | `--strip-labels` | Restore no backed-up labels, only the `restored/` label: the messages arrive archived |

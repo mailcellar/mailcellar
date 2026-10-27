@@ -8,6 +8,10 @@ in beta, so commands and options may still change before 1.0.
 ## Unreleased
 
 ### Fixed
+- `restore --to ACCOUNT` refuses an account that has been backed up before
+  when its backup isn't there (a volume not mounted), as `backup` does,
+  where it started a new backup in its place holding only the restored
+  messages, which then kept `backup` from noticing.
 - `dedup apply` and `offload apply` ask the legal-hold check about every
   planned message, so one the sidecar doesn't know (a gyb-era backup that
   hasn't been through `mailcellar meta`) counts as held where a hold
