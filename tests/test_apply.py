@@ -363,7 +363,9 @@ def test_a_result_is_a_frozen_value(tmp_path):
 def test_the_steps_after_acting_name_each_outcome(tmp_path):
     results = [ok(tmp_path, "b1"), ok(tmp_path, "b2")]
     assert [r.outcome for r in dedup_apply.after_dry_run(results)] == ["would label or trash"] * 2
-    assert [r.outcome for r in dedup_apply.after_label(results)] == ["labelled"] * 2
+    assert [r.outcome for r in dedup_apply.after_label(results, {})] == ["labelled"] * 2
+    failed = dedup_apply.after_label(results, {results[0].row["gmail_id"]: "refused"})
+    assert [(r.outcome, r.detail) for r in failed][0] == ("failed", "refused")
     declined = dedup_apply.after_declined(results)
     assert [(r.outcome, r.detail) for r in declined] == [("skipped", "not confirmed")] * 2
     after = dedup_apply.after_trash(results, {"b2": "HttpError 500"})

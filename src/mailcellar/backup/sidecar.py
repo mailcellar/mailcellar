@@ -25,10 +25,12 @@ index and the reports read it instead of parsing .eml files. gyb ignores
 the file; msg-db.sqlite is never touched here.
 """
 
+import json
 import logging
 import os
 import shutil
 import sqlite3
+from collections.abc import Mapping
 from pathlib import Path
 
 from mailcellar.message import PARSER_VERSION
@@ -36,7 +38,7 @@ from mailcellar.message import PARSER_VERSION
 logger = logging.getLogger(__name__)
 
 META_NAME = "meta.sqlite"
-SCHEMA_VERSION = "12"
+SCHEMA_VERSION = "13"
 
 
 def _add_run_column(name: str):
@@ -120,6 +122,7 @@ MIGRATIONS = {
     "9": [],  # v10 adds the forgotten table (created by _SCHEMA)
     "10": [],  # v11 adds the holds table (created by _SCHEMA)
     "11": [],  # v12 adds the imap_map table (created by _SCHEMA)
+    "12": [],  # v13 adds the imap_review table (created by _SCHEMA)
 }
 
 FIELDS = (
@@ -284,6 +287,18 @@ CREATE TABLE IF NOT EXISTS imap_map (
     PRIMARY KEY (folder, uidvalidity, uid)
 );
 CREATE INDEX IF NOT EXISTS imap_map_msg_id ON imap_map (msg_id);
+
+-- An IMAP account reviewed by folder only: the folders a message was in
+-- when offload or dedup moved it into a review folder (mailcellar/review/
+-- <label>), so its labels stay the same while it's reviewed, and restore
+-- can put it back.
+CREATE TABLE IF NOT EXISTS imap_review (
+    msg_id    TEXT NOT NULL,
+    label     TEXT NOT NULL,                -- the review label (offload-candidate)
+    origins   TEXT NOT NULL,                -- JSON [[folder name, label], ...]
+    marked_at INTEGER NOT NULL,             -- ms since epoch
+    PRIMARY KEY (msg_id, label)
+);
 """
 
 RUN_COUNTS = (
@@ -598,6 +613,54 @@ def drop_imap_folders(con: sqlite3.Connection, keep) -> None:
     for (folder,) in con.execute("SELECT DISTINCT folder FROM imap_map").fetchall():
         if folder not in keep:
             con.execute("DELETE FROM imap_map WHERE folder = ?", (folder,))
+
+
+def record_imap_review(con: sqlite3.Connection, label: str, origins: Mapping, now_ms: int) -> None:
+    """Where each message (ID → ((folder, label), ...)) was before review. No commit."""
+    con.executemany(
+        "INSERT OR REPLACE INTO imap_review VALUES (?, ?, ?, ?)",
+        (
+            (msg_id, label, json.dumps([list(o) for o in where]), now_ms)
+            for msg_id, where in origins.items()
+        ),
+    )
+
+
+def keep_imap_reviews(con: sqlite3.Connection, keep, before_ms: int) -> None:
+    """
+    Drop the review records not in `keep`, (ID, label) pairs, that were written
+    before `before_ms`: one written since (a review that began while the scan
+    ran) isn't the scan's to judge. No commit.
+    """
+    keep = set(keep)
+    rows = con.execute(
+        "SELECT msg_id, label FROM imap_review WHERE marked_at < ?", (before_ms,)
+    ).fetchall()
+    con.executemany(
+        "DELETE FROM imap_review WHERE msg_id = ? AND label = ?",
+        [row for row in rows if tuple(row) not in keep],
+    )
+
+
+def read_imap_reviews(folder: Path) -> dict[str, dict[str, tuple[tuple[str, str], ...]]]:
+    """
+    Each reviewed message's folders before review, per review label (ID →
+    label → ((folder, label), ...)), read-only; empty for an older sidecar.
+    """
+    path = meta_path(folder)
+    if not path.is_file():
+        return {}
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        tables = {n for (n,) in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "imap_review" not in tables:
+            return {}
+        out: dict[str, dict[str, tuple[tuple[str, str], ...]]] = {}
+        for msg_id, label, origins in con.execute("SELECT msg_id, label, origins FROM imap_review"):
+            out.setdefault(msg_id, {})[label] = tuple(tuple(o) for o in json.loads(origins))
+        return out
+    finally:
+        con.close()
 
 
 def provider(folder: Path) -> str:

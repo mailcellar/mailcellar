@@ -137,6 +137,7 @@ class Scan:
     maps: Mapping[str, tuple[int, Mapping[int, str]]]  # folder → (UIDVALIDITY, UID → ID)
     skipped: frozenset[str] = field(default_factory=frozenset)  # folders that couldn't be read
     folders: tuple[Folder, ...] = ()  # the folders read
+    read_at: int = 0  # ms since epoch: when the read began
 
 
 # ── pure: parsing ────────────────────────────────────────────────────────────
@@ -475,11 +476,13 @@ def assign_ids(reads, digests: Mapping[Location, str]) -> dict[Location, str]:
     return out
 
 
-def merge(reads, ids: Mapping[Location, str]) -> Scan:
+def merge(reads, ids: Mapping[Location, str], origins: Mapping | None = None) -> Scan:
     """
     Locations merged into messages: the labels of every folder a message is in
     (Trash and Junk only if it is in nothing else) and its flags; fetched from
-    a folder it lives in. Pure.
+    a folder it lives in. A message in a review folder keeps the labels of the
+    folders it was in before (`origins`: ID → ((folder, label), ...)), as a
+    Gmail message keeps its labels when one is added. Pure.
     """
     placed: dict[str, list[tuple[FolderRead, int]]] = {}
     for read in reads:
@@ -490,6 +493,10 @@ def merge(reads, ids: Mapping[Location, str]) -> Scan:
     messages = {}
     for gid, places in placed.items():
         folder_labels = {read.folder.label for read, _uid in places}
+        recorded = (origins or {}).get(gid, {})
+        for read, _uid in places:  # the review it's in now: older ones are done with
+            if read.folder.review:
+                folder_labels |= {label for _n, label in recorded.get(read.folder.label, ())}
         kept = folder_labels - HIDDEN or folder_labels
         flags = frozenset().union(*(read.flags[uid] for read, uid in places))
         home = [(r, u) for r, u in places if r.folder.label in kept]
@@ -678,10 +685,118 @@ def trash_result(plan: TrashPlan, refused: Mapping[str, str], after: Scan | None
     return [*plan.failures, *stuck.values(), *unconfirmed]
 
 
-def marking_stores(scan: Scan, ids) -> dict[str, list[int]]:
-    """Every copy of the messages, by folder: where add_label sets a keyword. Pure."""
-    return by_folder_uids(
-        loc for gid in ids if gid in scan.messages for loc in scan.messages[gid].places
+def review_folder_name(label: str, delim: str | None) -> str:
+    """The review folder for a label: mailcellar/review/<label> in the server's own form. Pure."""
+    parts = [*REVIEW_ROOT.strip("/").split("/"), *label.split("/")]
+    return (delim or "/").join(parts)
+
+
+class KeywordsRefused(gmailapi.GmailError):
+    """The server keeps no custom keywords: keyword review can't work on it."""
+
+
+@dataclass(frozen=True)
+class Marking:
+    """
+    What add_label does, decided before anything changes: by keyword, the
+    copies to mark; by folder, the copies to move into `folder` and where each
+    message was, to record first.
+    """
+
+    folder: str | None  # the review folder (folder mode); None: by keyword
+    create: bool  # the review folder doesn't exist yet
+    copies: Mapping[str, tuple[int, ...]]  # folder → UIDs to mark, or to move into review
+    owners: Mapping[str, frozenset[str]]  # folder → the IDs with a copy there
+    origins: Mapping[str, tuple[tuple[str, str], ...]]  # ID → (folder, label) it leaves
+    failures: tuple[str, ...]  # "<id>: <why>", for IDs nothing is done for
+
+
+def by_folder_with_owners(pairs) -> tuple[Mapping, Mapping]:
+    """(ID, location) pairs as folder → UIDs and folder → IDs, read-only. Pure."""
+    owners: dict[str, set[str]] = {}
+    for gid, (name, _uid) in pairs:
+        owners.setdefault(name, set()).add(gid)
+    uids = by_folder_uids(loc for _g, loc in pairs)
+    return (
+        MappingProxyType({name: tuple(u) for name, u in uids.items()}),
+        MappingProxyType({name: frozenset(g) for name, g in owners.items()}),
+    )
+
+
+def keyword_marking(scan: Scan, ids) -> Marking:
+    """Every copy of the messages on the server, wherever it is. Pure."""
+    pairs = [(gid, loc) for gid in ids if gid in scan.messages for loc in scan.messages[gid].places]
+    copies, owners = by_folder_with_owners(pairs)
+    missing = tuple(f"{gid}: not on the server" for gid in ids if gid not in scan.messages)
+    return Marking(None, False, copies, owners, MappingProxyType({}), missing)
+
+
+def folder_marking(scan: Scan, ids, label: str, entries) -> Marking:
+    """
+    The review folder for `label` in the server's own hierarchy (to create if
+    missing), and every copy of each message to move into it but those in
+    Trash or Junk, which stay. A message under another review is left to
+    that one, and nothing moves while a folder couldn't be read (a copy
+    there would stay behind); both are failures. Pure.
+    """
+    delim = next((d for _n, d, _f in entries if d), None)
+    review = review_folder_name(label, delim)
+    create = review not in {name for name, _d, _f in entries}
+    empty = MappingProxyType({})
+    if scan.skipped:
+        why = f"folders couldn't be read ({', '.join(sorted(scan.skipped))})"
+        return Marking(review, create, empty, empty, empty, tuple(f"{g}: {why}" for g in ids))
+    label_of = {f.name: f.label for f in scan.folders}
+    reviews = {f.name for f in scan.folders if f.review}
+    pairs, origins, failures = [], {}, []
+    for gid in ids:
+        if gid not in scan.messages:
+            failures.append(f"{gid}: not on the server")
+            continue
+        places = scan.messages[gid].places
+        other = sorted({n for n, _u in places if n in reviews and n != review})
+        if other:
+            failures.append(f"{gid}: under review in {other[0]} already; finish that first")
+            continue
+        leaving = [
+            loc
+            for loc in places
+            if loc[0] != review and label_of[loc[0]] not in HIDDEN and loc[0] not in reviews
+        ]
+        if not leaving and review not in {n for n, _u in places}:
+            failures.append(f"{gid}: only in Junk or Trash")
+            continue
+        if leaving:
+            origins[gid] = tuple(sorted({(n, label_of[n]) for n, _u in leaving}))
+            pairs += [(gid, loc) for loc in leaving]
+    copies, owners = by_folder_with_owners(pairs)
+    return Marking(review, create, copies, owners, MappingProxyType(origins), tuple(failures))
+
+
+def marking_failures(marking: Marking, refused: Mapping[str, str]) -> list[str]:
+    """add_label's failures: the plan's own, and the IDs in a folder that refused. Pure."""
+    stuck = {
+        gid: f"{gid}: marking it in {name} failed: {why}"
+        for name, why in sorted(refused.items())
+        for gid in sorted(marking.owners.get(name, ()))
+    }
+    return [*marking.failures, *stuck.values()]
+
+
+def under_review(scan: Scan) -> frozenset[tuple[str, str]] | None:
+    """
+    (ID, label) for every message in a review folder now, whose record must
+    stay; None when a folder couldn't be read, so nothing is dropped on a
+    guess. Pure.
+    """
+    if scan.skipped:
+        return None
+    reviews = {f.name: f.label for f in scan.folders if f.review}
+    return frozenset(
+        (gid, reviews[name])
+        for gid, m in scan.messages.items()
+        for name, _u in m.places
+        if name in reviews
     )
 
 
@@ -825,6 +940,14 @@ class ImapAccount:
                 self._prior_map = sidecar.read_imap_map(self.folder)
         return self._prior_map
 
+    def _reviews(self) -> dict[str, tuple[tuple[str, str], ...]]:
+        """Reviewed messages' folders before review, as recorded in the backup, read-only."""
+        if self.folder is None:
+            return {}
+        from mailcellar.backup import sidecar
+
+        return sidecar.read_imap_reviews(self.folder)
+
     def _known(self, name: str, uidvalidity: int) -> dict[int, str]:
         v, uids = self._prior().get(name, (None, {}))
         return dict(uids) if v == uidvalidity else {}
@@ -839,6 +962,9 @@ class ImapAccount:
         for name, (uidvalidity, uids) in scan.maps.items():
             sidecar.replace_imap_folder(con, name, uidvalidity, uids)
         sidecar.drop_imap_folders(con, set(scan.maps) | set(scan.skipped))
+        keep = under_review(scan)
+        if keep is not None:  # finished reviews (kept, trashed or put back), not newer ones
+            sidecar.keep_imap_reviews(con, keep, before_ms=scan.read_at)
 
     # ── reading ──────────────────────────────────────────────────────────────
     def _read_entries(self):
@@ -939,6 +1065,7 @@ class ImapAccount:
 
     def _read_scan(self) -> Scan:
         """Every folder read, and the messages decided."""
+        read_at = int(time.time() * 1000)
         folders = self._read_folders()
         reads, skipped = [], []
         with progress.Progress(f"{self.account}: reading folders", len(folders)) as p:
@@ -950,8 +1077,8 @@ class ImapAccount:
                     reads.append(read)
                 p.advance()
         digests = self._read_digests(needs_content(reads))
-        decided = merge(reads, assign_ids(reads, digests))
-        return replace(decided, skipped=frozenset(skipped))
+        decided = merge(reads, assign_ids(reads, digests), self._reviews())
+        return replace(decided, skipped=frozenset(skipped), read_at=read_at)
 
     def _messages(self) -> Mapping[str, Message]:
         return self._scan()[1].messages
@@ -1079,19 +1206,21 @@ class ImapAccount:
         self._retrying(f"{what} in {folder}", run)
 
     def add_label(self, gmail_ids, label_name):
-        """Mark messages for review: mailcellar's keyword for the label, on every copy."""
+        """
+        Mark messages for review: mailcellar's keyword for the label on every copy,
+        or, with review = "folder", every copy moved into mailcellar/review/<label>,
+        the folders it leaves recorded first in the backup's meta.sqlite. Returns
+        "<id>: <why>" for those not marked, as trash() does.
+        """
         if self.settings.review == "folder":
-            raise gmailapi.GmailError(
-                f'{self.account}: review = "folder" is not supported yet; set the account '
-                "up with --review keyword"
-            )
+            return self._move_to_review(gmail_ids, label_name)
         keyword = keyword_for(label_name)
-        stores = marking_stores(self._scan()[1], gmail_ids)
+        marking = keyword_marking(self._scan()[1], gmail_ids)
 
         def keeps_keywords(conn):
             _code, (permanent, *_rest) = conn.response("PERMANENTFLAGS")
             if b"\\*" not in (permanent or b""):
-                raise gmailapi.GmailError(
+                raise KeywordsRefused(
                     f"{self.account}: the server keeps no keywords of mailcellar's in its "
                     "folders (PERMANENTFLAGS has no \\*); set the account up with --review folder"
                 )
@@ -1099,9 +1228,52 @@ class ImapAccount:
         def store(conn, uids):
             self._ok(*conn.uid("STORE", uids, "+FLAGS.SILENT", f"({keyword})"), "STORE")
 
-        for folder, uids in stores.items():
-            self._write(folder, uids, f"marking {label_name}", store, keeps_keywords)
-        self._changed()
+        return self._carry_out(marking, f"marking {label_name}", store, keeps_keywords)
+
+    def _carry_out(self, marking: Marking, what: str, fn, selected=None) -> list[str]:
+        """fn on every folder's copies, a refused folder failing its own; then re-read."""
+        refused: dict[str, str] = {}
+        try:
+            for folder, uids in marking.copies.items():
+                try:
+                    self._write(folder, list(uids), what, fn, selected)
+                except gmailapi.AccessRefused, KeywordsRefused:
+                    raise  # the account or the server, not this folder
+                except gmailapi.GmailError as exc:
+                    refused[folder] = str(exc)
+        finally:
+            self._changed()
+        return marking_failures(marking, refused)
+
+    def _create(self, conn, name: str) -> None:
+        """CREATE the folder; one that exists by now (another client, a run before) is fine."""
+        typ, data = conn.create(quote(name))
+        if typ != "OK" and b"ALREADYEXISTS" not in b" ".join(d for d in data if d).upper():
+            self._ok(typ, data, f"CREATE {name}")
+
+    def _move_to_review(self, gmail_ids, label_name) -> list[str]:
+        """Folder review (add_label): its failures as "<id>: <why>"."""
+        keyword_for(label_name)  # the same rule: a label a review folder can carry
+        if self.folder is None:
+            raise gmailapi.GmailError(
+                f"{self.account}: reviewing by folder records where mail came from in the "
+                "backup, and this account has none open"
+            )
+        marking = folder_marking(self._scan()[1], gmail_ids, label_name, self._read_entries())
+        if not marking.copies:
+            return list(marking.failures)
+        review = marking.folder
+        if marking.create:
+            self._retrying(f"creating {review}", lambda conn: self._create(conn, review))
+        from mailcellar.backup import sidecar
+
+        con = sidecar.open_meta(self.folder)  # recorded before moving: never lost in between
+        try:
+            sidecar.record_imap_review(con, label_name, marking.origins, int(time.time() * 1000))
+            con.commit()
+        finally:
+            con.close()
+        return self._carry_out(marking, f"moving to {review}", self._mover(review))
 
     def trash(self, gmail_ids):
         """

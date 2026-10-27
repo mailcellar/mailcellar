@@ -1091,3 +1091,10 @@ def test_restore_into_another_account_refuses_a_backup_it_had_that_is_missing(en
         run("--offloaded", "--to", "b", "--yes")
     assert not [c for c in other.calls if c[0] == "import"]  # nothing restored into Gmail
     assert not b_folder.exists()  # and no backup started in its place
+
+
+def test_a_restored_message_that_cant_be_labelled_is_restored_all_the_same(env, capsys):
+    env.add_label = lambda ids, label: [f"{i}: not allowed here" for i in ids]
+    assert run("--id", "t1", "--yes") == 0
+    assert "t1" not in env.trashed  # restored
+    assert "couldn't be labelled restored/" in capsys.readouterr().err

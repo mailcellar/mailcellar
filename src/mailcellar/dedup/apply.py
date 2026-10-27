@@ -139,8 +139,14 @@ def after_dry_run(results: list[Result]) -> list[Result]:
     return [replace(r, outcome="would label or trash") for r in results]
 
 
-def after_label(results: list[Result]) -> list[Result]:
-    return [replace(r, outcome="labelled") for r in results]
+def after_label(results: list[Result], failures: dict[str, str]) -> list[Result]:
+    """The results once labelling is done; failures maps a Gmail ID to why it failed."""
+    return [
+        replace(r, outcome="failed", detail=failures[r.row["gmail_id"]])
+        if r.row["gmail_id"] in failures
+        else replace(r, outcome="labelled")
+        for r in results
+    ]
 
 
 def after_declined(results: list[Result]) -> list[Result]:
@@ -169,8 +175,8 @@ def act(
     if mode == "dry-run":
         return after_dry_run(results)
     if mode == "label":
-        client.add_label(ids, dedup_label)
-        return after_label(results)
+        failures = dict(f.split(": ", 1) for f in client.add_label(ids, dedup_label))
+        return after_label(results, failures)
     if not confirm(f"Move {len(ids):,} messages in {account} to Trash?"):
         return after_declined(results)
     with Progress(f"{account}: moving to Trash", len(ids)):

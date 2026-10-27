@@ -36,7 +36,7 @@ If the login is refused, nothing is written. Options:
 | `--port PORT` | The server doesn't use 993 (IMAP over TLS) |
 | `--username NAME` | You log in with something other than the address |
 | `--cafile FILE` | Your own server has a certificate from a private CA |
-| `--review folder` | For offload and dedup: your mail client doesn't show keywords, so mark mail for review by moving it to a `mailcellar/review/` folder instead (not yet supported) |
+| `--review folder` | For offload and dedup: your mail client doesn't show keywords, so mark mail for review by moving it to a `mailcellar/review/` folder instead |
 | `--name NAME` | You want another config name than the one from the address |
 | `--no-auth` | Write the account without signing in now |
 
@@ -83,10 +83,18 @@ with two steps, on a server that has **MOVE** and a **special-use Trash**
 they're refused, saying what's missing: without MOVE, moving mail can
 delete it for good.
 
-1. `--label` marks each candidate with a keyword, `$mailcellar-` and the
-   label (`$mailcellar-offload-candidate`), on every copy. Most mail
-   clients show keywords as tags; **clear it on a message to keep it.**
-   A server that keeps no custom keywords is refused here.
+1. `--label` marks each candidate for review, one of two ways, set by
+   `setup --review`:
+   - **keyword** (the default): `$mailcellar-` and the label
+     (`$mailcellar-offload-candidate`) on every copy. Most mail clients
+     show keywords as tags; **clear it on a message to keep it.** A server
+     that keeps no custom keywords is refused here: review by folder.
+   - **folder**: every copy is moved into `mailcellar/review/<label>`
+     (`mailcellar/review/offload-candidate`), and the folders it came from
+     are recorded in the backup, so its labels there don't change while
+     it's reviewed. **Move a message out of that folder to keep it.**
+     Copies in Junk or Trash stay where they are, and a message already
+     under another review (dedup's, say) is left to it and reported.
 2. `--trash` checks what is still marked against the backup, moves every
    copy to the server's Trash with MOVE, and reads the mailbox again to
    confirm. Nothing is ever expunged or deleted.
@@ -98,7 +106,8 @@ isn't supported yet.
 
 ## What it doesn't do
 
-- Restore into an IMAP account (coming, #113), or review by folder.
+- Restore into an IMAP account (coming, #113): a kept message you moved
+  out of a review folder stays where you put it.
 - Gmail searches (`query` in offload rules): an IMAP account has none.
 - Keep IMAP keywords other than read, flagged and mailcellar's own
   (`$Forwarded` and the like).

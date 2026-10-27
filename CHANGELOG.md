@@ -22,11 +22,12 @@ in beta, so commands and options may still change before 1.0.
   `--trash` moves what is still marked to Trash and confirms it there.
   Nothing is expunged; other servers are refused, saying what's missing.
 - `setup --imap --review keyword|folder` chooses how offload and dedup
-  mark an IMAP account's mail for review (a `$mailcellar-` keyword, or,
-  still to come, a `mailcellar/review/` folder). Setting an IMAP account up again
+  mark an IMAP account's mail for review: a `$mailcellar-` keyword, or a
+  move into a `mailcellar/review/` folder (moving it out keeps it), the
+  folders it came from recorded in the backup. Setting an IMAP account up again
   keeps its port, username, CA file and review mode unless given.
 
-**Upgrading:** `meta.sqlite` schema 11 → 12 (a new table for IMAP
+**Upgrading:** `meta.sqlite` schema 11 → 13 (two new tables for IMAP
 accounts), on the first run, after copying the file aside.
 
 ## 0.16.0 (2026-10-27)
