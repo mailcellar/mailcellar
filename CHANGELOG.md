@@ -26,6 +26,8 @@ in beta, so commands and options may still change before 1.0.
 - A legal hold naming parties now holds a message whose addresses weren't
   read (a parse that failed), as it does other mail whose facts aren't
   known, where it let such a message go.
+- `report health` and `schedule status` warn when the offload rules can't
+  be read, where they showed nothing due under retention.
 
 ## 0.15.1 (2026-10-27)
 

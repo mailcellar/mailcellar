@@ -32,6 +32,7 @@ values; the rest reads and writes.
 
 import csv
 import json
+import logging
 import os
 import shutil
 import sqlite3
@@ -41,6 +42,9 @@ from pathlib import Path
 
 from mailcellar.backup import chain, gyb, sidecar
 from mailcellar.paths import data_root
+
+logger = logging.getLogger(__name__)
+_warned: set[Path] = set()  # rules files already warned about in this run
 
 HOLD_DAYS = 30  # like Gmail's Trash
 FORGOTTEN_DIR = "_forgotten"  # <data root>/_forgotten/<email>/<run>/
@@ -244,9 +248,17 @@ def policies(path: Path | None = None) -> dict[str, tuple[int, int]]:
     from mailcellar.offload.rules import RuleError, load_rules
     from mailcellar.report.cli import parse_before
 
+    path = path or rules_path()
+    if not path.is_file():
+        return {}  # no rules, so no retention
     try:
-        rules = load_rules(path or rules_path(), parse_before, lambda name: name)
-    except RuleError:
+        rules = load_rules(path, parse_before, lambda name: name)
+    except (RuleError, OSError) as exc:
+        if path not in _warned:
+            _warned.add(path)
+            logger.warning(
+                f"Retention: can't read the offload rules, so what is due isn't known: {exc}"
+            )
         return {}
     return {r.name: (r.forget_after, r.forget_ms) for r in rules if r.forget_after}
 
