@@ -44,7 +44,7 @@ from mailcellar.offload.plan import (
     summary,
 )
 from mailcellar.offload.review import write_reviews
-from mailcellar.offload.rules import RuleError, load_rules, years_text
+from mailcellar.offload.rules import RuleError, load_rules, short_retention, years_text
 from mailcellar.paths import backup_folder, config_root, data_root
 from mailcellar.report.cli import parse_before, resolve_folders
 from mailcellar.report.db import AnalyticsError, completeness, open_sidecars
@@ -107,6 +107,8 @@ def cmd_plan(args) -> None:
         for rule in rules:
             if rule.accounts and not set(rule.accounts) & set(accounts):
                 logger.warning(f"rule {rule.name!r}: none of its accounts is chosen")
+            if why := short_retention(rule):
+                logger.warning(why)
         hits = {
             (account, q): ids
             for account, queries in searches(rules, accounts).items()
@@ -382,6 +384,9 @@ def retention_policy(args) -> dict:
     except RuleError as exc:
         sys.exit(f"error: {exc}")
     retain = {r.name: r for r in rules if r.forget_after}
+    for rule in retain.values():
+        if why := short_retention(rule):
+            logger.warning(why)
     if args.rule:
         missing = sorted(set(args.rule) - set(retain))
         if missing:

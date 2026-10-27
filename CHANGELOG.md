@@ -7,6 +7,11 @@ in beta, so commands and options may still change before 1.0.
 
 ## Unreleased
 
+### Changed
+- `offload plan` and `offload forget --due` warn about a rule whose
+  `forget_after` is no longer than its `before`, which would make all it
+  offloads due to be forgotten as soon as Gmail has deleted it.
+
 ### Fixed
 - The crontab line `schedule install` prints escapes `%`, which cron reads
   as the end of the command, so a data root or log path holding one no

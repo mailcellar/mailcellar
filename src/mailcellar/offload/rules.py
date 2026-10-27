@@ -107,6 +107,21 @@ def years_text(n: int) -> str:
     return f"{n} year" + ("" if n == 1 else "s")
 
 
+def short_retention(rule: Rule) -> str:
+    """
+    Why the rule's forget_after looks like a slip, or "": one no longer than
+    its `before` makes everything the rule offloads due to be forgotten as
+    soon as Gmail has deleted it. Pure.
+    """
+    if rule.forget_ms is None or rule.forget_ms < rule.before_ms:
+        return ""
+    return (
+        f"rule {rule.name!r}: forget_after ({years_text(rule.forget_after)}) is no longer than "
+        f"before ({rule.before}), so all it offloads is due to be forgotten once Gmail has "
+        "deleted it"
+    )
+
+
 def fold(text: str) -> str:
     """
     Text for subject matching: HTML entities unescaped, mojibake (UTF-8 read

@@ -131,7 +131,9 @@ mailcellar offload forget --due --yes               # asks you to type the count
 `offload plan` and the review pages show each rule's `forget_after`;
 `report health` and `schedule status` show how much is due, and nothing
 runs it unattended. Mail whose rule has been renamed or removed is under no
-policy and stays. Each forget run's link in the backup's hash chain names
+policy and stays. `offload plan` and `--due` warn about a `forget_after` no
+longer than the rule's `before`: everything it offloads would be due as soon
+as Gmail has deleted it. Each forget run's link in the backup's hash chain names
 the rules it forgot for, and their `forget_after`.
 
 ## Options
