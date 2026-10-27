@@ -474,3 +474,33 @@ def test_the_review_line_says_when_a_rules_mail_is_forgotten(tmp_path):
     path.write_text('[[rule]]\nname = "x"\nbefore = 2\nlabel = "a"\nforget_after = 7\n')
     (rule,) = load_rules(path, parse_before, lambda a: a)
     assert rule_text(rule).endswith("forgotten from the backup 7 years after its date")
+
+
+def test_an_interrupted_forget_changes_neither_database_and_a_rerun_completes(
+    env, monkeypatch, capsys
+):
+    folder, _gmail = env
+    real_move, moves = gyb.shutil.move, []
+
+    def stopping_move(src, target):
+        if moves:
+            raise KeyboardInterrupt
+        moves.append(src)
+        return real_move(src, target)
+
+    monkeypatch.setattr(gyb.shutil, "move", stopping_move)
+    with pytest.raises(KeyboardInterrupt):
+        run("--batch", BATCH, "--yes", typed="2", monkeypatch=monkeypatch)
+    in_backup = {m.gmail_id for m in gyb.iter_backup(folder)} | {
+        g for (g,) in sqlite3.connect(folder / gyb.DB_NAME).execute("SELECT uid FROM uids")
+    }
+    meta = sqlite3.connect(sidecar.meta_path(folder))
+    in_meta = {g for (g,) in meta.execute("SELECT gmail_id FROM messages")}
+    assert {"p0", "p1"} <= in_backup and {"p0", "p1"} <= in_meta  # the two still agree
+    assert meta.execute("SELECT count(*) FROM forgotten").fetchone()[0] == 0
+    meta.close()
+
+    monkeypatch.setattr(gyb.shutil, "move", real_move)
+    run("--batch", BATCH, "--yes", typed="2", monkeypatch=monkeypatch)
+    assert "Forgot 2 messages" in capsys.readouterr().out
+    assert not {"p0", "p1"} & {m.gmail_id for m in gyb.iter_backup(folder)}

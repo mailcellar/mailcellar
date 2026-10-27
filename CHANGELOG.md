@@ -16,6 +16,11 @@ in beta, so commands and options may still change before 1.0.
   commands running at once (the scheduled backup and one typed by hand)
   no longer write links to the same previous link, which `verify --chain`
   reported as a broken chain; a second genesis appends nothing.
+- `backup --prune` and `offload forget` change the backup's index only
+  when they finish, so one stopped part-way (Ctrl-C, a crash) leaves it as
+  it was, and the next run finds the files already moved and lists them
+  as moved, so `restore --from-pruned` can bring them back, where it said
+  "was missing".
 
 ## 0.15.1 (2026-10-27)
 
