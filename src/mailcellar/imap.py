@@ -1056,16 +1056,136 @@ def append_outcome(key: str, folders, refused: Mapping[str, str]) -> tuple[str |
     return None, [f"{name} ({refused[name]})" for name in folders if name in refused]
 
 
+def raw_message_id(raw: bytes) -> str:
+    """A whole message's Message-ID, from its header; "" if it has none. Pure."""
+    return message_id_of(raw.split(b"\r\n\r\n", 1)[0].split(b"\n\n", 1)[0])
+
+
+@dataclass(frozen=True)
+class Appended:
+    """One message restore appended: where its first copy went, and what was sent."""
+
+    key: str
+    folder: str
+    uid: int | None  # from the APPEND's answer (UIDPLUS), else found by Message-ID
+    raw: bytes
+    ms: int
+
+
+def group_by_folder(appended) -> dict[str, list[Appended]]:
+    """Appended messages by the folder of their first copy, in order. Pure."""
+    out: dict[str, list[Appended]] = {}
+    for a in appended:
+        out.setdefault(a.folder, []).append(a)
+    return out
+
+
+def appended_key(raw: bytes, ms: int) -> tuple[str, int]:
+    """What an appended message is known by: its Message-ID, case folded, and its second. Pure."""
+    return raw_message_id(raw).lower(), ms // 1000
+
+
+def fetched_key(f: Fetched) -> tuple[str, int | None]:
+    """appended_key of a message as fetched back (Message-ID header, INTERNALDATE). Pure."""
+    return message_id_of(
+        f.literal or b""
+    ).lower(), None if f.internal is None else f.internal // 1000
+
+
+def since(fetched: Mapping[int, Fetched], uid_next: int) -> dict[int, Fetched]:
+    """The messages at or above `uid_next` (a UID n:* answer also holds the highest below). Pure."""
+    return {uid: f for uid, f in fetched.items() if uid >= uid_next}
+
+
+def already_stored(
+    fetched: Mapping[int, Fetched], key: tuple[str, int], earlier: int
+) -> int | None:
+    """
+    The UID of an APPEND a dropped connection hid, or None: among the messages
+    appended since the batch began (`fetched`), the (earlier + 1)-th known by
+    `key`, where `earlier` appends of the same message came before. Without a
+    Message-ID nothing tells it apart, so None. Pure.
+    """
+    if not key[0]:
+        return None
+    matching = sorted(uid for uid, f in fetched.items() if fetched_key(f) == key)
+    return matching[earlier] if len(matching) > earlier else None
+
+
+def match_appended(items, fetched: Mapping[int, Fetched]) -> dict[str, int]:
+    """
+    Each appended message's UID ({key: UID}): the APPEND's own (UIDPLUS); else
+    the first unclaimed message appended since the batch began (`fetched`) known
+    by the same Message-ID and second, in append order, so two messages sharing a
+    Message-ID get one UID each. Pure.
+    """
+    out = {a.key: a.uid for a in items if a.uid is not None}
+    claimed = set(out.values())
+    for a in items:
+        if a.uid is not None:
+            continue
+        key = appended_key(a.raw, a.ms)
+        found = next(
+            (u for u in sorted(fetched) if u not in claimed and fetched_key(fetched[u]) == key),
+            None,
+        )
+        if found is not None:
+            out[a.key] = found
+            claimed.add(found)
+    return out
+
+
+def read_back_ids(items, uids: Mapping[str, int], heads, bodies) -> tuple[dict[str, str], int]:
+    """
+    Each appended message's ID from what the server stored (server_id), by its
+    matched UID's header (`heads`) or, without a Message-ID, its content
+    (`bodies`); the predicted ID (appended_id) where nothing was read back, and
+    how many those were. Pure.
+    """
+    ids, predicted = {}, 0
+    for a in items:
+        by_header = bool(raw_message_id(a.raw))
+        uid = uids.get(a.key)
+        got = None if uid is None else (heads if by_header else bodies).get(uid)
+        found = server_id(got, by_header)
+        ids[a.key] = found or appended_id(a.raw, a.ms)
+        predicted += found is None
+    return ids, predicted
+
+
+def server_id(fetched: Fetched | None, by_header: bool) -> str | None:
+    """
+    The ID the next scan gives a message, from what the server stored: its
+    Message-ID, date and size (`by_header`), as header_key, or its content's
+    hash; None when the answer lacks them. A server may change what it stores
+    (one adds a Content-Length header), so this, not appended_id, is the ID. Pure.
+    """
+    if fetched is None:
+        return None
+    if by_header:
+        if fetched.internal is None or fetched.size is None:
+            return None
+        return header_key(fetched)
+    return content_id(fetched.literal) if fetched.literal else None
+
+
 def appended_id(raw: bytes, internal_ms: int) -> str:
     """
     The ID the next scan gives a message appended with this date: its header
     ID, or its content's without a Message-ID (as assign_ids does, collisions
     aside). Pure.
     """
-    message_id = message_id_of(raw.split(b"\r\n\r\n", 1)[0].split(b"\n\n", 1)[0])
+    message_id = raw_message_id(raw)
     if not message_id:
         return content_id(raw)
     return header_id(message_id, internal_ms - internal_ms % 1000, len(raw))
+
+
+def append_uid(data) -> int | None:
+    """The UID an APPEND's answer names (UIDPLUS's APPENDUID), else None. Pure."""
+    text = b" ".join(d for d in data if isinstance(d, bytes))
+    found = re.search(rb"\[APPENDUID \d+ (\d+)\]", text)
+    return int(found[1]) if found else None
 
 
 def date_of(raw: bytes) -> int | None:
@@ -1772,12 +1892,92 @@ class ImapAccount:
         unmarked = self._carry_out(marking, f"taking {label_name} off", unstore)
         return [*plan.failures, *failed.values(), *unmarked]
 
-    def _append(self, name: str, flags: str, ms: int, raw: bytes) -> None:
+    HEAD_ITEMS = "(INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])"
+
+    def _uid_next(self, folder: str) -> int | None:
+        """The UID `folder`'s next message will get (EXAMINE's UIDNEXT); None if not said."""
+
+        def run(conn):
+            self._ok(*conn.select(quote(folder), readonly=True), f"EXAMINE {folder}")
+            _code, (value, *_rest) = conn.response("UIDNEXT")
+            return int(value) if value else None
+
+        try:
+            return self._retrying(f"reading {folder}'s next UID", run)
+        except gmailapi.AccessRefused:
+            raise
+        except gmailapi.GmailError:
+            return None
+
+    def _since(self, conn, folder: str, uid_next: int, items: str) -> dict[int, Fetched]:
+        """What `folder` (EXAMINEd now) holds at or above `uid_next`, with `items`."""
+        self._ok(*conn.select(quote(folder), readonly=True), f"EXAMINE {folder}")
+        typ, data = conn.uid("FETCH", f"{uid_next}:*", items)
+        return since(parse_fetch(self._ok(typ, data, "FETCH appended")), uid_next)
+
+    def _append(
+        self, name: str, flags: str, ms: int, raw: bytes, uid_next: int | None, earlier: int
+    ) -> int | None:
+        """
+        APPEND `raw` to `name`; the UID the server gave it, where it says (UIDPLUS).
+        A retry after a dropped connection first looks at what was appended since
+        the batch began (`uid_next`): if the dropped attempt stored it, that copy is
+        the message (already_stored, `earlier` appends of it having come before).
+        """
         when = imaplib.Time2Internaldate(ms // 1000)
-        self._retrying(
-            f"appending to {name}",
-            lambda c: self._ok(*c.append(quote(name), flags, when, raw), f"APPEND {name}"),
-        )
+        tried = []
+
+        def run(conn):
+            if tried and uid_next is not None:
+                stored = already_stored(
+                    self._since(conn, name, uid_next, self.HEAD_ITEMS),
+                    appended_key(raw, ms),
+                    earlier,
+                )
+                if stored is not None:
+                    return stored
+            tried.append(True)
+            return append_uid(
+                self._ok(*conn.append(quote(name), flags, when, raw), f"APPEND {name}")
+            )
+
+        return self._retrying(f"appending to {name}", run)
+
+    def _read_back(self, appended: list[Appended], uid_next) -> tuple[dict[str, str], int]:
+        """
+        Each appended message's ID ({key: ID}) from what the server stored, one
+        range of FETCHes per folder from the UIDNEXT taken before the batch
+        (`uid_next`: folder → UID): matched by the APPEND's UID or by Message-ID
+        and date (match_appended). Predicted where nothing can be read back; how
+        many those were (read_back_ids).
+        """
+        ids: dict[str, str] = {}
+        predicted = 0
+        for folder, items in group_by_folder(appended).items():
+
+            def run(conn, f=folder, i=items):
+                start = uid_next.get(f)
+                own = sorted(a.uid for a in i if a.uid is not None)
+                start = start if start is not None else (own[0] if own else None)
+                heads = {} if start is None else self._since(conn, f, start, self.HEAD_ITEMS)
+                uids = match_appended(i, heads)
+                bare = sorted(uids[a.key] for a in i if a.key in uids and not raw_message_id(a.raw))
+                bodies = {}
+                for chunk in chunks(bare):
+                    typ, data = conn.uid("FETCH", ",".join(map(str, chunk)), "(BODY.PEEK[])")
+                    bodies |= parse_fetch(self._ok(typ, data, "FETCH appended"))
+                return read_back_ids(i, uids, heads, bodies)
+
+            try:
+                found, missed = self._retrying(f"reading back what was appended in {folder}", run)
+            except gmailapi.AccessRefused:
+                raise
+            except gmailapi.GmailError as exc:
+                logger.debug("%s: %s: kept the predicted IDs: %s", self.account, folder, exc)
+                found, missed = read_back_ids(items, {}, {}, {})
+            ids |= found
+            predicted += missed
+        return ids, predicted
 
     def label_ids(self, names):
         """An IMAP account's labels are their own IDs; folders are made when mail goes in."""
@@ -1822,25 +2022,40 @@ class ImapAccount:
         """
         APPEND each message ({key: (raw, label names)}) to its first folder with its
         flags and the date the backup says it was received (`dates`, else its Date
-        header's), so it comes back under the same ID, and to its further folders
-        likewise (the copies come back as one message with all those labels);
-        folders are made first. on_imported(key, new ID) once it's in its first
-        folder; a further folder it doesn't reach is logged. Failures: "<key>: <why>".
+        header's), so it comes back under the same ID where the server stores it
+        unchanged, and to its further folders likewise (the copies come back as one
+        message with all those labels); folders are made first. on_imported(key,
+        new ID) for each message in its first folder, once all are appended and read
+        back (_read_back), the IDs being what the server stored, matched from the
+        folder's UIDNEXT before the batch; a further folder it doesn't reach is logged.
+        Stopped in between, a restore run again finds what was appended by its
+        Message-ID. Failures: "<key>: <why>".
         """
         scan = self._scan()[1]
         delim = next((d for _n, d, _f in self._read_entries() if d), None)
         have = {f.name for f in scan.folders}
         failures = []
+        appended: list[Appended] = []
+        uid_next: dict[str, int | None] = {}  # folder → its UIDNEXT before this batch
+        sent: dict[str, list[tuple[str, int]]] = {}  # folder → appended_key of what went there
         for key, (raw, labels) in messages.items():
             plan = append_plan(labels, scan.folders, delim)
             ms = (dates or {}).get(key) or date_of(raw) or int(time.time() * 1000)
             refused: dict[str, str] = {}
+            first_uid = None
             for folder in plan.folders:
                 try:
                     if folder in plan.create and folder not in have:
                         self._retrying(f"creating {folder}", lambda c, f=folder: self._create(c, f))
                         have.add(folder)
-                    self._append(folder, plan.flags, ms, raw)
+                    if folder not in uid_next:
+                        uid_next[folder] = self._uid_next(folder)
+                    key_sent = appended_key(raw, ms)
+                    earlier = sent.setdefault(folder, []).count(key_sent)
+                    uid = self._append(folder, plan.flags, ms, raw, uid_next[folder], earlier)
+                    sent[folder].append(key_sent)
+                    if folder == plan.folders[0]:
+                        first_uid = uid
                 except gmailapi.GmailError as exc:
                     refused[folder] = str(exc)
                     if folder == plan.folders[0]:
@@ -1851,7 +2066,15 @@ class ImapAccount:
                 continue
             if missed:  # restored all the same: only these copies are missing
                 logger.warning(f"{self.account}: {key} not appended to {', '.join(missed)}")
-            on_imported(key, appended_id(raw, ms))
+            appended.append(Appended(key, plan.folders[0], first_uid, raw, ms))
+        ids, predicted = self._read_back(appended, uid_next)
+        if predicted:
+            logger.warning(
+                f"{self.account}: {predicted:,} appended messages couldn't be read back; "
+                "their recorded IDs are predicted, and may differ from the server's"
+            )
+        for a in appended:  # in order, once their IDs are known
+            on_imported(a.key, ids[a.key])
         self._changed()
         return failures
 

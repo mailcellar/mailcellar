@@ -26,7 +26,9 @@ in beta, so commands and options may still change before 1.0.
 - `restore` works on IMAP accounts: an IMAP backup goes back into its
   account, or another IMAP account. Mail still in Trash is moved back to
   the folders it lived in; mail the server no longer has is appended with
-  its flags and date, under the same ID. `restore --to` also goes between
+  its flags and date, under the same ID where the server stores it
+  unchanged; restore reads each message's ID back from what the server
+  stored. `restore --to` also goes between
   Gmail and IMAP accounts: Gmail labels become folders (archived mail
   into Archive, Important and the categories left out), IMAP folders
   become labels.
