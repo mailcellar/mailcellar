@@ -243,7 +243,10 @@ def read_facts(folder: Path, gmail_ids=None) -> list[Facts]:
             ms, sender, thread = rows[gid]
             got = addresses.get(gid, set()) | ({sender.lower()} if sender else set())
             in_gmail = thread != "" and gid not in gone
-            out.append(Facts(gid, ms, frozenset(got), frozenset(labels.get(gid, ())), in_gmail))
+            # Every message has a sender or a recipient: none recorded means its
+            # headers weren't read (a parse that failed), so they aren't known.
+            known_addresses = frozenset(got) if got else None
+            out.append(Facts(gid, ms, known_addresses, frozenset(labels.get(gid, ())), in_gmail))
         else:  # forgotten, or no sidecar row: only what is recorded
             out.append(Facts(gid, forgotten.get(gid), in_gmail=False, known=False))
     return out

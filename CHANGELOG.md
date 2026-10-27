@@ -23,6 +23,9 @@ in beta, so commands and options may still change before 1.0.
   "was missing".
 - `backup --prune --force` counts the messages by year in chunks, so it
   no longer fails with "too many SQL variables" above about 32,000.
+- A legal hold naming parties now holds a message whose addresses weren't
+  read (a parse that failed), as it does other mail whose facts aren't
+  known, where it let such a message go.
 
 ## 0.15.1 (2026-10-27)
 
