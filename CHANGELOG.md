@@ -39,6 +39,9 @@ in beta, so commands and options may still change before 1.0.
   line ends in LF and the blank line after it in CRLF, where it took the
   whole message for headers and could drop a body line that looked like
   `X-Gmail-Labels`.
+- `restore` writes its log a row per message as it goes, so a run that is
+  interrupted or fails leaves a log of what it did; it wrote nothing until
+  the end.
 
 ## 0.12.0 (2026-10-26)
 
