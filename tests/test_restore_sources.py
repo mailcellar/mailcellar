@@ -99,6 +99,25 @@ def test_takeout_label_names_become_gyb_labels(names, expected):
 
 
 @pytest.mark.parametrize(
+    "raw, end",
+    [
+        (b"A: 1\r\nB: 2\r\n\r\nbody", 10),
+        (b"A: 1\nB: 2\n\nbody", 9),
+        (b"A: 1\n\r\nbody", 4),  # an LF header line, then a CRLF blank line
+        (b"A: 1\r\n\nbody", 4),
+        (b"A: 1\nno blank line", 18),
+    ],
+)
+def test_the_headers_end_at_the_first_blank_line_whatever_its_line_ending(raw, end):
+    assert mbox._header_end(raw) == end
+
+
+def test_a_body_line_like_an_added_header_stays_with_mixed_line_endings():
+    raw = b"A: \n\r\nX-Gmail-Labels: in the body\n"
+    assert mbox.without_added_headers(raw) == raw
+
+
+@pytest.mark.parametrize(
     "header, expected",
     [
         # raw UTF-8, as an mbox from elsewhere may hold it
