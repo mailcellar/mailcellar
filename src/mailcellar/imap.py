@@ -102,6 +102,27 @@ class Message:
 
 
 @dataclass(frozen=True)
+class ServerInfo:
+    """What setup reports about a server."""
+
+    capabilities: frozenset[str]  # as CAPABILITY answers once signed in
+    folders: tuple[Folder, ...]
+    special_use: bool  # the server marks its special-use folders (\Trash…)
+
+    @property
+    def can_offload(self) -> bool:
+        """
+        MOVE and a Trash the server marks \\Trash, not one taken from its name:
+        what offloading will need (step 3).
+        """
+        return (
+            "MOVE" in self.capabilities
+            and self.special_use
+            and any(f.label == "TRASH" for f in self.folders)
+        )
+
+
+@dataclass(frozen=True)
 class Scan:
     messages: Mapping[str, Message]
     labels: frozenset[str]
@@ -160,12 +181,22 @@ def folders_from(entries) -> tuple[Folder, ...]:
     The folders to back up, with their labels. Names stand for special-use
     folders (Trash, Junk…) only on a server that marks none. Pure.
     """
-    marks_special = any(flags & set(SPECIAL) for _n, _d, flags in entries)
+    by_name = not marks_special(entries)
     return tuple(
-        Folder(name, folder_label(name, delim, flags, by_name=not marks_special))
+        Folder(name, folder_label(name, delim, flags, by_name=by_name))
         for name, delim, flags in entries
         if not flags & SKIP
     )
+
+
+def marks_special(entries) -> bool:
+    """Whether the server marks any folder special-use (\\Sent, \\Trash…). Pure."""
+    return any(flags & set(SPECIAL) for _n, _d, flags in entries)
+
+
+def capabilities_from(data) -> frozenset[str]:
+    """CAPABILITY's answer as upper-case names. Pure."""
+    return frozenset(b" ".join(d for d in data if d).decode("ascii", "replace").upper().split())
 
 
 def folder_label(name: str, delim: str | None, flags, by_name: bool = True) -> str:
@@ -434,8 +465,10 @@ class ImapAccount:
             except imaplib.IMAP4.abort:  # a dropped connection, not a refusal: retried
                 raise
             except imaplib.IMAP4.error as exc:
+                said = exc.args[0] if exc.args else exc
+                said = said.decode("utf-8", "replace") if isinstance(said, bytes) else said
                 raise gmailapi.AccessRefused(
-                    f"{self.account}: {self.settings.host} refused the login: {exc}"
+                    f"{self.account}: {self.settings.host} refused the login: {said}"
                 ) from None
             self._conn = conn
         return self._conn
@@ -453,6 +486,19 @@ class ImapAccount:
                 level = logging.INFO if delay >= gmailapi.LONG_WAIT else logging.DEBUG
                 logger.log(level, "%s: %s: %s; retrying in %d s", self.account, what, exc, delay)
                 self._sleep(delay)
+
+    def server_info(self) -> ServerInfo:
+        """
+        The server's capabilities and the folders a backup would read. Asks
+        CAPABILITY after signing in: imaplib's conn.capabilities is the
+        greeting's list, and servers name MOVE only once signed in.
+        """
+        entries = self._read_entries()
+        caps = self._retrying(
+            "reading capabilities",
+            lambda conn: capabilities_from(self._ok(*conn.capability(), "CAPABILITY")),
+        )
+        return ServerInfo(caps, folders_from(entries), marks_special(entries))
 
     def sign_in(self) -> None:
         """Connect and log in now; AccessRefused if the server refuses."""
@@ -503,12 +549,15 @@ class ImapAccount:
         sidecar.drop_imap_folders(con, set(scan.maps) | set(scan.skipped))
 
     # ── reading ──────────────────────────────────────────────────────────────
-    def _read_folders(self) -> tuple[Folder, ...]:
+    def _read_entries(self):
         def run(conn):
             typ, data = conn.list()
-            return folders_from(list_entries(self._ok(typ, data, f"{self.account}: LIST")))
+            return list_entries(self._ok(typ, data, f"{self.account}: LIST"))
 
         return self._retrying("listing folders", run)
+
+    def _read_folders(self) -> tuple[Folder, ...]:
+        return folders_from(self._read_entries())
 
     def _read_folder(self, folder: Folder) -> FolderRead | None:
         """One folder's UIDs, flags and new headers; None if it can't be examined."""

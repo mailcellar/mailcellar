@@ -79,14 +79,24 @@ backups need no sign-in; other addresses in the domain keep their own.
 Read-only only; see
 [Workspace: backing up through a service account](../guide/workspace-service-account.md).
 
+An account on another provider's IMAP server (`--imap HOST`) is backed up
+only: setup asks for its password, signs in, and says what the server
+allows, then writes `<config>/<name>/imap.toml` (the server) and
+`<config>/<name>/imap-password`, owner-only. Nothing on the server
+changes; offload, dedup and restore don't apply to it yet.
+
 | Option | What it does |
 | --- | --- |
 | `ADDRESS` | The Gmail or Workspace address to back up |
 | `--client FILE` | The OAuth client JSON downloaded from Google (a Desktop app client) |
 | `--service-account KEY` | A Workspace address: read it through this service-account key, granted domain-wide delegation for `gmail.readonly` (no sign-in) |
+| `--imap HOST` | An IMAP account on this server (port 993, TLS): backed up only, read-only |
+| `--port PORT` | With `--imap`: the server's port (default 993) |
+| `--username NAME` | With `--imap`: the login name (default: the address) |
+| `--cafile FILE` | With `--imap`: a CA certificate to trust besides the system's, for a private server |
 | `--name NAME` | Config name for the account (default: from the address) |
 | `--no-auth` | Don't sign in now |
-| `--force` | Replace the account's client, or the domain's service-account key, if it holds another |
+| `--force` | Replace the account's client, the domain's service-account key, or an IMAP account's `imap.toml`, if it holds another |
 | `--config CONFIG` | Config folder |
 
 ### `auth`
