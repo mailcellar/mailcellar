@@ -71,13 +71,20 @@ config folder, lists the account in `accounts.toml`, and signs in read-only.
 It asks for what it isn't given and changes nothing in Gmail. Running it
 again for the same account is harmless.
 
+A Workspace address can be read through a service account instead
+(`--service-account KEY`): the key is installed once for the domain, at
+`<config>/service-accounts/<domain>.json`, owner-only, and backups need no
+sign-in. Read-only only; see
+[Workspace: backing up through a service account](../guide/workspace-service-account.md).
+
 | Option | What it does |
 | --- | --- |
 | `ADDRESS` | The Gmail or Workspace address to back up |
 | `--client FILE` | The OAuth client JSON downloaded from Google (a Desktop app client) |
+| `--service-account KEY` | A Workspace address: read it through this service-account key, granted domain-wide delegation for `gmail.readonly` (no sign-in) |
 | `--name NAME` | Config name for the account (default: from the address) |
 | `--no-auth` | Don't sign in now |
-| `--force` | Replace the account's client if it holds another |
+| `--force` | Replace the account's client, or the domain's service-account key, if it holds another |
 | `--config CONFIG` | Config folder |
 
 ### `auth`

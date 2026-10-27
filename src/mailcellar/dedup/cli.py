@@ -193,6 +193,9 @@ def cmd_auth(args) -> None:
             failed += 1
             continue
         used = args.scope
+        if used == "readonly" and (key := gmailapi.service_account_key(folder, account)):
+            print(f"  {account}: gmail.readonly OK, through the service account in {key}")
+            continue
         authorised = gmailapi.token_authorised_at(folder, used)
         print(
             f"  {account}: gmail.{args.scope} OK"

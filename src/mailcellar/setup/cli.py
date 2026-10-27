@@ -9,6 +9,11 @@ does those three, checks the file is a Desktop app client (the usual mistake),
 and prints what to do next. It changes nothing in Gmail: the sign-in is the
 read-only one, the same as `mailcellar auth ACCOUNT --scope readonly`.
 
+A Workspace address can instead read through a service account with
+domain-wide delegation (--service-account KEY, #103): the key is installed
+once for the domain, owner-only, and backups need no sign-in. Anything that
+changes Gmail still needs the user's own OAuth client and sign-in.
+
 The decisions (check_client, accounts_entries, pick_name, add_account,
 latest_download) are pure; reading, writing and asking are a thin layer
 around them. Prompts are skipped for what the command line already gives, so
@@ -153,23 +158,47 @@ def existing_client(config: Path, entries: dict[str, str]) -> Path | None:
     return None
 
 
-def install_client(source: Path, folder: Path, force: bool) -> str:
-    """Copy the client into the account's folder, owner-only. 'added', 'kept' or 'replaced'."""
-    data = source.read_bytes()
-    dest = folder / CLIENT_FILE
+def install_private(data: bytes, dest: Path, force: bool, what: str, why: str) -> str:
+    """Write `data` to `dest`, owner-only, in a private folder. 'added', 'kept' or 'replaced'."""
     status = "added"
     if dest.is_file():
         if dest.read_bytes() == data:
             return "kept"
         if not force:
-            raise SetupError(
-                f"{dest} holds a different client; --force replaces it (the account's "
-                "tokens belong to the old client, so Google asks for consent again)"
-            )
+            raise SetupError(f"{dest} holds a different {what}; --force replaces it ({why})")
         status = "replaced"
-    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    dest.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     write_private(dest, data)
     return status
+
+
+def install_client(source: Path, folder: Path, force: bool) -> str:
+    """Copy the client into the account's folder, owner-only. 'added', 'kept' or 'replaced'."""
+    return install_private(
+        source.read_bytes(),
+        folder / CLIENT_FILE,
+        force,
+        "client",
+        "the account's tokens belong to the old client, so Google asks for consent again",
+    )
+
+
+def install_service_account(source: Path, config: Path, address: str, force: bool) -> Path:
+    """Check the key and install it for the address's domain, owner-only. Returns where."""
+    text = source.read_text()
+    try:
+        gmailapi.check_service_account(text)
+    except gmailapi.GmailError as exc:
+        raise SetupError(f"{source}: {exc}") from None
+    dest = gmailapi.service_account_path(config, address.rpartition("@")[2])
+    install_private(
+        text.encode(),
+        dest,
+        force,
+        "service-account key",
+        "every account in the domain reads through the new one",
+    )
+    return dest
 
 
 def show_steps() -> None:
@@ -187,6 +216,8 @@ def run(args) -> int:
     text = accounts_file.read_text() if accounts_file.is_file() else ""
     entries = accounts_entries(text)
 
+    if args.service_account is not None:
+        return run_service_account(args, config, accounts_file, text, entries)
     if args.client is None:
         show_steps()
     address = (args.address or ask("Gmail or Workspace address to back up")).strip()
@@ -232,6 +263,43 @@ def run(args) -> int:
     return 0
 
 
+def run_service_account(args, config: Path, accounts_file: Path, text: str, entries) -> int:
+    """setup ADDRESS --service-account KEY: a Workspace address read through the key."""
+    if not args.address or not ADDRESS_RE.match(args.address.strip()):
+        raise SetupError("--service-account needs the address to back up")
+    address = args.address.strip()
+    name = pick_name(entries, address, args.name)
+    source = parse_path(args.service_account)
+    if not source.is_file():
+        raise SetupError(f"{source}: no such file")
+    key = install_service_account(source, config, address, args.force)
+    folder = config / name
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if args.client is not None:
+        client = parse_path(args.client)
+        if not client.is_file():
+            raise SetupError(f"{client}: no such file")
+        check_client(client.read_text())
+        install_client(client, folder, args.force)
+    if name not in entries:
+        accounts_file.write_text(add_account(text, name, address))
+    print(f"{address} is account '{name}', read through the service account in {key}")
+    print(f"  accounts.toml: {'already listed' if name in entries else 'added'}")
+    print("  read-only: backups need no sign-in; anything that changes Gmail needs the")
+    print(f"  user's own sign-in (mailcellar setup {address} --client FILE adds an OAuth client)")
+    if args.no_auth:
+        return 0
+    print(f"\nChecking {address} through the service account (read-only)...")
+    try:
+        creds = gmailapi.load_credentials(folder, address, "readonly")
+        gmailapi.GmailAccount(address, creds)  # confirms the mailbox identity
+    except gmailapi.GmailError as exc:
+        print(f"\nThe account is set up, but the check failed: {exc}")
+        return 1
+    print(f"OK.\n\nNext: mailcellar backup {name}")
+    return 0
+
+
 def main(argv=None, prog: str | None = None) -> int:
     p = argparse.ArgumentParser(
         prog=prog or "mailcellar setup",
@@ -244,6 +312,12 @@ def main(argv=None, prog: str | None = None) -> int:
         "--client",
         metavar="FILE",
         help="The OAuth client JSON downloaded from Google (a Desktop app client)",
+    )
+    p.add_argument(
+        "--service-account",
+        metavar="KEY",
+        help="A Workspace address: read it through this service-account key, granted "
+        "domain-wide delegation for gmail.readonly (installed once for the domain; no sign-in)",
     )
     p.add_argument("--name", help="Config name for the account (default: from the address)")
     p.add_argument("--no-auth", action="store_true", help="Don't sign in now")

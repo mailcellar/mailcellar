@@ -125,6 +125,8 @@ The [documentation site](https://mailcellar.github.io/mailcellar/) has the guide
 
 - [Setting up Google Cloud](https://mailcellar.github.io/mailcellar/guide/google-cloud/): the project and OAuth
   client mailcellar signs in with, and the first consent screen.
+- [Workspace: backing up through a service account](https://mailcellar.github.io/mailcellar/guide/workspace-service-account/):
+  unattended, read-only backups of a domain's mailboxes without each person signing in.
 - [Backing up, and keeping the backup safe](https://mailcellar.github.io/mailcellar/guide/backing-up/): the
   routine, a second copy of the data root and checking it, `backup --prune`.
 - [Scheduled backups](https://mailcellar.github.io/mailcellar/guide/scheduling/): run backups unattended, and

@@ -5,6 +5,17 @@ What changed for users in each release. Releases and their dates are on the
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). mailcellar is
 in beta, so commands and options may still change before 1.0.
 
+## Unreleased
+
+### Added
+- Workspace accounts can be backed up through a service account with
+  domain-wide delegation, so backups run unattended with no sign-in and
+  no token to renew: `mailcellar setup ADDRESS --service-account KEY`
+  installs the key once for the domain, owner-only, and checks it.
+  Read-only, and only that: anything that changes Gmail still needs the
+  user's own sign-in. `config` and `schedule status` show it. A new
+  guide covers the Admin console and Google Cloud steps.
+
 ## 0.15.2 (2026-10-27)
 
 **Upgrading from 0.15.1:** nothing to do: no database's schema changes.
