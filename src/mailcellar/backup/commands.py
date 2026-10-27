@@ -310,13 +310,18 @@ def _backup(
         # Taken before listing, so mail arriving meanwhile is in the next run.
         next_history_id = None if query else gmail.current_history_id()
         ids = gmail.list_message_ids(query)
+        # Chats are never backed up, so they never count as backed up: leave
+        # them out by their label rather than download each only to skip it.
+        chats = set(gmail.list_message_ids(query, label_id=gyb.CHAT_LABEL))
         stats["listed"] = len(ids)
-        todo = [i for i in ids if i not in have]
+        todo = [i for i in ids if i not in have and i not in chats]
+        stats["chats"] = sum(1 for i in ids if i in chats)
         logger.info(
             f"Gmail has {len(ids):,} messages"
             + (f" matching {query!r}" if query else "")
-            + f"; {len(ids) - len(todo):,} already backed up; "
-            f"{len(todo):,} to download"
+            + f"; {len(ids) - len(todo) - stats['chats']:,} already backed up; "
+            + (f"{stats['chats']:,} chats skipped; " if stats["chats"] else "")
+            + f"{len(todo):,} to download"
         )
 
     def on_message(response):

@@ -40,6 +40,7 @@ from pathlib import Path
 DB_NAME = "msg-db.sqlite"
 DB_VERSION = "6"
 CHAT_LABELS = {"CHAT", "CHATS"}
+CHAT_LABEL = "CHAT"  # the label ID Gmail lists chats under
 
 _SCHEMA = [
     "CREATE TABLE settings (name TEXT PRIMARY KEY, value TEXT);",
