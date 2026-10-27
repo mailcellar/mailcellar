@@ -8,7 +8,7 @@ import pytest
 from googleapiclient.errors import HttpError
 
 from mailcellar import gmailapi
-from mailcellar.backup import commands, gyb
+from mailcellar.backup import chain, commands, gyb
 from mailcellar.backup.gyb import backup_account, iter_backup
 from mailcellar.dedup import cli as dedup
 from test_index import make_eml
@@ -154,6 +154,7 @@ def test_backups_live_under_the_data_root(tmp_path, monkeypatch):
 
     root = tmp_path / "mail"
     monkeypatch.setenv(DATA_ENV, str(root))
+    chain.anchor_path(ACCOUNT).unlink()  # a second, separate backup of the account
     commands.backup(FakeGmail({"g1": raw_response("g1")}), ACCOUNT, root / ACCOUNT)
     assert resolve_folders([]) == [root / ACCOUNT]
     assert default_db() == root / "dedup" / "dedup.sqlite"
@@ -549,6 +550,7 @@ def test_cli_prune_yes_and_aborted(tmp_path, cli):
     assert "g0" not in rows(folder)["uids"]
 
     # above the guard: aborted, exit 1, nothing pruned
+    chain.anchor_path(ACCOUNT).unlink()  # a second, separate backup of the account
     gmail, folder = synced(tmp_path / "guard", n=10, gone=("g0", "g1"), trashed=())
     state.update(gmail=gmail, folder=folder)
     assert run("backup", "a", "--prune", "--yes") == 1

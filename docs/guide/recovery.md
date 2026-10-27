@@ -155,7 +155,9 @@ mail, which has no other source). It changes nothing.
   or `offload plan`.
 
 **What is lost without a copy.** Mail that is still in Gmail is not lost: a
-new `backup` downloads it again. Mail that was **offloaded** exists only in
+new `backup` downloads it again, once you move the account's hash chain
+anchor (`<config>/anchors/<email>.json`) aside, since `backup` won't start
+afresh where it has backed up before. Mail that was **offloaded** exists only in
 the backup once Gmail has emptied its Trash, 30 days after the offload. If
 the backup is lost and there was no other copy, that mail is gone. Within
 the 30 days, open Gmail's Trash and move the messages back by hand. This is

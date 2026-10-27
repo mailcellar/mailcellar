@@ -74,6 +74,12 @@ with none named, every account in `accounts.toml`.
 | `--folder FOLDER` | Backup folder (default `<data root>/<email>`) |
 | `--config CONFIG` | Config folder (default `~/.config/mailcellar`, or `$MAILCELLAR_CONFIG`) |
 
+An account that has been backed up before (its hash chain anchor is in the
+config folder) but has no backup in the folder is refused, and nothing is
+created there: most likely the data root is on a volume that isn't
+mounted. To start a new backup in that place on purpose, move
+`<config>/anchors/<email>.json` aside first.
+
 ### `count`
 
 Takes `--folder` and `--config`, as `backup` does.
