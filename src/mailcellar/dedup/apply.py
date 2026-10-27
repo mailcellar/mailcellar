@@ -19,6 +19,7 @@ from pathlib import Path
 
 from mailcellar.dedup.plan import PLAN_COLUMNS
 from mailcellar.dedup.rules import STAR_LABELS, is_user_label
+from mailcellar.mailbox import mailbox_name
 from mailcellar.progress import Progress
 
 logger = logging.getLogger(__name__)
@@ -89,12 +90,12 @@ def check_row(
     if not row["path"] or not Path(row["path"]).is_file():
         return "no local backup copy"
     if cand is None:
-        return "message no longer in Gmail"
+        return "message no longer in its mailbox"
     if "TRASH" in cand:
         return "already in trash"
     if has_keeper(row):
         if keeper is None:
-            return "keeper no longer in Gmail"
+            return "keeper no longer in its mailbox"
         if keeper & {"TRASH", "SPAM"}:
             return "keeper in trash or spam"
     planned = set(filter(None, row["labels"].split(";")))
@@ -195,10 +196,10 @@ def unreadable(row: dict, unread: dict[tuple, str]) -> Result | None:
     """
     why = unread.get((row["account"], row["gmail_id"]))
     if why is not None:
-        return Result(row, "skipped", f"couldn't read it from Gmail: {why}")
+        return Result(row, "skipped", f"couldn't read it from its mailbox: {why}")
     why = unread.get((row.get("keeper_account"), row.get("keeper_gmail_id")))
     if why is not None:
-        return Result(row, "skipped", f"couldn't read the keeper from Gmail: {why}")
+        return Result(row, "skipped", f"couldn't read the keeper from its mailbox: {why}")
     return None
 
 
@@ -275,7 +276,8 @@ def apply_plan(
                 unread[(account, gid)] = why
             if failures:
                 logger.warning(
-                    f"{account}: {len(failures):,} messages couldn't be read from Gmail; "
+                    f"{account}: {len(failures):,} messages couldn't be read from "
+                    f"{mailbox_name(client(account).provider)}; "
                     "they are skipped, and the next run tries them again"
                 )
 

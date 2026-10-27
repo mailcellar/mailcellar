@@ -18,6 +18,7 @@ from mailcellar.dedup.apply import apply_plan, unusable_label, write_apply_log
 from mailcellar.dedup.report import report_apply
 from mailcellar.hold import holds
 from mailcellar.hold.holds import HoldCheck
+from mailcellar.mailbox import mailbox_name
 from mailcellar.offload import forget
 from mailcellar.offload.apply import (
     APPLY_LOG_COLUMNS,
@@ -236,11 +237,12 @@ def cmd_apply(args) -> None:
     upgrade_log(Path(args.log), APPLY_LOG_COLUMNS)
     write_apply_log(log, logged_mode, Path(args.log), APPLY_LOG_COLUMNS)
     print(f"Log → {args.log}")
-    trashed = sum(e.outcome in ("trashed", "recorded") for e in log)
+    trashed = [e for e in log if e.outcome in ("trashed", "recorded")]
     if trashed:
+        providers = providers_of({e.row["account"]: folders[e.row["account"]] for e in trashed})
         print(
-            f"Recorded {trashed:,} offloaded messages (batch {batch}); 'backup --prune' "
-            "keeps them in the backup. Gmail frees their space when it empties its Trash."
+            f"Recorded {len(trashed):,} offloaded messages (batch {batch}); 'backup --prune' "
+            f"keeps them in the backup. {space_freed(set(providers.values()))}"
         )
         print(f"Manifest → {manifest_path(offload_dir(), batch)}")
 
@@ -251,18 +253,74 @@ def confirm_count(n: int, what: str) -> bool:
     return answer == str(n)
 
 
+def providers_of(folders: dict[str, Path]) -> dict[str, str]:
+    """Each account's provider, from its backup; "" where its sidecar can't be read."""
+    out = {}
+    for account, folder in folders.items():
+        try:
+            out[account] = sidecar.provider(folder)
+        except sidecar.MetaError:
+            out[account] = ""  # not known: worded for either
+    return out
+
+
+def space_freed(providers: set[str]) -> str:
+    """When trashed mail's space comes back, for the providers trashed in. Pure."""
+    if providers == {"gmail"}:
+        return "Gmail frees their space when it empties its Trash, after 30 days."
+    if providers == {"imap"}:
+        return "The server frees their space when its Trash is emptied."
+    return "Their space is freed when each mailbox's Trash is emptied (Gmail's after 30 days)."
+
+
 def gmail_state(account: str, config: Path, ids: list[str]):
-    """Gmail's labels for each ID (None: gone), and the lookups that failed. Read-only."""
+    """The mailbox's labels for each ID (None: gone), and the lookups that failed. Read-only."""
     from mailcellar import mailbox
     from mailcellar.progress import Progress
 
     failures: list[str] = []
-    with (
-        closing(mailbox.opener(config)(account, "readonly")) as gmail,
-        Progress(f"{account}: asking Gmail", len(ids)),
-    ):
-        live = gmail.message_labels(ids, failures)
+    with closing(mailbox.opener(config)(account, "readonly")) as box:
+        with Progress(f"{account}: asking {mailbox_name(box.provider)}", len(ids)):
+            live = box.message_labels(ids, failures)
     return live, dict(f.split(": ", 1) for f in failures)
+
+
+def forget_rows(choice, provider: str) -> list[str]:
+    """
+    forget's count of what it can and can't forget, a row per kind that has
+    any; the mailbox named by `provider` (mailbox_name). Pure.
+    """
+    where, start = mailbox_name(provider), mailbox_name(provider, start=True)
+    held = ", ".join(sorted({name for _c, name in choice.held}))
+    rows = [  # (label, messages, note, shown when there are none)
+        ("can be forgotten", choice.forget, "", True),
+        (
+            f"not yet gone from {where}",
+            choice.not_gone,
+            f"in its Trash, or not seen gone: run a backup after {where} empties its Trash",
+            False,
+        ),
+        (
+            f"{start} has them again",
+            choice.in_gmail,
+            "restored, or moved back from Trash; left alone",
+            False,
+        ),
+        ("held", choice.held, f"hold {held}; left as they are", False),
+        (
+            "couldn't be checked",
+            choice.unchecked,
+            f"asking {where}, e.g. {choice.unchecked[0][1]}; tried again next run"
+            if choice.unchecked
+            else "",
+            False,
+        ),
+    ]
+    return [
+        f"  {label:<32}{len(items):>8,}" + (f"  ({note})" if note else "")
+        for label, items, note, always in rows
+        if items or always
+    ]
 
 
 def cmd_forget(args) -> None:
@@ -295,6 +353,10 @@ def cmd_forget(args) -> None:
             continue
         held = holds.held(folder, int(time.time() * 1000), [c.gmail_id for c in found])
         gone = [c.gmail_id for c in found if c.gone_ms is not None and c.gmail_id not in held]
+        try:
+            provider = sidecar.provider(folder)
+        except sidecar.MetaError as exc:
+            sys.exit(f"error: {exc}")
         live, unread = gmail_state(account, Path(args.config), gone) if gone else ({}, {})
         choice = forget.choose(found, live, unread, held)
         if retain is None:
@@ -303,29 +365,8 @@ def cmd_forget(args) -> None:
             print(f"Forget — {account}: {len(found):,} offloaded messages due under retention")
             for rule, year, n in forget.by_rule_and_year(found):
                 print(f"  {rule} ({years_text(retain[rule].forget_after)}), {year}  {n:>8,}")
-        print(f"  can be forgotten                {len(choice.forget):>8,}")
-        if choice.not_gone:
-            print(
-                f"  not yet gone from Gmail         {len(choice.not_gone):>8,}  (in its Trash, or "
-                "not seen gone: run a backup after Gmail empties its Trash)"
-            )
-        if choice.in_gmail:
-            print(
-                f"  Gmail has them again            {len(choice.in_gmail):>8,}  (restored, or "
-                "moved back from Trash; left alone)"
-            )
-        if choice.held:
-            names = sorted({name for _c, name in choice.held})
-            print(
-                f"  held                            {len(choice.held):>8,}  (hold "
-                + ", ".join(names)
-                + "; left as they are)"
-            )
-        if choice.unchecked:
-            print(
-                f"  couldn't be checked with Gmail  {len(choice.unchecked):>8,}  "
-                f"(e.g. {choice.unchecked[0][1]}; tried again next run)"
-            )
+        for row in forget_rows(choice, provider):
+            print(row)
         if not choice.forget:
             continue
         print(

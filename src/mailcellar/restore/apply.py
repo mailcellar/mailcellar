@@ -51,6 +51,7 @@ from pathlib import Path
 from mailcellar.backup import chain, gyb, sidecar
 from mailcellar.dedup.apply import DEDUP_LABEL
 from mailcellar.dedup.rules import is_user_label
+from mailcellar.mailbox import mailbox_name
 from mailcellar.message import PARSER_VERSION, parse_message
 from mailcellar.offload.apply import OFFLOAD_LABEL, upgrade_log
 from mailcellar.progress import Progress
@@ -420,20 +421,23 @@ def decide(
     same_account: bool,
     hits: list[str],
     hashes: dict[str, str],
+    provider: str,
 ) -> Decision:
     """
     A candidate's way back, from what was read: the backup check (`problem`,
-    `copy`); in its own account, Gmail's labels for its ID (None if Gmail no
-    longer has it); and the other messages with its Message-ID (`hits`)
-    with their content hashes. Pure: no I/O.
+    `copy`); in its own account, the mailbox's labels for its ID (None if it
+    no longer has it); and the other messages with its Message-ID (`hits`)
+    with their content hashes. Details name the mailbox by `provider`
+    (mailbox_name). Pure: no I/O.
     """
+    where, start = mailbox_name(provider), mailbox_name(provider, start=True)
     if problem or copy is None:
         return Decision(c, SKIPPED, problem)
     decision = Decision(c, SKIPPED, size=copy.size)
     if same_account and labels is not None:
         if not c.offloaded:
             return replace(
-                decision, way=PRESENT, detail="in Gmail's Trash" if "TRASH" in labels else ""
+                decision, way=PRESENT, detail=f"in {where}'s Trash" if "TRASH" in labels else ""
             )
         if "TRASH" in labels:
             return replace(decision, way=UNTRASH, new_id=c.source_id)
@@ -441,17 +445,17 @@ def decide(
 
     same = [g for g in hits if c.content_hash and hashes.get(g) == c.content_hash]
     if same:
-        return replace(decision, way=FOUND, new_id=same[0], detail=f"Gmail has it as {same[0]}")
+        return replace(decision, way=FOUND, new_id=same[0], detail=f"{start} has it as {same[0]}")
     if hits and not c.content_hash:
         return replace(
             decision,
-            detail=f"Gmail has its Message-ID ({', '.join(hits)}); with no text or "
+            detail=f"{start} has its Message-ID ({', '.join(hits)}); with no text or "
             "attachments the content can't be compared",
         )
     if hits:
         return replace(
             decision,
-            detail=f"Gmail has its Message-ID with other content ({', '.join(hits)}); "
+            detail=f"{start} has its Message-ID with other content ({', '.join(hits)}); "
             "an import would only match that message",
         )
     no_id = "no Message-ID: a crash during the import could leave a duplicate"
@@ -479,17 +483,18 @@ def plan(
     usable = [c for c, (problem, _copy) in zip(cands, checks, strict=True) if not problem]
     progress(f"Checked {len(cands):,} backup copies; {len(cands) - len(usable):,} unusable")
 
+    where = mailbox_name(gmail.provider)
     state: dict[str, set[str] | None] = {}
     if same_account:
         how = "listing its message IDs" if len(usable) > LISTING_THRESHOLD else "one by one"
-        progress(f"Reading Gmail's state for {len(usable):,} messages, {how}")
+        progress(f"Reading {where}'s state for {len(usable):,} messages, {how}")
         state = gmail_state(gmail, [c.source_id for c in usable])
     copies = {c.source_id: copy for c, (_p, copy) in zip(cands, checks, strict=True)}
     gone = [c for c in usable if not same_account or state.get(c.source_id) is None]
 
-    # Gone: does Gmail have the Message-ID under another ID?
+    # Gone: does the mailbox have the Message-ID under another ID?
     if gone:
-        progress(f"Searching Gmail for the Message-IDs of {len(gone):,} messages it doesn't have")
+        progress(f"Searching {where} for the Message-IDs of {len(gone):,} messages it doesn't have")
     with_id = {c.source_id: copies[c.source_id].message_id for c in gone}
     wanted = {k: m for k, m in with_id.items() if m}
     with Progress("Searching for Message-IDs", len(wanted)):
@@ -521,6 +526,7 @@ def plan(
             same_account=same_account,
             hits=hits.get(c.source_id, []),
             hashes=hashes,
+            provider=gmail.provider,
         )
         for c, (problem, copy) in zip(cands, checks, strict=True)
     ]
@@ -533,7 +539,7 @@ def gmail_state(gmail, ids: list[str]) -> dict[str, set[str] | None]:
     selections are answered from listings; only TRASH matters to decide().
     """
     if len(ids) <= LISTING_THRESHOLD:
-        with Progress("Reading Gmail's state", len(ids)):
+        with Progress(f"Reading {mailbox_name(gmail.provider)}'s state", len(ids)):
             return gmail.message_labels(ids) if ids else {}
     present = set(gmail.list_message_ids(include_spam_trash=True))
     trash = set(gmail.list_message_ids("in:trash", include_spam_trash=True))
@@ -778,7 +784,9 @@ def _import_chunk(gmail, tcon, folder, chunk, record, emit, system, prefix, stri
             continue
         keep, dropped = import_labels(d.candidate.labels, system, prefix, strip)
         label_ids, refused = _label_ids(gmail, keep)
-        dropped += [f"{name} (Gmail refused it)" for name in refused]
+        dropped += [
+            f"{name} ({mailbox_name(gmail.provider, start=True)} refused it)" for name in refused
+        ]
         notes = [f"labels not restored: {', '.join(dropped)}"] if dropped else []
         # Gmail dates an import by its Date header, so one without gets the backup's
         # date; an IMAP server takes the date apart (INTERNALDATE), and adding a

@@ -1,9 +1,10 @@
 # Restoring mail: restore
 
-`restore` puts backed-up mail back into Gmail: offloaded messages, or a
-whole backup, into its own account or another configured one. Without
-`--yes` it is a dry run, which checks the backup and Gmail and says what
-it would do. IMAP accounts restore the same way, and mail goes between
+`restore` puts backed-up mail back into its mailbox, Gmail or IMAP:
+offloaded messages, or a whole backup, into its own account or another
+configured one. Without `--yes` it is a dry run, which checks the backup
+and the mailbox and says what it would do. IMAP accounts restore the same
+way, and mail goes between
 Gmail and IMAP accounts with `--to`, labels and folders mapped by the
 target; see [Backing up an IMAP account](../guide/imap.md#4-restore).
 
@@ -146,9 +147,9 @@ account restored into. Without `--yes` it is a dry run.
 | --- | --- |
 | `--batch BATCH` | An offload batch (repeatable) |
 | `--rule RULE` | An offload rule (repeatable) |
-| `--id ID` | A Gmail ID, offloaded or not (repeatable); with `--offloaded`, only if it was offloaded |
+| `--id ID` | A message's ID in the backup, offloaded or not (repeatable); with `--offloaded`, only if it was offloaded |
 | `--offloaded` | Every offloaded message |
-| `--all` | Every message in the backup; those still in Gmail are left alone |
+| `--all` | Every message in the backup; those still in the mailbox are left alone |
 
 **Narrowing**, combined with any of the above; all must hold:
 

@@ -382,12 +382,13 @@ def offload_batches(con) -> Table:
         ],
         batch_rows(raw),
         notes=[
-            "Gmail frees an offloaded message's space only when its Trash is emptied, "
-            f"{TRASH_DAYS} days after the move (or sooner, by hand). Trash emptied: messages "
-            "the last backup or count found gone from Gmail; run one for current figures. "
-            "Restored messages are back in Gmail and count in neither size. Forgotten: deleted "
-            "from the backup too (offload forget). Sizes are Gmail's "
-            "estimates; Gmail's own storage figure isn't available through its API."
+            "A mailbox frees an offloaded message's space only when its Trash is emptied: "
+            f"Gmail {TRASH_DAYS} days after the move (or sooner, by hand), an IMAP server "
+            "whenever it, or a mail client, empties it. Trash emptied: messages the last "
+            "backup or count found gone from their mailbox; run one for current figures. "
+            "Restored messages are back in their mailbox and count in neither size. "
+            "Forgotten: deleted from the backup too (offload forget). Sizes are the "
+            "mailbox's own figures; Gmail's storage figure isn't available through its API."
         ],
         limit=False,
     )

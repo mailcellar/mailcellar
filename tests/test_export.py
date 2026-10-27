@@ -438,10 +438,10 @@ def test_export_is_a_command_and_documented_in_the_help(backup, capsys):
     assert "Every message in the backup" in flat and "left alone" not in flat
 
 
-def test_restore_still_says_all_leaves_mail_in_gmail_alone(capsys):
+def test_restore_still_says_all_leaves_mail_in_the_mailbox_alone(capsys):
     with pytest.raises(SystemExit):
         cli.main(["restore", "--help"])
-    assert "those still in Gmail are left alone" in " ".join(capsys.readouterr().out.split())
+    assert "those still in the mailbox are left alone" in " ".join(capsys.readouterr().out.split())
 
 
 def test_a_backup_cannot_be_exported_before_meta_has_run(backup, tmp_path):

@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 def add_selection_arguments(
     p: argparse.ArgumentParser,
-    all_help: str = "Every message in the backup; those still in Gmail are left alone",
+    all_help: str = "Every message in the backup; those still in the mailbox are left alone",
 ) -> None:
     """The options that say which backed-up messages: shared by restore and export."""
     which = p.add_argument_group("which messages (one or more)")
@@ -49,7 +49,8 @@ def add_selection_arguments(
         "--id",
         action="append",
         default=[],
-        help="A Gmail ID, offloaded or not (repeatable); with --offloaded, only if offloaded",
+        help="A message's ID in the backup, offloaded or not (repeatable); with --offloaded, "
+        "only if offloaded",
     )
     which.add_argument("--offloaded", action="store_true", help="Every offloaded message")
     which.add_argument("--all", action="store_true", help=all_help)
@@ -160,10 +161,10 @@ def main(argv=None, prog: str | None = None) -> int:
     log = restore_dir() / "restore-log.csv"
     p = argparse.ArgumentParser(
         prog=prog or "mailcellar restore",
-        description="Put backed-up mail back into Gmail: offloaded messages, or a whole "
-        "backup, into its own account or another one. A dry run unless --yes: it checks "
-        "the backup and Gmail and says what it would do. (--has-label narrows by a label "
-        "the mail has; --label names the label restored mail gets.)",
+        description="Put backed-up mail back into its mailbox, Gmail or IMAP: offloaded "
+        "messages, or a whole backup, into its own account or another one. A dry run unless "
+        "--yes: it checks the backup and the mailbox and says what it would do. (--has-label "
+        "narrows by a label the mail has; --label names the label restored mail gets.)",
     )
     p.add_argument(
         "account",
@@ -319,7 +320,14 @@ def main(argv=None, prog: str | None = None) -> int:
     except gmailapi.GmailError as exc:
         sys.exit(f"error: {exc} (the log has what was done: {args.log})")
 
-    report(results, mode, account, target, label=args.label or restored_label())
+    report(
+        results,
+        mode,
+        account,
+        target,
+        label=args.label or restored_label(),
+        provider=provider_of(target_config),
+    )
     print(f"Log → {args.log}")
     return 1 if any(r.outcome in ("failed", "skipped") for r in results) else 0
 
@@ -400,13 +408,42 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
     except gmailapi.GmailError as exc:
         sys.exit(f"error: {exc} (the log has what was done: {args.log})")
 
-    report(results, mode, account, target, where, label=args.label or restored_label())
+    report(
+        results,
+        mode,
+        account,
+        target,
+        where,
+        label=args.label or restored_label(),
+        provider=provider_of(target_config),
+    )
     print(f"Log → {args.log}")
     return 1 if any(r.outcome in ("failed", "skipped") for r in results) else 0
 
 
+def restored_line(done: int, at: str, label: str, provider: str) -> str:
+    """
+    restore's closing line: the label restored mail carries. On an IMAP server
+    it is a keyword, only where the server keeps them (restore says when it
+    doesn't), so the line says so rather than claim it. Pure.
+    """
+    if provider == "gmail":
+        return f"Restored {done:,} at {at}; they carry the label {label!r}."
+    return (
+        f"Restored {done:,} at {at}; where the server keeps keywords, they carry "
+        f"{label!r} as a $mailcellar- keyword."
+    )
+
+
 def report(
-    results, mode: str, account: str, target: str, source: str = "", label: str = ""
+    results,
+    mode: str,
+    account: str,
+    target: str,
+    source: str = "",
+    label: str = "",
+    *,
+    provider: str,
 ) -> None:
     counts = Counter(r.outcome for r in results)
     into = f" → {target}" if target != account else ""
@@ -432,7 +469,4 @@ def report(
     else:
         done = sum(counts[o] for o in DONE)
         if done:
-            print(
-                f"Restored {done:,} at {time.strftime('%H:%M')}; they carry the label "
-                f"{label or 'restored/'!r} (on an IMAP server, as a $mailcellar- keyword)."
-            )
+            print(restored_line(done, time.strftime("%H:%M"), label or "restored/", provider))

@@ -211,7 +211,7 @@ def test_second_copy_report(monkeypatch, tmp_path):
     lines = second_copy_report(tmp_path, 1_792_800_000_000)  # 2026-10-24
     assert lines[0] == "Time Machine: backing up to backup."
     assert "EXCLUDED" in lines[1]
-    assert "2026-10-20 10:15" in lines[2] and "older than the last Gmail backup" in lines[3]
+    assert "2026-10-20 10:15" in lines[2] and "older than the last mail backup" in lines[3]
 
     answers["latestbackup"] = (1, "tmutil: latestbackup requires Full Disk Access privileges.")
     answers["isexcluded"] = (0, f"[Included]  {tmp_path}")
@@ -305,7 +305,7 @@ def test_messages_trashed_before_a_crash_are_recorded(env, monkeypatch, capsys):
     log = apply("--trash", "--yes")[-5:]
     assert outcomes(log, "recorded") == ["w1", "w2", "w3", "w4"]
     w0 = next(r for r in log if r["gmail_id"] == "w0")
-    assert w0["outcome"] == "skipped" and "restore it from Gmail's Trash" in w0["detail"]
+    assert w0["outcome"] == "skipped" and "restore it from its mailbox's Trash" in w0["detail"]
     assert set(offloaded(env.folder)) == {"w1", "w2", "w3", "w4"}
     assert "Recorded 4 messages an earlier run trashed" in capsys.readouterr().out
 
@@ -529,7 +529,7 @@ def test_recovered_by_mode_and_backup_problem(mode, problem, outcome, detail):
     assert after.outcome == outcome and after.detail.startswith(detail)
     assert after.row is before.row and before.outcome == "ok"  # a new value; the old is unchanged
     if problem:
-        assert after.detail.endswith("restore it from Gmail's Trash")
+        assert after.detail.endswith("restore it from its mailbox's Trash")
 
 
 def test_recover_trashed_returns_a_new_log_and_changes_nothing(env):

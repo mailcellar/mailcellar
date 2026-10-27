@@ -12,13 +12,14 @@ import pytest
 
 from fake_mailbox import ACCOUNT, MS, FakeMailbox, raw_response
 from mailcellar import cli as mailcellar
-from mailcellar import gmailapi
+from mailcellar import gmailapi, mailbox
 from mailcellar.backup import commands, gyb, sidecar
 from mailcellar.dedup.db import open_db
 from mailcellar.dedup.index import index_backup
 from mailcellar.offload.apply import OFFLOAD_LABEL
 from mailcellar.report.db import open_sidecars
 from mailcellar.restore import apply as restore
+from mailcellar.restore import cli as restore_cli
 from test_backup import FakeService, Req, http_error
 from test_index import make_eml
 
@@ -618,6 +619,7 @@ def way(
         same_account=same_account,
         hits=list(hits),
         hashes=hashes or {},
+        provider="gmail",
     )
     return d.way, d.new_id, d.detail
 
@@ -1130,3 +1132,34 @@ def test_only_what_was_restored_is_noted():
     skipped = restore.Result(d, restore.ALREADY, "", "n1")
     noted = restore.noted_results({"s1": done, "s2": skipped}, {"n1": "a mark left on"})
     assert noted == {"s1": replace(done, detail="a mark left on")}  # not s2, sharing n1
+
+
+@pytest.mark.parametrize(
+    "provider, line",
+    [
+        ("gmail", "Restored 3 at 19:26; they carry the label 'restored/x'."),
+        (
+            "imap",
+            "Restored 3 at 19:26; where the server keeps keywords, they carry 'restored/x' "
+            "as a $mailcellar- keyword.",
+        ),
+    ],
+)
+def test_the_closing_line_claims_only_what_the_provider_does(provider, line):
+    assert restore_cli.restored_line(3, "19:26", "restored/x", provider) == line
+
+
+def test_decisions_name_the_mailbox_restored_into():
+    d = restore.decide(
+        cand(),
+        "",
+        COPY,
+        labels=None,
+        same_account=False,
+        hits=["n1"],
+        hashes={"n1": "h1"},
+        provider="imap",
+    )
+    assert (d.way, d.detail) == ("found", "The server has it as n1")
+    assert mailbox.mailbox_name("gmail", start=True) == "Gmail"
+    assert mailbox.mailbox_name("imap") == "the server"

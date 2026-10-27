@@ -175,7 +175,7 @@ def second_copy_report(data_dir: Path, last_backup_ms: int | None) -> list[str]:
     lines.append(f"  Latest Time Machine backup: {latest:%Y-%m-%d %H:%M}.")
     if last_backup_ms is not None and latest.timestamp() * 1000 < last_backup_ms:
         lines.append(
-            "  It is older than the last Gmail backup: the newest mail isn't in it yet. "
+            "  It is older than the last mail backup: the newest mail isn't in it yet. "
             "Run Time Machine first to have every offloaded message twice."
         )
     return lines
@@ -350,7 +350,7 @@ def recovered(entry: Result, mode: str, problem: str) -> Result:
         return replace(
             entry,
             outcome="skipped",
-            detail=f"in Trash, but {problem}; restore it from Gmail's Trash",
+            detail=f"in Trash, but {problem}; restore it from its mailbox's Trash",
         )
     if mode == "dry-run":
         return replace(entry, outcome="would record (already in trash)")
