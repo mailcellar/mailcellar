@@ -279,9 +279,13 @@ def load_credentials(
     scope: str,
     renew: bool = False,
     interactive: bool = True,
+    exact: bool = False,
 ):
     """
     Cached or freshly authorised credentials for `account` with `scope`.
+    A read-only request uses a stored modify token when there is no
+    read-only one (effective_scope), unless exact=True: `auth --scope
+    readonly` asks for a read-only token of its own.
     A token Google no longer accepts (revoked, or expired after 7 days in a
     "Testing" Cloud project) falls through to a new consent flow; so does
     renew=True, which replaces a token that still works with a new one,
@@ -300,7 +304,7 @@ def load_credentials(
     # A modify token is held for the run unless kept; a read that falls back
     # to a modify token stored earlier keeps using it, for unattended backups.
     keep = scope != "modify" or stores_modify_token(config_folder)
-    scope = effective_scope(config_folder, scope)
+    scope = scope if exact else effective_scope(config_folder, scope)
     scope_url = SCOPES[scope]
     token_path = token_file(config_folder, scope)
     previous = token_authorised_at(config_folder, scope)
