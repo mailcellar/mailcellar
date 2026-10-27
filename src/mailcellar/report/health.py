@@ -269,7 +269,7 @@ def chains(folders: list[Path]) -> Table:
             ("Account", "text"),
             ("Links", "int"),
             ("Head", "int"),
-            ("Head hash", "text"),
+            ("Head hash", "full"),  # to note down: never cut
             ("Anchor", "text"),
         ],
         rows,

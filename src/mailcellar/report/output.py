@@ -1,8 +1,9 @@
 """
 Report sections as tables: rendered as aligned text, or written as one CSV
-per section. Column kinds control formatting: text, int, num (one
-decimal), size (bytes, shown human-readable), pct (0–1, shown as a
-percentage).
+per section. Column kinds control formatting: text (cut at TEXT_WIDTH in
+the text report), full (text never cut, for a value to copy, such as a
+hash), int, num (one decimal), size (bytes, shown human-readable), pct
+(0–1, shown as a percentage).
 """
 
 import csv
@@ -54,7 +55,9 @@ def cell(value, kind: str) -> str:
     if kind == "pct":
         return f"{value * 100:.1f}%"
     text = " ".join(str(value).split())
-    return text if len(text) <= TEXT_WIDTH else text[: TEXT_WIDTH - 1] + "…"
+    if kind == "full" or len(text) <= TEXT_WIDTH:
+        return text
+    return text[: TEXT_WIDTH - 1] + "…"
 
 
 def render(tables: list[Table], top: int, out) -> None:
@@ -70,7 +73,7 @@ def render(tables: list[Table], top: int, out) -> None:
             continue
         cells = [[cell(v, kind) for v, (_h, kind) in zip(r, t.columns, strict=True)] for r in rows]
         widths = [max(len(h), *(len(c[i]) for c in cells)) for i, (h, _k) in enumerate(t.columns)]
-        right = [kind != "text" for _h, kind in t.columns]
+        right = [kind not in ("text", "full") for _h, kind in t.columns]
         out.write("  " + _line([h for h, _k in t.columns], widths, right) + "\n")
         out.write("  " + _line(["-" * w for w in widths], widths, right) + "\n")
         for c in cells:

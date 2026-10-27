@@ -237,3 +237,15 @@ def test_health_shows_the_head(backed_up):
     (row,) = health.chains([folder]).rows
     head = chain.replay(chain.read_lines(folder))[2][-1]
     assert row == (ACCOUNT, 2, 2, head[1], "agrees")
+
+
+def test_the_text_report_prints_the_head_hash_in_full(backed_up):
+    import io
+
+    from mailcellar.report.output import render
+
+    _gmail, folder = backed_up
+    out = io.StringIO()
+    render([health.chains([folder])], 50, out)
+    head = chain.replay(chain.read_lines(folder))[2][-1][1]
+    assert len(head) == 64 and head in out.getvalue()  # all of it, not cut with …
