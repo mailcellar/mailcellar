@@ -5,7 +5,11 @@ What changed for users in each release. Releases and their dates are on the
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). mailcellar is
 in beta, so commands and options may still change before 1.0.
 
-## Unreleased
+## 0.13.0 (2026-10-27)
+
+**Upgrading from 0.12.0:** no database's schema changes. The first `backup`
+of each account starts its hash chain by reading every `.eml` once, which
+adds a little time to that run; `verify --chain` can check it from then on.
 
 ### Added
 - Tamper evidence ([#70](https://github.com/mailcellar/mailcellar/issues/70)):
