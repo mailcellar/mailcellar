@@ -441,17 +441,17 @@ def load_credentials(
             f"Run: mailcellar auth {account} --scope {scope}"
         )
     if consented:
-        print(
-            f"Authorising {account} for gmail.{scope} — sign in as {account} "
-            "in the browser and tick the Gmail permission."
-            + ("" if keep else " The token is held for this run only, never stored.")
-        )
-        if not (config_folder / "client_secrets.json").is_file():
+        if not (config_folder / "client_secrets.json").is_file():  # before asking to sign in
             raise GmailError(
                 f"{account}: gmail.{scope} needs the account's own sign-in, and "
                 f"{config_folder} has no OAuth client: mailcellar setup {account} "
                 "--client FILE adds one"
             )
+        print(
+            f"Authorising {account} for gmail.{scope} — sign in as {account} "
+            "in the browser and tick the Gmail permission."
+            + ("" if keep else " The token is held for this run only, never stored.")
+        )
         flow = InstalledAppFlow.from_client_secrets_file(
             str(config_folder / "client_secrets.json"), [scope_url]
         )

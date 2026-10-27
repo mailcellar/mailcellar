@@ -115,10 +115,11 @@ def test_reads_go_through_the_key_as_the_account_and_read_only(configured, fake_
     assert [p.name for p in folder.iterdir()] == [gmailapi.SERVICE_ACCOUNT_MARKER]  # no token
 
 
-def test_anything_that_changes_gmail_needs_the_users_own_sign_in(configured, fake_google):
+def test_anything_that_changes_gmail_needs_the_users_own_sign_in(configured, fake_google, capsys):
     _root, folder, _key = configured
     with pytest.raises(gmailapi.GmailError, match="needs the account's own sign-in"):
         gmailapi.load_credentials(folder, ADDRESS, "modify")
+    assert "sign in" not in capsys.readouterr().out  # not asked to sign in, then refused
 
 
 def test_a_key_others_can_read_is_refused(configured, fake_google):
