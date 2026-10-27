@@ -64,6 +64,7 @@ def configured(tmp_path):
     key.parent.mkdir()
     key.write_text(json.dumps(KEY))
     key.chmod(0o600)
+    (root / "alex" / gmailapi.SERVICE_ACCOUNT_MARKER).write_text(f"{key.name}\n")  # set up with it
     return root, root / "alex", key
 
 
@@ -90,6 +91,19 @@ def test_the_key_is_found_by_the_accounts_domain(configured):
     assert gmailapi.service_account_key(folder, "Alex@EXAMPLE.org") == key
 
 
+def test_only_an_account_set_up_with_the_key_reads_through_it(configured, fake_google):
+    root, _folder, _key = configured
+    sam = root / "sam"  # same domain, set up with its own sign-in
+    sam.mkdir()
+    gmailapi.token_file(sam, "readonly").write_text("{}")
+    assert gmailapi.service_account_key(sam, "sam@example.org") is None
+    with pytest.raises(gmailapi.GmailError, match="has no OAuth client"):
+        gmailapi.load_credentials(sam, "sam@example.org", "readonly", renew=True)  # own sign-in
+    # Undo: without its marker, alex signs in for itself again.
+    (root / "alex" / gmailapi.SERVICE_ACCOUNT_MARKER).unlink()
+    assert gmailapi.service_account_key(root / "alex", ADDRESS) is None
+
+
 # ── credentials ──────────────────────────────────────────────────────────────
 
 
@@ -98,7 +112,7 @@ def test_reads_go_through_the_key_as_the_account_and_read_only(configured, fake_
     creds = gmailapi.load_credentials(folder, ADDRESS, "readonly", interactive=False)
     assert creds.subject == ADDRESS
     assert creds.scopes == [gmailapi.SCOPES["readonly"]]  # never more
-    assert list(folder.iterdir()) == []  # no token stored, nothing to renew
+    assert [p.name for p in folder.iterdir()] == [gmailapi.SERVICE_ACCOUNT_MARKER]  # no token
 
 
 def test_anything_that_changes_gmail_needs_the_users_own_sign_in(configured, fake_google):
@@ -150,6 +164,8 @@ def test_setup_installs_the_key_once_for_the_domain(tmp_path, capsys, fake_googl
     assert (root / "accounts.toml").read_text() == f'alex = "{ADDRESS}"\n'
     out = capsys.readouterr().out
     assert "read through the service account" in out and "--client FILE adds" in out
+    marker = root / "alex" / gmailapi.SERVICE_ACCOUNT_MARKER
+    assert marker.read_text() == "example.org.json\n"  # this account reads through the key
 
     # An account that already has an OAuth client keeps it, and isn't told to add one.
     (root / "alex" / "client_secrets.json").write_text("{}")
@@ -158,9 +174,13 @@ def test_setup_installs_the_key_once_for_the_domain(tmp_path, capsys, fake_googl
     assert "already listed" in out and "with the account's OAuth client" in out
     assert "--client FILE adds" not in out
 
-    # A second address in the domain shares it; another key is refused without --force.
+    # A second address in the domain shares the key, and gets its own marker; one set up
+    # without it doesn't. Another key is refused without --force.
     other = ("sam@example.org", "--service-account", str(source), "--no-auth")
     assert setup_run(*other, "--config", str(root)) == 0
+    assert (root / "sam" / gmailapi.SERVICE_ACCOUNT_MARKER).is_file()
+    (root / "kim").mkdir()
+    assert gmailapi.service_account_key(root / "kim", "kim@example.org") is None
     source.write_text(json.dumps({**KEY, "client_id": "999"}))
     with pytest.raises(SystemExit, match="different service-account key"):
         setup_run(*other, "--config", str(root))

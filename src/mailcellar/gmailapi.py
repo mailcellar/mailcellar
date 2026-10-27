@@ -14,10 +14,13 @@ fails. Every account checks it reached the mailbox it expects.
 
 Workspace accounts can read through a service account instead (#103):
 a key with domain-wide delegation, stored once per domain at
-<config>/service-accounts/<domain>.json, owner-only. An account whose domain
-has a key gets its read-only access from it, with no sign-in and no token
-to renew. Only gmail.readonly, never more: gmail.modify also sends mail, so
-offload, dedup and restore keep the user's own sign-in.
+<config>/service-accounts/<domain>.json, owner-only. An account set up with
+it (a `service-account` marker in its config folder) gets its read-only
+access from it, with no sign-in and no token to renew; other accounts in
+the domain keep their own sign-in. A refused key fails the run: there is
+no falling back to the user's own token. Only gmail.readonly, never more:
+gmail.modify also sends mail, so offload, dedup and restore keep the user's
+own sign-in.
 
 GmailAccount batches requests, shrinking batches when Gmail answers 429
 and retrying rate limits, server errors and timeouts with backoff. Label
@@ -111,6 +114,7 @@ class HistoryExpired(GmailError):
 
 ACCOUNTS_FILE = "accounts.toml"
 SERVICE_ACCOUNTS_DIR = "service-accounts"  # <config>/service-accounts/<domain>.json
+SERVICE_ACCOUNT_MARKER = "service-account"  # in an account's folder: it reads through the key
 SERVICE_ACCOUNT_KEYS = ("type", "client_email", "client_id", "private_key", "token_uri")
 DOMAIN_RE = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)+$")  # a host name: no /, no ..
 
@@ -204,7 +208,12 @@ def service_account_path(config_root: Path, domain: str) -> Path:
 
 
 def service_account_key(config_folder: Path, account: str) -> Path | None:
-    """The service-account key for the account's domain, if one is installed."""
+    """
+    The service-account key the account reads through: only for an account set
+    up with it (its marker), and only if its domain's key is installed.
+    """
+    if not (config_folder / SERVICE_ACCOUNT_MARKER).is_file():
+        return None
     try:
         path = service_account_path(config_folder.parent, account.rpartition("@")[2])
     except GmailError:

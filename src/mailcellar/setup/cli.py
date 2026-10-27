@@ -11,7 +11,9 @@ read-only one, the same as `mailcellar auth ACCOUNT --scope readonly`.
 
 A Workspace address can instead read through a service account with
 domain-wide delegation (--service-account KEY, #103): the key is installed
-once for the domain, owner-only, and backups need no sign-in. Anything that
+once for the domain, owner-only, and the account is marked to read through
+it, so its backups need no sign-in. Other accounts in the domain are
+unchanged until they are set up the same way. Anything that
 changes Gmail still needs the user's own OAuth client and sign-in.
 
 The decisions (check_client, accounts_entries, pick_name, add_account,
@@ -275,6 +277,8 @@ def run_service_account(args, config: Path, accounts_file: Path, text: str, entr
     key = install_service_account(source, config, address, args.force)
     folder = config / name
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # This account, and only this one, reads through the key (gmailapi.service_account_key).
+    (folder / gmailapi.SERVICE_ACCOUNT_MARKER).write_text(f"{key.name}\n")
     if args.client is not None:
         client = parse_path(args.client)
         if not client.is_file():
