@@ -193,6 +193,11 @@ def marked_roles(entries) -> frozenset[str]:
     return frozenset(SPECIAL[flag] for _n, _d, flags in entries for flag in flags & set(SPECIAL))
 
 
+def search_uids(data) -> frozenset[int]:
+    """SEARCH's answer as UIDs. Pure."""
+    return frozenset(int(u) for u in b" ".join(d for d in data if d).split())
+
+
 def capabilities_from(data) -> frozenset[str]:
     """CAPABILITY's answer as upper-case names. Pure."""
     return frozenset(b" ".join(d for d in data if d).decode("ascii", "replace").upper().split())
@@ -601,16 +606,33 @@ class ImapAccount:
     def _read_folders(self) -> tuple[Folder, ...]:
         return folders_from(self._read_entries())
 
+    def _list_uids(self, conn, exists: int) -> list[int]:
+        """
+        The examined folder's UIDs. A server with MESSAGELIMIT (RFC 9738;
+        Yahoo's is 1,000) answers a SEARCH over more messages with the
+        highest UIDs only, and says so in an OK that imaplib doesn't return;
+        so search again below the lowest UID found until EXAMINE's count is
+        reached or a pass finds nothing.
+        """
+        found: set[int] = set()
+        criteria: tuple[str, ...] = ("ALL",)
+        while True:
+            typ, data = conn.uid("SEARCH", None, *criteria)
+            got = search_uids(self._ok(typ, data, "SEARCH"))
+            found |= got
+            if not got or len(found) >= exists or min(got) <= 1:
+                return sorted(found)
+            criteria = ("UID", f"1:{min(got) - 1}")
+
     def _read_folder(self, folder: Folder) -> FolderRead | None:
         """One folder's UIDs, flags and new headers; None if it can't be examined."""
 
         def run(conn):
-            self._ok(*conn.select(quote(folder.name), readonly=True), f"EXAMINE {folder.name}")
+            typ, data = conn.select(quote(folder.name), readonly=True)
+            exists = int(self._ok(typ, data, f"EXAMINE {folder.name}")[0])
             _code, (uidvalidity, *_rest) = conn.response("UIDVALIDITY")
             uidvalidity = int(uidvalidity)
-            typ, data = conn.uid("SEARCH", None, "ALL")
-            words = b" ".join(d for d in self._ok(typ, data, "SEARCH") if d).split()
-            uids = [int(u) for u in words]
+            uids = self._list_uids(conn, exists)
             known = self._known(folder.name, uidvalidity)
             flags: dict[int, frozenset[str]] = {}
             for chunk in chunks(uids):

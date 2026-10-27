@@ -31,6 +31,7 @@ class FakeImap:
         self.drops = 0  # how many of the next commands fail as a dropped connection
         self.stalls = 0  # how many of the next commands time out
         self.breaks = 0  # how many of the next commands stop halfway (Ctrl-C, say)
+        self.message_limit: int | None = None  # MESSAGELIMIT (RFC 9738): highest N only
         self.refused: set[str] = set()  # folders EXAMINE answers NO for
         self.bodiless: set[int] = set()  # UIDs whose BODY.PEEK[] comes back without a body
         self.capabilities = ("IMAP4REV1", "LITERAL+", "AUTH=PLAIN")  # the greeting's, as imaplib
@@ -117,10 +118,18 @@ class FakeImap:
         command = command.upper()
         uids = self.folders[self.selected]["uids"]
         if command == "SEARCH":
-            return "OK", [b" ".join(str(u).encode() for u in sorted(uids))]
+            wanted = sorted(uids)
+            if args[1:2] == ("UID",):  # UID SEARCH UID lo:hi
+                lo, hi = map(int, args[2].split(":"))
+                wanted = [u for u in wanted if lo <= u <= hi]
+            # Over the limit: the highest UIDs only, and an OK that doesn't say so to imaplib.
+            wanted = wanted[-self.message_limit :] if self.message_limit else wanted
+            return "OK", [b" ".join(str(u).encode() for u in wanted)]
         if command != "FETCH":
             raise AssertionError(f"UID {command}: changes the server")
         wanted, items = args
+        if self.message_limit and len(wanted.split(",")) > self.message_limit:
+            raise AssertionError(f"FETCH of {len(wanted.split(','))}: over MESSAGELIMIT")
         if "BODY[" in items or "STORE" in items:
             raise AssertionError(f"FETCH {items}: BODY[] sets \\Seen; BODY.PEEK[] doesn't")
         data = []
