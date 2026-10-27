@@ -22,7 +22,7 @@ from pathlib import Path
 
 from mailcellar.backup import chain
 from mailcellar.backup.gyb import backup_account
-from mailcellar.offload import forget
+from mailcellar.offload import forget, rules
 from mailcellar.paths import pruned_folder
 from mailcellar.report.db import completeness_counts
 from mailcellar.report.output import Table, day, when
@@ -382,6 +382,35 @@ def forgotten(folders: list[Path], now: int) -> Table:
     )
 
 
+def retention_table(folders: list[Path], now: int) -> Table:
+    """What the offload rules' forget_after makes due in each backup."""
+    rows = []
+    for folder in folders:
+        account = backup_account(folder)
+        for rule, (n_years, gone, waiting, kept) in forget.retention(folder, now).items():
+            rows.append((account, rule, rules.years_text(n_years), gone, waiting, kept))
+    return Table(
+        "retention",
+        "Due under retention (forget_after in the offload rules)",
+        [
+            ("Account", "text"),
+            ("Rule", "text"),
+            ("Forget after", "text"),
+            ("Due", "int"),
+            ("Not yet gone from Gmail", "int"),
+            ("Held", "int"),
+        ],
+        rows,
+        notes=[
+            "Mail a rule offloaded that is older than its forget_after. Due: Gmail has deleted "
+            "it, as last seen by a backup or count; 'mailcellar offload forget --due' checks "
+            "with Gmail again, then deletes it from the backup, held "
+            f"{forget.HOLD_DAYS} days first. Held: a legal hold keeps it."
+        ],
+        limit=False,
+    )
+
+
 def tokens(rows: list[tuple[str, str, datetime | None]], now: int) -> Table:
     """Each account's tokens and when consent was last given: (account, scope, authorised_at)."""
     shown = []
@@ -426,6 +455,7 @@ def build(
         by_month(con),
         pruned(folders),
         forgotten(folders, now),
+        retention_table(folders, now),
         holds_table(folders, now),
         chains(folders),
     ]

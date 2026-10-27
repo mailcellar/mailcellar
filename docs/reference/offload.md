@@ -13,6 +13,7 @@ before = "2022-01-01"    # or a number of years ago, e.g. "5"
 # except = { subject = "contract", to_me = true }   # keep what matches any of these
 # waive = ["thread"]     # drop default protections (sent, starred, thread, replied, labels)
 # protect = ["correspondents"]
+# forget_after = 7       # retention: forget what it offloaded 7 years after its date
 ```
 
 ```bash
@@ -111,6 +112,27 @@ mailcellar offload forget --empty --yes                      # delete runs held 
 - **Other copies** are out of mailcellar's reach: any `export` you made, a
   second copy of the data root, Time Machine. The dry run says so, and on a
   Mac whether Time Machine covers the data root.
+- **Legal holds win.** Mail a [hold](hold.md) covers is never forgotten.
+
+### Retention: `forget_after`
+
+A rule's `forget_after = N` (a whole number of years) is a standing policy:
+mail the rule offloaded is due to be forgotten once it is more than N years
+old, counted from the message's date. `offload forget --due` forgets what is
+due, through every stage above, so mail still in Gmail is never touched;
+the rule's `before` offloads it first.
+
+```bash
+mailcellar offload forget --due                     # dry run: what is due, by rule and year
+mailcellar offload forget --due --rule invoices     # only this rule
+mailcellar offload forget --due --yes               # asks you to type the count
+```
+
+`offload plan` and the review pages show each rule's `forget_after`;
+`report health` and `schedule status` show how much is due, and nothing
+runs it unattended. Mail whose rule has been renamed or removed is under no
+policy and stays. Each forget run's link in the backup's hash chain names
+the rules it forgot for, and their `forget_after`.
 
 ## Options
 
@@ -150,7 +172,9 @@ A dry run unless `--yes`, which also asks you to type the count.
 | --- | --- |
 | `ACCOUNT ...` | Only these accounts' backups (default: all) |
 | `--batch BATCH` | Offloaded messages of this batch (repeatable) |
-| `--rule RULE` | Offloaded messages of this rule (repeatable) |
+| `--rule RULE` | Offloaded messages of this rule (repeatable); with `--due`, only these rules |
+| `--due` | Offloaded mail the rules' `forget_after` makes due: older than that many years |
+| `--rules RULES` | Rules file, for `--due` (default `<data root>/offload/rules.toml`) |
 | `--yes` | Forget them (with `--empty`: delete the runs) |
 | `--empty` | Delete forget runs held 30 days or more, for good |
 | `--undo RUN` | Put a held forget run back into the backup |

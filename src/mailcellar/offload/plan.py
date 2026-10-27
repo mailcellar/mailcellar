@@ -15,7 +15,7 @@ import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
-from mailcellar.offload.rules import DEFAULT_PROTECT, PROTECTIONS, Rule, fold
+from mailcellar.offload.rules import DEFAULT_PROTECT, PROTECTIONS, Rule, fold, years_text
 from mailcellar.report import bulk
 from mailcellar.report.output import Table, day
 
@@ -360,6 +360,7 @@ def summary(results: list[RuleResult], top: int) -> list[Table]:
                 day(rule.before_ms),
                 ", ".join(rule.waived) or "none",
                 ", ".join(p for p in rule.protect if p not in DEFAULT_PROTECT) or "none",
+                years_text(rule.forget_after) if rule.forget_after else "",
                 r.scope_total,
                 sum(r.excluded.values()),
                 r.kept_total,
@@ -397,6 +398,7 @@ def summary(results: list[RuleResult], top: int) -> list[Table]:
                 ("Before", "text"),
                 ("Waived", "text"),
                 ("Added", "text"),
+                ("Forget after", "text"),
                 ("In scope", "int"),
                 ("Left out", "int"),
                 ("Kept", "int"),
@@ -409,7 +411,9 @@ def summary(results: list[RuleResult], top: int) -> list[Table]:
             notes=[
                 "In scope: the rule's scope, before its cut-off. Left out: already offloaded, in "
                 "Trash or Spam, gone from Gmail, not indexed, or taken by an earlier rule. "
-                "Kept: a protection applies. Offload: in the plan. Sizes are Gmail's estimates."
+                "Kept: a protection applies. Offload: in the plan. Sizes are Gmail's estimates. "
+                "Forget after: 'offload forget --due' deletes what the rule offloaded from the "
+                "backup once it is that old and Gmail has deleted it."
             ],
             limit=False,
         ),

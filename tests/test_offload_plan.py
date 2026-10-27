@@ -206,6 +206,10 @@ def test_plan_changes_nothing(data):
             '[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nexcept = { category = "x" }\n',
             "except: unknown categories",
         ),
+        ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nforget_after = 0\n', "1 or more"),
+        ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nforget_after = 1.5\n', "whole"),
+        ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nforget_after = "7"\n', "whole"),
+        ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nforget_after = true\n', "whole"),
     ],
 )
 def test_rule_errors(tmp_path, rules, error):
@@ -220,6 +224,14 @@ def test_rule_defaults(tmp_path):
     path.write_text('[[rule]]\nname = "x"\nbefore = 5\nlabel = "a"\n')
     (rule,) = load_rules(path, parse_before, lambda a: a)
     assert rule.protect == DEFAULT_PROTECT and rule.waived == [] and rule.accounts == []
+    assert rule.forget_after is None and rule.forget_ms is None  # kept for ever
+
+
+def test_forget_after_is_years_from_now(tmp_path):
+    path = tmp_path / "rules.toml"
+    path.write_text('[[rule]]\nname = "x"\nbefore = 2\nlabel = "a"\nforget_after = 7\n')
+    (rule,) = load_rules(path, parse_before, lambda a: a)
+    assert rule.forget_after == 7 and rule.forget_ms == parse_before("7")
 
 
 def test_unknown_account_is_an_error(data, capsys):

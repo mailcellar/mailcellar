@@ -22,7 +22,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from mailcellar.offload.plan import Message, RuleResult, summary
-from mailcellar.offload.rules import PROTECTIONS, Rule
+from mailcellar.offload.rules import PROTECTIONS, Rule, years_text
 from mailcellar.report.output import Table, day, human_size
 
 SAMPLE = 50  # messages of the offload shown at random
@@ -97,9 +97,12 @@ def _keys(scope: dict[str, list]) -> str:
 
 
 def rule_text(rule: Rule) -> str:
-    """What the rule selects, in one line: its scope, cut-off and exception."""
+    """What the rule selects, in one line: its scope, cut-off, exception and retention."""
     text = f"{_keys(rule.scope)} · before {day(rule.before_ms)}"
-    return text + (f" · except {_keys(rule.exceptions)}" if rule.exceptions else "")
+    text += f" · except {_keys(rule.exceptions)}" if rule.exceptions else ""
+    if rule.forget_after:
+        text += f" · forgotten from the backup {years_text(rule.forget_after)} after its date"
+    return text
 
 
 def kept_reason(protection: str) -> str:
