@@ -93,6 +93,9 @@ The API gives each message once, with its labels and a change history,
 so a later backup reads only what changed. It also lets mailcellar later
 check a backup against Gmail, and put mail back with its labels.
 
+That is about Gmail. Another provider's mailbox, which has only IMAP, is
+backed up over IMAP: [Backing up an IMAP account](imap.md).
+
 ## Is anything ever deleted?
 
 - **From Gmail:** never permanently. The commands that change Gmail

@@ -9,6 +9,10 @@ This page walks through one offload from start to finish. The mail in it is
 invented. The README has the reference for each command
 ([Offloading old mail](../reference/offload.md)).
 
+On an IMAP account the stages are the same, with a keyword or a review
+folder in place of the label; see
+[Backing up an IMAP account](imap.md#3-offload-and-remove-duplicates).
+
 The stages, and where to stop and check:
 
 | Stage | Command | What changes |

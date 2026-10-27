@@ -25,7 +25,7 @@ Otherwise 1, in any of these cases:
 **Checking the backup.** Once mail is offloaded and Gmail has emptied its
 Trash, the backup holds the only copy, so `verify` looks for damage that
 would otherwise go unnoticed: a failing disk, a sync tool rewriting files,
-an accidental delete. It needs no Gmail access and changes nothing (both
+an accidental delete. It needs no access to the mailbox and changes nothing (both
 databases are opened read-only).
 
 ```bash
@@ -65,7 +65,7 @@ with none named, every account in `accounts.toml`.
 | Option | What it does |
 | --- | --- |
 | `--full` | List every message instead of reading Gmail's history since the last run |
-| `--prune` | Then move mail permanently deleted from Gmail out of the backup, into `<data root>/_pruned/<email>/`; never offloaded mail |
+| `--prune` | Then move mail permanently deleted from the mailbox out of the backup, into `<data root>/_pruned/<email>/`; never offloaded mail |
 | `--yes` | With `--prune`: don't ask before moving |
 | `--force` | With `--prune`: allow moving more than 10% of the backup |
 | `--unattended` | For scheduled runs: never open a browser. A token that needs signing in fails that account's run, with the command to fix it |
@@ -88,7 +88,7 @@ Takes `--folder` and `--config`, as `backup` does.
 
 | Option | What it does |
 | --- | --- |
-| `--offline` | Only parse the `.eml` files; don't ask Gmail for thread IDs, labels and sizes |
+| `--offline` | Only parse the `.eml` files; don't ask the mailbox for thread IDs, labels and sizes |
 | `--folder FOLDER`, `--config CONFIG` | As for `backup` |
 
 ### `verify`

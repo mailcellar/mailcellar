@@ -45,7 +45,7 @@ sender, subject and `.eml` file. The exit status is 1 when nothing matches.
 ### Picking results with fzf
 
 `--format tsv` prints each result as one tab-separated line: date, sender,
-subject, then account, Gmail ID, `.eml` path, offload rule and batch
+subject, then account, ID, `.eml` path, offload rule and batch
 (the columns are in the [reference](../reference/search.md#output-for-scripts-and-pickers)).
 Any picker that reads lines can choose from it; with
 [fzf](https://github.com/junegunn/fzf):

@@ -65,7 +65,7 @@ nav:
       - reference/index.md
       - Backups: reference/backup.md
       - Configuration: reference/configuration.md
-      - What changes Gmail: reference/what-changes-gmail.md
+      - What changes your mailbox: reference/what-changes-gmail.md
       - Removing duplicates: reference/dedup.md
       - Offloading old mail: reference/offload.md
       - Restoring mail: reference/restore.md

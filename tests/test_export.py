@@ -193,7 +193,7 @@ def test_an_index_row_has_the_date_sender_subject_labels_id_and_file():
         "sender": "Alice <a@x.com>",
         "subject": "'=HYPERLINK(1)",
         "labels": "work;Inbox",
-        "gmail_id": "m1",
+        "id": "m1",
         "file": "2023/11/15/m1.eml",
     }
     assert list(row) == export.INDEX_COLUMNS
@@ -304,7 +304,7 @@ def test_a_zip_export_holds_the_eml_files_and_an_index(backup, tmp_path):
                 assert zf.read(name) == (backup / name).read_bytes()  # byte for byte
         index = list(csv.DictReader(io.StringIO(zf.read("index.csv").decode())))
         assert zf.testzip() is None
-    assert [r["gmail_id"] for r in index] == ["m1", "m2", "m3", "m4", "m5"]
+    assert [r["id"] for r in index] == ["m1", "m2", "m3", "m4", "m5"]
     first = index[0]
     assert (first["sender"], first["subject"], first["labels"]) == (
         "Alice <alice@example.com>",
@@ -321,9 +321,7 @@ def test_the_selection_and_narrowing_are_restores(backup, tmp_path):
         dest = tmp_path / f"out-{len(list(tmp_path.glob('out-*')))}.zip"
         assert export_cmd(*args, "--to", str(dest)) == 0
         with zipfile.ZipFile(dest) as zf:
-            return [
-                r["gmail_id"] for r in csv.DictReader(io.StringIO(zf.read("index.csv").decode()))
-            ]
+            return [r["id"] for r in csv.DictReader(io.StringIO(zf.read("index.csv").decode()))]
 
     assert ids("--offloaded") == ["m2", "m3", "m4"]
     assert ids("--batch", BATCH) == ["m2", "m3", "m4"]
@@ -349,7 +347,7 @@ def test_mail_already_restored_is_exported_once(backup, tmp_path):
     dest = tmp_path / "out.zip"
     assert export_cmd("--offloaded", "--to", str(dest)) == 0
     with zipfile.ZipFile(dest) as zf:
-        ids = [r["gmail_id"] for r in csv.DictReader(io.StringIO(zf.read("index.csv").decode()))]
+        ids = [r["id"] for r in csv.DictReader(io.StringIO(zf.read("index.csv").decode()))]
     assert ids == ["m2", "m4"]  # m2 is included though restored; m3's old ID is not, its copy is
 
 
@@ -399,7 +397,7 @@ def test_a_message_whose_file_is_missing_is_left_out_and_reported(backup, tmp_pa
     dest = tmp_path / "out.zip"
     assert export_cmd("--all", "--to", str(dest)) == 1
     with zipfile.ZipFile(dest) as zf:
-        ids = [r["gmail_id"] for r in csv.DictReader(io.StringIO(zf.read("index.csv").decode()))]
+        ids = [r["id"] for r in csv.DictReader(io.StringIO(zf.read("index.csv").decode()))]
     assert ids == ["m1", "m2", "m4", "m5"]
     captured = capsys.readouterr()
     assert "Exported 4 messages" in captured.out

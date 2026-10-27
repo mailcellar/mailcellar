@@ -571,6 +571,10 @@ def test_restore_takes_offloaded_mail_out_of_trash_home(home, tmp_path, capsys):
     assert not any("$mailcellar-offload-candidate" in f for f in flags)  # the mark taken off
     assert sum(any(k.startswith("$mailcellar-restored.") for k in f) for f in flags) == 2
     assert cli.main(["backup", "home"]) == 0
+    capsys.readouterr()
+    assert cli.main(["count", "home"]) == 0
+    out = capsys.readouterr().out
+    assert "Restored to the server" in out and "Gmail" not in out
 
 
 def test_restore_appends_mail_the_server_no_longer_has(home, tmp_path, capsys):

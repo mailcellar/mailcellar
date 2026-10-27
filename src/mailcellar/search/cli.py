@@ -74,7 +74,9 @@ def main(argv=None, prog: str | None = None) -> int:
         metavar="ACCOUNT",
         help="Backups to search: address, config folder name or unique part (default: all)",
     )
-    p.add_argument("--offloaded", action="store_true", help="Only mail offloaded out of Gmail")
+    p.add_argument(
+        "--offloaded", action="store_true", help="Only mail offloaded out of its mailbox"
+    )
     p.add_argument(
         "--rule", action="append", default=[], help="Only mail offloaded by this rule (repeatable)"
     )

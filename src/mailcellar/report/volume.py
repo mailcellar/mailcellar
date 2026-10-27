@@ -64,9 +64,9 @@ def totals(con) -> Table:
             for a, r, s, f, size, lo, hi in rows
         ],
         notes=[
-            "Sent: Gmail's SENT label (mail to yourself included). Drafts are left out. "
-            "Forwarded: received mail auto-forwarded by Gmail from another address "
-            "(X-Forwarded-For)."
+            "Sent: the SENT label, Gmail's or an IMAP server's Sent folder (mail to yourself "
+            "included). Drafts are left out. Forwarded: received mail auto-forwarded from "
+            "another address (X-Forwarded-For)."
         ],
         limit=False,
     )

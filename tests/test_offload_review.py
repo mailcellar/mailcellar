@@ -197,7 +197,7 @@ def test_storage_report_shows_each_batch(data, capsys):  # noqa: F811
     assert by_batch["batch"][3] == 1  # the fixture's own offload of w10
     report_main(["storage"])
     out = capsys.readouterr().out
-    assert "Offload batches: space freed in Gmail" in out
+    assert "Offload batches: space freed in their mailboxes" in out
     assert Counter(out.split())["2026-01-15-093000"] == 1
 
 

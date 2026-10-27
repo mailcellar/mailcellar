@@ -54,6 +54,7 @@ from pathlib import Path
 
 from mailcellar import gmailapi, mailbox
 from mailcellar.backup import chain, gyb, sidecar
+from mailcellar.mailbox import mailbox_name
 from mailcellar.message import PARSER_VERSION, parse_eml, parse_message
 from mailcellar.paths import backup_folder, config_root, pruned_folder
 from mailcellar.progress import Progress
@@ -63,11 +64,6 @@ logger = logging.getLogger(__name__)
 COMMIT_EVERY = 100
 # --prune stops without --force if more than this share of the backup would go.
 PRUNE_MAX_FRACTION = 0.10
-
-
-def server_name(gmail) -> str:
-    """What to call where the mail is, in what a command says: Gmail, or the server."""
-    return "Gmail" if gmail is None or gmail.provider == "gmail" else "the server"
 
 
 def now_ms() -> int:
@@ -386,7 +382,7 @@ def _backup(
         todo = [i for i in ids if i not in have and i not in chats]
         stats["chats"] = sum(1 for i in ids if i in chats)
         logger.info(
-            f"{server_name(gmail)} has {len(ids):,} messages"
+            f"{mailbox_name(gmail.provider)} has {len(ids):,} messages"
             + (f" matching {query!r}" if query else "")
             + f"; {len(ids) - len(todo) - stats['chats']:,} already backed up; "
             + (f"{stats['chats']:,} chats skipped; " if stats["chats"] else "")
@@ -441,7 +437,10 @@ def gone_from_server(gmail, con, offloaded: set[str]) -> tuple[list[str], int, l
     indexed = {uid for (uid,) in con.execute("SELECT uid FROM uids")}
     on_server = set(gmail.list_message_ids(include_spam_trash=True))
     if indexed and not on_server:
-        raise PruneAborted("Gmail returned no messages at all; refusing to prune")
+        raise PruneAborted(
+            f"{mailbox_name(gmail.provider, start=True)} returned no messages at all; "
+            "refusing to prune"
+        )
     gone = indexed - on_server
     return sorted(gone - offloaded), len(indexed - offloaded), sorted(gone & offloaded)
 
@@ -542,19 +541,20 @@ def _prune(
         print(f"Prune: keeping {len(held):,} messages under hold {names}.")
         gone = [g for g in gone if g not in held]
     if not gone:
-        print(f"Prune: nothing in the backup is gone from {server_name(gmail)}.")
+        print(f"Prune: nothing in the backup is gone from {mailbox_name(gmail.provider)}.")
         return {"pruned": 0, "dest": None}, "ok"
 
     if len(gone) > max_fraction * total and not force:
         raise PruneAborted(
-            f"{len(gone):,} of {total:,} backed-up messages are gone from {server_name(gmail)}, "
+            f"{len(gone):,} of {total:,} backed-up messages are gone from "
+            f"{mailbox_name(gmail.provider)}, "
             f"more than {max_fraction:.0%}; re-run with --force if that is right"
         )
 
     by_year = gone_by_year(con, gone)
     print(
         f"Prune: {len(gone):,} messages in the backup are permanently gone "
-        f"from {server_name(gmail)}:"
+        f"from {mailbox_name(gmail.provider)}:"
     )
     print("  " + ", ".join(f"{year} {n:,}" for year, n in sorted(by_year.items())))
 
@@ -625,7 +625,8 @@ def cmd_backup(args) -> int:
         if stats["deleted_backed_up"] and not args.prune:
             print(
                 f"{stats['deleted_backed_up']:,} backed-up messages were permanently deleted "
-                f"from {server_name(gmail)}; 'backup --prune' would move them out of the backup."
+                f"from {mailbox_name(gmail.provider)}; 'backup --prune' would move them out "
+                "of the backup."
             )
         if stats["failed"]:
             logger.warning(
@@ -790,9 +791,9 @@ def cmd_meta(args) -> int:
     )
     if gmail is not None:
         print(
-            f"{server_name(gmail)} details for {st['details']:,} messages"
+            f"{mailbox_name(gmail.provider)} details for {st['details']:,} messages"
             + (
-                f"; {st['gone_from_gmail']:,} no longer in {server_name(gmail)}"
+                f"; {st['gone_from_gmail']:,} no longer in {mailbox_name(gmail.provider)}"
                 if st["gone_from_gmail"]
                 else ""
             )
@@ -800,7 +801,8 @@ def cmd_meta(args) -> int:
     failures = st["detail_failures"]
     if failures:
         logger.warning(
-            f"{len(failures):,} lookups in {server_name(gmail)} failed, e.g. {failures[0]}. "
+            f"{len(failures):,} lookups in {mailbox_name(gmail.provider)} failed, "
+            f"e.g. {failures[0]}. "
             "Re-run meta to retry them."
         )
     return 1 if st["errors"] or failures else 0
@@ -886,7 +888,7 @@ def cmd_count(args) -> int:
             c = count(gmail, account, folder)
         except PruneAborted as exc:
             sys.exit(f"error: {exc}")
-    server = server_name(gmail)
+    server = mailbox_name(gmail.provider)
     on_server = (
         "In Gmail (excl. spam/trash)" if server == "Gmail" else "On the server (excl. junk/trash)"
     )
@@ -900,7 +902,7 @@ def cmd_count(args) -> int:
         ("  of which permanently deleted", c["gone_from_server"]),
         ("Offloaded (kept in backup)", c["offloaded"]),
         (f"  of which still {in_server} (Trash)", c["offloaded_in_gmail"]),
-        ("Restored to Gmail", c["restored"]),
+        (f"Restored to {server}", c["restored"]),
         ("Forgotten (deleted from the backup)", c["forgotten"]),
         ("Indexed but .eml missing", c["file_missing"]),
     ]
@@ -923,7 +925,9 @@ def cmd_count(args) -> int:
 
 
 def main(argv=None, prog: str | None = None) -> int:
-    p = argparse.ArgumentParser(prog=prog, description="Incremental Gmail backup in gyb format.")
+    p = argparse.ArgumentParser(
+        prog=prog, description="Incremental backup of Gmail and IMAP accounts, in gyb format."
+    )
     sub = p.add_subparsers(dest="command", required=True)
 
     def add_common_args(sp):
@@ -968,7 +972,7 @@ def main(argv=None, prog: str | None = None) -> int:
     p_backup.add_argument(
         "--prune",
         action="store_true",
-        help="Then move messages permanently deleted from Gmail "
+        help="Then move messages permanently deleted from the mailbox "
         "out of the backup, into <data root>/_pruned/<email>/",
     )
     p_backup.add_argument(
@@ -987,7 +991,7 @@ def main(argv=None, prog: str | None = None) -> int:
     )
     p_backup.set_defaults(func=cmd_backup)
 
-    p_count = sub.add_parser("count", help="Compare Gmail with the backup")
+    p_count = sub.add_parser("count", help="Compare the mailbox with the backup")
     add_common_args(p_count)
     p_count.set_defaults(func=cmd_count)
 
@@ -996,7 +1000,7 @@ def main(argv=None, prog: str | None = None) -> int:
     p_meta.add_argument(
         "--offline",
         action="store_true",
-        help="Only parse .eml files; don't ask Gmail for thread IDs, labels and sizes",
+        help="Only parse .eml files; don't ask the mailbox for thread IDs, labels and sizes",
     )
     p_meta.set_defaults(func=cmd_meta)
 

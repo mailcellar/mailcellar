@@ -234,7 +234,7 @@ def test_a_json_result_is_one_object_on_one_line(tmp_path):
         "sender": "Alice",
         "subject": "Café\nplan",
         "account": ACCOUNT,
-        "gmail_id": "m2",
+        "id": "m2",
         "path": str(tmp_path / "2023/11/15/m2.eml"),
         "offloaded": {"rule": "old work", "batch": BATCH},
     }
@@ -356,7 +356,7 @@ def test_tsv_and_json_print_only_results_on_stdout(backup, capsys):
 
     assert search("invoice", "--format", "json", "--limit", "1") == 0
     out, err = capsys.readouterr()
-    assert [json.loads(line)["gmail_id"] for line in out.splitlines()] == ["m3"]
+    assert [json.loads(line)["id"] for line in out.splitlines()] == ["m3"]
     assert "showing the newest 1" in err
 
     assert search("nonexistentword", "--format", "tsv") == 1

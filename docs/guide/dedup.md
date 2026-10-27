@@ -10,6 +10,10 @@ Trash, which Gmail empties after 30 days.
 This page walks through one run. The mail and addresses in it are invented.
 Every option is in the [reference](../reference/dedup.md).
 
+On an IMAP account the stages are the same, with a keyword or a review
+folder in place of the label; see
+[Backing up an IMAP account](imap.md#3-offload-and-remove-duplicates).
+
 | Stage | Command | What changes |
 | --- | --- | --- |
 | 1. Back up, index | `backup`, `dedup index` | the backup grows; mailcellar's own index |

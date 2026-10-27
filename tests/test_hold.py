@@ -204,7 +204,10 @@ def test_show_says_which_held_mail_only_the_backup_has(backup, capsys):
     con.close()
     capsys.readouterr()
     hold("show", "landlord-2026")
-    assert "1 of them Gmail no longer has, as far as the backup knows" in capsys.readouterr().out
+    assert (
+        "1 of them no longer in their mailbox, as far as the backup knows"
+        in capsys.readouterr().out
+    )
 
 
 def test_offload_and_dedup_apply_leave_held_mail_in_gmail(backup):

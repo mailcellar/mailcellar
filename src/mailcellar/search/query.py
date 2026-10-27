@@ -169,7 +169,7 @@ def render_json(hit: Hit, folder: Path | None, offload: Offload | None) -> str:
             "sender": hit.sender,
             "subject": hit.subject,
             "account": hit.account,
-            "gmail_id": hit.gmail_id,
+            "id": hit.gmail_id,  # the backup's ID: Gmail's, or an IMAP account's
             "path": str(_path(hit, folder)),
             "offloaded": {"rule": offload.rule, "batch": offload.batch} if offload else None,
         },
