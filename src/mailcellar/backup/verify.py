@@ -17,7 +17,9 @@ every file and the anchor in the config folder. With
 --offloaded it also checks that every message recorded as offloaded is in the
 index. A message whose meta.sqlite row is missing or from an older parser has
 nothing to compare with: it is counted as unchecked, and `mailcellar meta`
-fills it in.
+fills it in. A message with no visible text or attachments has an empty
+content hash by design (message.content_hash), so it is counted apart, as
+empty: still parsed, and still empty, but its bytes are --chain's to check.
 
 The decisions are pure functions (judge, select, disagreements) over frozen
 values; reading the files and databases is a thin layer around them.
@@ -41,7 +43,7 @@ from mailcellar.report.db import AnalyticsError
 logger = logging.getLogger(__name__)
 
 
-OK, UNCHECKED = "ok", "unchecked"
+OK, UNCHECKED, EMPTY = "ok", "unchecked", "empty"
 MISSING = "file missing"
 UNREADABLE = "file does not parse"
 MISMATCH = "content hash differs from meta.sqlite"
@@ -93,6 +95,7 @@ class Report:
     unchecked: int  # no current meta.sqlite row to compare with
     findings: tuple[Finding, ...]
     note: str = ""  # why every message is unchecked, when meta.sqlite can't be used
+    empty: int = 0  # no text or attachments: parsed, nothing to compare
 
     @property
     def ok(self) -> bool:
@@ -101,14 +104,17 @@ class Report:
 
 def judge(read: Read, stored: Stored | None) -> str:
     """
-    OK, UNCHECKED or a problem. The hash is compared only with a row the
-    current parser wrote: after a parser change the stored hash is of
-    another computation, and `mailcellar meta` brings it up to date.
+    OK, UNCHECKED, EMPTY or a problem. The hash is compared only with a row
+    the current parser wrote: after a parser change the stored hash is of
+    another computation, and `mailcellar meta` brings it up to date. EMPTY:
+    the message had, and still has, no text or attachments to hash.
     """
     if read.problem:
         return read.problem
-    if stored is None or stored.parser_version != PARSER_VERSION or not stored.content_hash:
+    if stored is None or stored.parser_version != PARSER_VERSION:
         return UNCHECKED
+    if not stored.content_hash and not read.content_hash:
+        return EMPTY
     return OK if read.content_hash == stored.content_hash else MISMATCH
 
 
@@ -221,7 +227,7 @@ def verify_backup(
     full = not only_offloaded and sample is None
     findings = disagreements({e.gmail_id for e in entries}, set(stored) if full else set(), scope)
 
-    checked = unchecked = 0
+    checked = unchecked = empty = 0
     with Progress(f"{account}: checking", len(chosen)) as checking:
         for entry in chosen:
             read = read_eml(folder / entry.path)
@@ -230,19 +236,29 @@ def verify_backup(
                 checked += 1
             elif verdict == UNCHECKED:
                 unchecked += 1
+            elif verdict == EMPTY:
+                empty += 1
             else:
                 findings.append(Finding(entry.gmail_id, verdict, read.detail or entry.path))
             checking.advance()
-    return Report(account, len(entries), checked, unchecked, tuple(findings), note)
+    return Report(account, len(entries), checked, unchecked, tuple(findings), note, empty)
 
 
 # ── command ──────────────────────────────────────────────────────────────────
 
 
-def show(report: Report, top: int, only_offloaded: bool) -> None:
+def show(report: Report, top: int, only_offloaded: bool, chain_checked: bool = False) -> None:
     what = "offloaded messages" if only_offloaded else "messages"
+    empty = ""
+    if report.empty:
+        empty = f", {report.empty:,} with no text or attachments to compare" + (
+            " (their bytes are in the hash chain check)"
+            if chain_checked
+            else " (--chain checks their bytes)"
+        )
     print(
         f"{report.account}: {report.checked:,} {what} verified"
+        + empty
         + (f", {report.unchecked:,} unchecked" if report.unchecked else "")
         + (f", {len(report.findings):,} problems" if report.findings else ", no problems")
     )
@@ -336,7 +352,7 @@ def main(argv=None, prog: str | None = None) -> int:
             logger.error(f"{folder.name}: {exc}")
             status = 1
             continue
-        show(report, args.top, args.offloaded)
+        show(report, args.top, args.offloaded, chain_checked=args.chain)
         if not report.ok:
             status = 1
         if args.chain:

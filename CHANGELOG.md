@@ -13,6 +13,11 @@ in beta, so commands and options may still change before 1.0.
 - `auth --scope readonly` makes a read-only token when the account has a
   stored modify token, where it reported "OK (via gmail.modify)" and made
   none, so backups kept running with modify access.
+- `verify` counts messages with no text or attachments to hash (a body of
+  only links, images or nothing) apart, as having nothing to compare,
+  instead of as unchecked with advice to run `mailcellar meta`, which
+  changed nothing; one recorded empty that has text now is reported as
+  changed.
 
 ## 0.13.0 (2026-10-27)
 
