@@ -70,11 +70,11 @@ class Gmail(FakeGmail):
     def find_message_id(self, message_id):
         return [g for g, m in self.messages.items() if mid(m["raw"]) == message_id]
 
-    def list_message_ids(self, query=None, include_spam_trash=False):
+    def list_message_ids(self, query=None, include_spam_trash=False, label_id=None):
         self.listings = getattr(self, "listings", []) + [query]
         if query == "in:trash":
             return [g for g in self.messages if g in self.trashed]
-        return super().list_message_ids(query, include_spam_trash)
+        return super().list_message_ids(query, include_spam_trash, label_id)
 
     def find_message_ids(self, message_ids):
         self.calls.append(("search", len(message_ids)))

@@ -67,9 +67,15 @@ class FakeGmail:
         touched = deleted | {g for g in now if before.get(g) != now[g]}
         return touched, deleted, self._snapshot()
 
-    def list_message_ids(self, query=None, include_spam_trash=False):
-        self.list_calls = getattr(self, "list_calls", 0) + 1
-        return [g for g in self.messages if include_spam_trash or g not in self.trashed]
+    def list_message_ids(self, query=None, include_spam_trash=False, label_id=None):
+        if label_id is None:
+            self.list_calls = getattr(self, "list_calls", 0) + 1
+        return [
+            g
+            for g, m in self.messages.items()
+            if (include_spam_trash or g not in self.trashed)
+            and (label_id is None or label_id in m["labelIds"])
+        ]
 
     def label_names(self, label_ids):
         return [self.LABELS[i] for i in label_ids if i in self.LABELS]
@@ -296,6 +302,19 @@ def test_backup_skips_chats(tmp_path):
     stats = commands.backup(gmail, ACCOUNT, tmp_path)
     assert (stats["downloaded"], stats["chats"]) == (1, 1)
     assert rows(tmp_path)["uids"] == ["g1"]
+
+
+def test_a_full_listing_never_downloads_chats(tmp_path):
+    gmail = FakeGmail({"c1": raw_response("c1", label_ids=["CHAT"]), "g1": raw_response("g1")})
+    commands.backup(gmail, ACCOUNT, tmp_path)
+    gmail.fetched.clear()
+    stats = commands.backup(
+        gmail, ACCOUNT, tmp_path, full=True
+    )  # every full run, not only the first
+    assert gmail.fetched == [] and (stats["downloaded"], stats["chats"]) == (0, 1)
+    gmail.messages["g2"] = raw_response("g2")
+    stats = commands.backup(gmail, ACCOUNT, tmp_path, refresh_labels=True)
+    assert gmail.fetched == ["g2"] and stats["chats"] == 1
 
 
 def test_backup_is_incremental_and_refetches_missing_files(tmp_path):

@@ -8,6 +8,9 @@ in beta, so commands and options may still change before 1.0.
 ## Unreleased
 
 ### Fixed
+- A full backup (`--full`, `--refresh-labels`, or a history too old to
+  use) no longer downloads every chat only to skip it: it lists the chats
+  by their label and leaves them out. Chats are still not backed up.
 - `export` writes Gmail's system labels by Takeout's English names
   (`Inbox`, `Important`, `Category Updates`) rather than their IDs
   (`INBOX`, `IMPORTANT`, `CATEGORY_UPDATES`), in the mbox's
