@@ -476,6 +476,14 @@ def test_the_review_line_says_when_a_rules_mail_is_forgotten(tmp_path):
     assert rule_text(rule).endswith("forgotten from the backup 7 years after its date")
 
 
+def test_retention_reports_say_when_the_rules_cant_be_read(env, caplog):
+    folder, _gmail = env
+    assert forget.policies() == {}  # no rules file: nothing to say
+    (data_root() / "offload" / "rules.toml").write_text('[[rule]]\nname = "x"\nlable = "a"\n')
+    assert forget.policies() == {} and forget.policies() == {}  # health asks once per backup
+    assert caplog.text.count("can't read the offload rules") == 1  # said once
+
+
 def test_an_interrupted_forget_changes_neither_database_and_a_rerun_completes(
     env, monkeypatch, capsys
 ):
