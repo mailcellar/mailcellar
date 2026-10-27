@@ -18,6 +18,12 @@ in beta, so commands and options may still change before 1.0.
   instead of as unchecked with advice to run `mailcellar meta`, which
   changed nothing; one recorded empty that has text now is reported as
   changed.
+- `restore` checks each backup copy's bytes against the SHA-256 its hash
+  chain recorded before uploading (for `--from-pruned`, the one the prune
+  recorded; for `--from-folder`, that folder's own chain), and skips one
+  that differs. It compared only the content hash, which leaves out
+  headers and links and is empty for a message of only links or images,
+  so such changes went through.
 
 ## 0.13.0 (2026-10-27)
 

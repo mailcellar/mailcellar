@@ -156,6 +156,23 @@ def replay(lines: list[str]) -> tuple[dict[str, str], list[Problem], list[tuple[
     return held, problems, heads
 
 
+def removals(lines: list[str]) -> dict[str, str]:
+    """
+    Gmail ID → the sha256 a prune or forget recorded as it moved the message
+    out of the backup (the latest, if more than one). Pure; lines that aren't
+    links are skipped (replay reports them).
+    """
+    out: dict[str, str] = {}
+    for line in lines:
+        try:
+            link = parse_line(line)
+        except ChainError:
+            continue
+        if link.op in ("prune", "forget"):
+            out.update((gid, sha) for gid, sha in link.removed if sha)
+    return out
+
+
 def compare(held: dict[str, str], actual: dict[str, str | None]) -> list[Problem]:
     """
     The backup (Gmail ID → sha256 of its file, None if the file is missing)
@@ -246,6 +263,11 @@ def index_paths(folder: Path) -> dict[str, str]:
 def held(folder: Path) -> dict[str, str]:
     """What the chain says the backup holds (Gmail ID → sha256); {} with no chain."""
     return replay(read_lines(folder))[0]
+
+
+def removed(folder: Path) -> dict[str, str]:
+    """What the chain recorded of the messages pruned or forgotten from the backup."""
+    return removals(read_lines(folder))
 
 
 def append(folder: Path, account: str, op: str, added=(), removed=()) -> Link | None:

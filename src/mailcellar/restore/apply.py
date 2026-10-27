@@ -39,6 +39,7 @@ apply() with no backup folder records and indexes nothing.
 import base64
 import csv
 import email.utils
+import hashlib
 import logging
 import sqlite3
 import time
@@ -115,6 +116,7 @@ class Candidate:
     offloaded: bool = True
     sender: str = ""  # the From address, lower case; "" if the sidecar has no row
     span: tuple[int, int] | None = None  # in an mbox file (path): where the message is
+    sha256: str = ""  # the .eml's SHA-256 as a hash chain recorded it; "" if none did
 
 
 def dated(raw: bytes, internal_date_ms: int) -> bytes | None:
@@ -283,6 +285,7 @@ def candidates(
             gid: (batch, rule)
             for gid, batch, rule in con.execute("SELECT gmail_id, batch, rule FROM offloaded")
         }
+        recorded = chain.held(folder)  # each file's SHA-256, where the backup has a chain
         stored = {
             gid: (internal_date, content_hash, version, sender)
             for gid, internal_date, content_hash, version, sender in con.execute(
@@ -314,6 +317,7 @@ def candidates(
             version or "",
             offloaded=gid in offload,
             sender=(sender or "").lower(),
+            sha256=recorded.get(gid, ""),
         )
 
     chosen = (
@@ -343,6 +347,18 @@ def forgotten_in(folder: Path, batches=(), rules=(), ids=()) -> int:
     )
 
 
+CHANGED_SINCE_RECORDED = "backup copy differs from what its hash chain recorded"
+
+
+def matches_chain(raw: bytes, c: Candidate) -> bool:
+    """
+    Whether the copy's bytes are those a hash chain recorded, when one did.
+    The content hash ignores headers and links, so this is the check that a
+    file wasn't altered or damaged since it was backed up. Pure.
+    """
+    return not c.sha256 or hashlib.sha256(raw).hexdigest() == c.sha256
+
+
 def check_backup(c: Candidate) -> tuple[str, Copy | None]:
     """(why the backup copy can't be used, or ""; what reading it found)."""
     if c.path is None:
@@ -356,6 +372,8 @@ def check_backup(c: Candidate) -> tuple[str, Copy | None]:
         fields = parse_message(raw)
     except Exception as exc:
         return f"backup copy doesn't parse: {exc}", None
+    if not matches_chain(raw, c):
+        return CHANGED_SINCE_RECORDED, None
     if fields["content_hash"] != c.content_hash:
         return "backup copy differs from the sidecar", None
     return "", Copy(len(raw), message_id_header(raw))
@@ -687,6 +705,9 @@ def _import_chunk(gmail, tcon, folder, chunk, record, emit, system, prefix, stri
     for d in chunk:
         raw = read_raw(d.candidate)
         fields = parse_message(raw)
+        if not matches_chain(raw, d.candidate):  # changed since plan()
+            results[d.source_id] = emit(Result(d, "skipped", CHANGED_SINCE_RECORDED))
+            continue
         if fields["content_hash"] != d.candidate.content_hash:  # changed since plan()
             results[d.source_id] = emit(
                 Result(d, "skipped", "backup copy differs from the sidecar")

@@ -369,8 +369,31 @@ def test_damaged_backup_copy_is_not_uploaded(env):
     (path,) = [bm.path for bm in gyb.iter_backup(env.folder) if bm.gmail_id == "g1"]
     path.write_bytes(path.read_bytes().replace(b"Hello there", b"Hello thera"))
     assert run("--id", "g1", "--yes") == 1
-    assert log()["g1"] == ("skipped", "backup copy differs from the sidecar")
+    assert log()["g1"] == ("skipped", restore.CHANGED_SINCE_RECORDED)
     assert env.imported == 0
+
+
+def test_a_header_or_link_changed_in_the_backup_copy_is_not_uploaded(env):
+    # The content hash ignores headers and links; the hash chain doesn't.
+    (path,) = [bm.path for bm in gyb.iter_backup(env.folder) if bm.gmail_id == "g1"]
+    path.write_bytes(path.read_bytes().replace(b"Subject: ", b"X-Added: 1\nSubject: ", 1))
+    assert restore.check_backup(the_candidate(env, "g1"))[0] == restore.CHANGED_SINCE_RECORDED
+    assert run("--id", "g1", "--yes") == 1
+    assert log()["g1"] == ("skipped", restore.CHANGED_SINCE_RECORDED)
+    assert env.imported == 0
+
+
+def test_without_a_chain_the_content_hash_is_the_check(env):
+    from mailcellar.backup import chain
+
+    chain.chain_path(env.folder).unlink()  # a backup from before the chain
+    (path,) = [bm.path for bm in gyb.iter_backup(env.folder) if bm.gmail_id == "g1"]
+    path.write_bytes(path.read_bytes().replace(b"Subject: ", b"X-Added: 1\nSubject: ", 1))
+    assert restore.check_backup(the_candidate(env, "g1"))[0] == ""  # headers aren't in it
+    path.write_bytes(path.read_bytes().replace(b"Hello there", b"Hello thera"))
+    assert (
+        restore.check_backup(the_candidate(env, "g1"))[0] == "backup copy differs from the sidecar"
+    )
 
 
 def test_limit_takes_the_oldest_first(env, monkeypatch):
@@ -545,12 +568,15 @@ def test_find_message_ids_searches_in_batches():
 
 
 def test_message_without_text_or_attachments_is_restorable(env):
+    from mailcellar.backup import chain
+
     con = sidecar.open_meta(env.folder)
     con.execute("UPDATE messages SET content_hash = '' WHERE gmail_id = 'g1'")
     con.commit()
     con.close()
     (path,) = [bm.path for bm in gyb.iter_backup(env.folder) if bm.gmail_id == "g1"]
     path.write_bytes(make_eml(msgid="<g1@x>", body=""))
+    chain.chain_path(env.folder).unlink()  # the file was rewritten: as if from before the chain
     run("--id", "g1")
     assert log()["g1"][0] == "would import"
 
@@ -796,9 +822,7 @@ def test_a_backup_copy_changed_after_the_dry_run_is_not_uploaded(env):
     eml = cands[0].path
     eml.write_bytes(eml.read_bytes().replace(b"Hello there", b"Changed since"))
     results = restore.apply(env, env.folder, decisions, "run", "restored/today")
-    assert [(r.outcome, r.detail) for r in results] == [
-        ("skipped", "backup copy differs from the sidecar")
-    ]
+    assert [(r.outcome, r.detail) for r in results] == [("skipped", restore.CHANGED_SINCE_RECORDED)]
     assert env.imported == 0 and restored_rows(env.folder) == {}
 
 
