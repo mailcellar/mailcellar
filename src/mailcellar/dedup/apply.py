@@ -230,7 +230,8 @@ def apply_plan(
     run, act on the ones that pass. Returns one Result per row, in order;
     the rows are not changed.
 
-    gmail_for(account, scope) -> object with message_labels / add_label / trash.
+    gmail_for(account, scope) -> a mailbox.Mailbox (message_labels, add_label and trash
+    are used).
     confirm(prompt) -> bool, asked once per account before trashing.
     local_check(row) -> "" or why to skip; run on rows that pass the Gmail checks.
     on_trashed(account, rows) is called with the rows trashed in each account.

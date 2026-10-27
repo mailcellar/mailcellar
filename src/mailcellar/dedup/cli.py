@@ -127,13 +127,9 @@ def cmd_apply(args) -> None:
     if problem:
         sys.exit(f"error: can't use {dedup_label!r} as the apply label: {problem}.")
 
-    from mailcellar import gmailapi
+    from mailcellar import gmailapi, mailbox
 
-    config_root = Path(args.config)
-
-    def gmail_for(account, scope):
-        folder = gmailapi.find_config_folder(config_root, account)
-        return gmailapi.GmailAccount(account, gmailapi.load_credentials(folder, account, scope))
+    gmail_for = mailbox.opener(Path(args.config))
 
     def confirm(prompt):
         if args.yes:

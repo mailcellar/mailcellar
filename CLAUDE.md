@@ -84,8 +84,10 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
   test can reach the real backups or tokens; keep it that way.
 - All code lives in `src/mailcellar/`. Each command's module exposes
   `main(argv, prog)` and the top-level `cli.py` dispatches to it (its
-  `_dedup`, `_search`, … functions list them). Add no top-level
-  modules or other entry points.
+  `_dedup`, `_search`, … functions list them). Add no other entry
+  points; a new top-level module is for code several commands share
+  (as `gmailapi.py`, `mailbox.py` and `message.py` are), never for a
+  command.
 - Docs: every option of a command goes in its page under `docs/reference/`
   (`tests/test_reference_docs.py` fails when `--help` lists one the page
   doesn't name); a new guide goes in `docs/guide/`, `mkdocs.yml`'s `nav` and

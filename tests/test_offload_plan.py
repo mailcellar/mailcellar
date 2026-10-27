@@ -328,7 +328,11 @@ def test_search_gmail_signs_in_read_only_and_stops_on_a_failed_search(tmp_path, 
     scopes = []
     monkeypatch.setattr(gmailapi, "find_config_folder", lambda config, account: config)
     monkeypatch.setattr(
-        gmailapi, "load_credentials", lambda folder, account, scope: scopes.append(scope)
+        gmailapi,
+        "load_credentials",
+        lambda folder, account, scope, interactive=True: (
+            scopes.append(scope) if interactive else pytest.fail("signed in non-interactively")
+        ),
     )
 
     class Searching:

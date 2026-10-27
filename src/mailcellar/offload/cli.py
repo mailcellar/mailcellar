@@ -81,10 +81,9 @@ def write_plan(rows: list[dict], path: Path) -> None:
 
 def search_gmail(account: str, config: Path, queries: list[str]) -> dict[str, list[str]]:
     """Gmail's own search, read-only: each query's message IDs (Spam and Trash left out)."""
-    from mailcellar import gmailapi
+    from mailcellar import gmailapi, mailbox
 
-    folder = gmailapi.find_config_folder(config, account)
-    gmail = gmailapi.GmailAccount(account, gmailapi.load_credentials(folder, account, "readonly"))
+    gmail = mailbox.opener(config)(account, "readonly")
     found = {}
     for q in queries:
         logger.info(f"{account}: searching Gmail for {q!r}")
@@ -203,13 +202,9 @@ def cmd_apply(args) -> None:
         for line in second_copy_report(data_root(), last_backup_ms(folders, accounts)):
             print(f"  {line}")
 
-    from mailcellar import gmailapi
+    from mailcellar import gmailapi, mailbox
 
-    config_root = Path(args.config)
-
-    def gmail_for(account, scope):
-        folder = gmailapi.find_config_folder(config_root, account)
-        return gmailapi.GmailAccount(account, gmailapi.load_credentials(folder, account, scope))
+    gmail_for = mailbox.opener(Path(args.config))
 
     def confirm(prompt):
         if args.yes:
@@ -257,11 +252,10 @@ def confirm_count(n: int, what: str) -> bool:
 
 def gmail_state(account: str, config: Path, ids: list[str]):
     """Gmail's labels for each ID (None: gone), and the lookups that failed. Read-only."""
-    from mailcellar import gmailapi
+    from mailcellar import mailbox
     from mailcellar.progress import Progress
 
-    folder = gmailapi.find_config_folder(config, account)
-    gmail = gmailapi.GmailAccount(account, gmailapi.load_credentials(folder, account, "readonly"))
+    gmail = mailbox.opener(config)(account, "readonly")
     failures: list[str] = []
     with Progress(f"{account}: asking Gmail", len(ids)):
         live = gmail.message_labels(ids, failures)

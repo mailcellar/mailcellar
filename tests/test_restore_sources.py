@@ -204,7 +204,13 @@ def env(tmp_path, monkeypatch):
         "resolve_account",
         lambda root, name: (B, Path("cfg-b")) if name in ("b", B) else (A, Path("cfg")),
     )
-    monkeypatch.setattr(gmailapi, "load_credentials", lambda f, account, scope: scope)
+    monkeypatch.setattr(
+        gmailapi,
+        "load_credentials",
+        lambda f, account, scope, interactive=True: (
+            scope if interactive else pytest.fail("signed in non-interactively")
+        ),
+    )
     monkeypatch.setattr(gmailapi, "GmailAccount", lambda name, scope: gmails[name])
     gmail.folder, gmail.other = folder, gmails[B]
     return gmail
