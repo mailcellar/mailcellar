@@ -73,8 +73,10 @@ again for the same account is harmless.
 
 A Workspace address can be read through a service account instead
 (`--service-account KEY`): the key is installed once for the domain, at
-`<config>/service-accounts/<domain>.json`, owner-only, and backups need no
-sign-in. Read-only only; see
+`<config>/service-accounts/<domain>.json`, owner-only, and the address is
+marked to read through it (`<config>/<name>/service-account`), so its
+backups need no sign-in; other addresses in the domain keep their own.
+Read-only only; see
 [Workspace: backing up through a service account](../guide/workspace-service-account.md).
 
 | Option | What it does |

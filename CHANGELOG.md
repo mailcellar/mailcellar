@@ -11,7 +11,9 @@ in beta, so commands and options may still change before 1.0.
 - Workspace accounts can be backed up through a service account with
   domain-wide delegation, so backups run unattended with no sign-in and
   no token to renew: `mailcellar setup ADDRESS --service-account KEY`
-  installs the key once for the domain, owner-only, and checks it.
+  installs the key once for the domain, owner-only, marks that address
+  to read through it (others in the domain keep their own sign-in), and
+  checks it.
   Read-only, and only that: anything that changes Gmail still needs the
   user's own sign-in. `config` and `schedule status` show it, and a
   scheduled backup the key is refused for is recorded as a failed run

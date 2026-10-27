@@ -71,11 +71,13 @@ mailcellar setup alex@example.org --service-account ~/Downloads/project-1a2b3c.j
 
 `setup` checks the file is a service-account key, installs it once for the
 domain at `<config>/service-accounts/example.org.json`, readable only by
-you, lists the address in `accounts.toml`, and reads the mailbox once to
-check the delegation works. Then delete the downloaded copy of the key.
+you, lists the address in `accounts.toml`, marks that address to read
+through the key, and reads the mailbox once to check the delegation works.
+Then delete the downloaded copy of the key.
 
-Each further address in the domain is one more `setup`, which uses the key
-already installed:
+Only addresses set up this way read through the key: another address in
+the domain that you set up with its own sign-in keeps it. Each further
+address is one more `setup`, which uses the key already installed:
 
 ```bash
 mailcellar setup sam@example.org --service-account ~/.config/mailcellar/service-accounts/example.org.json
@@ -89,6 +91,11 @@ and `schedule status` says they have no token to renew.
 To let someone offload or restore their own mail as well, give their
 account an OAuth client too (`setup ADDRESS --client FILE`): those
 commands then ask them to sign in, as for any account.
+
+To take an address off the service account, delete its marker,
+`<config>/<name>/service-account`: it then signs in for itself again
+(`mailcellar auth NAME --scope readonly`). If Google refuses the key,
+backups fail and say so; they don't fall back to a person's own token.
 
 ## Looking after the key
 
