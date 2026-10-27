@@ -20,8 +20,11 @@ Mail that has been restored is included, once.
 
 - **`.mbox`** holds one message after another, each preceded by an
   `X-Gmail-Labels` header with its labels (comma-separated, as Google Takeout
-  writes it), in the usual mboxrd form: a line starting with `From ` is
-  written with a `>` before it. Messages are otherwise as stored.
+  writes it): yours first, then Gmail's system labels by Takeout's English
+  names (`Inbox`, `Important`, `Category Updates`), so a reader that keeps
+  one label as the folder keeps yours. The usual mboxrd form: a line
+  starting with `From ` is written with a `>` before it. Messages are
+  otherwise as stored. `index.csv` names labels the same way.
 - **`.zip`** holds the `.eml` files under their paths in the backup
   (`<year>/<month>/<day>/<id>.eml`) and `index.csv` with each message's date
   (UTC), sender, subject, labels, Gmail ID and file. A cell that begins with

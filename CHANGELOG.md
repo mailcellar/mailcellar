@@ -5,6 +5,17 @@ What changed for users in each release. Releases and their dates are on the
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). mailcellar is
 in beta, so commands and options may still change before 1.0.
 
+## Unreleased
+
+### Fixed
+- `export` writes Gmail's system labels by Takeout's English names
+  (`Inbox`, `Important`, `Category Updates`) rather than their IDs
+  (`INBOX`, `IMPORTANT`, `CATEGORY_UPDATES`), in the mbox's
+  `X-Gmail-Labels` header and in `index.csv`, and puts your own labels
+  first. Readers of Takeout's mbox didn't know the IDs: Bichon filed
+  every message under a system label and dropped the user labels.
+  `restore --from-mbox` reads both forms, so older exports still restore.
+
 ## 0.15.0 (2026-10-27)
 
 **Upgrading from 0.14.0:** nothing to do: no database's schema changes.

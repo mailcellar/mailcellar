@@ -103,6 +103,38 @@ def test_labels_header_lists_the_labels_like_takeout():
     assert export.labels_header(("work", "INBOX"), b"\r\n") == b"X-Gmail-Labels: work,INBOX\r\n"
 
 
+def test_system_labels_go_by_takeouts_names_after_the_users_own():
+    labels = (
+        "INBOX",
+        "YELLOW_STAR",
+        "IMPORTANT",
+        "CATEGORY_UPDATES",
+        "shopping",
+        "DRAFT",
+        "W/2024",
+    )
+    assert export.takeout_names(labels) == (
+        "shopping",
+        "W/2024",
+        "Inbox",
+        "YELLOW_STAR",  # a superstar: a system label, after the user's
+        "Important",
+        "Category Updates",
+        "Drafts",
+    )
+    assert export.takeout_names(("CATEGORY_x1",)) == ("CATEGORY_x1",)  # not a category ID
+
+
+def test_restore_reads_takeouts_names_back_as_the_label_ids():
+    from mailcellar.restore import mbox
+
+    labels = ("INBOX", "SENT", "STARRED", "IMPORTANT", "UNREAD", "DRAFT", "CHAT", "work")
+    labels += tuple(
+        f"CATEGORY_{c}" for c in ("PERSONAL", "SOCIAL", "PROMOTIONS", "UPDATES", "FORUMS")
+    )
+    assert set(mbox.label_names(export.takeout_names(labels))) == set(labels)
+
+
 def test_labels_header_cannot_be_broken_by_a_label_name():
     header = export.labels_header(("a\r\nBcc: x@example.com", "b\x00c"), b"\n")
     assert header == b"X-Gmail-Labels: a  Bcc: x@example.com,b c\n"  # one line, still one header
@@ -160,7 +192,7 @@ def test_an_index_row_has_the_date_sender_subject_labels_id_and_file():
         "date": "2023-11-15T00:00:00+00:00",
         "sender": "Alice <a@x.com>",
         "subject": "'=HYPERLINK(1)",
-        "labels": "work;INBOX",
+        "labels": "work;Inbox",
         "gmail_id": "m1",
         "file": "2023/11/15/m1.eml",
     }
@@ -236,11 +268,11 @@ def test_an_mbox_export_can_be_read_back_by_a_mail_reader(backup, tmp_path, caps
         "Fifth",
     ]
     assert [labels for _subject, labels, _body in got] == [
-        "INBOX,work",
+        "work,Inbox",
         "work",
-        "INBOX",
+        "Inbox",
         "work",
-        "INBOX",
+        "Inbox",
     ]
     assert "Exported 5 messages" in capsys.readouterr().out
     assert not Path(str(dest) + ".part").exists()
@@ -277,7 +309,7 @@ def test_a_zip_export_holds_the_eml_files_and_an_index(backup, tmp_path):
     assert (first["sender"], first["subject"], first["labels"]) == (
         "Alice <alice@example.com>",
         "Hello",
-        "INBOX;work",
+        "work;Inbox",
     )
     assert first["date"] == "2023-11-15T00:00:00+00:00"
     assert first["file"] in names
