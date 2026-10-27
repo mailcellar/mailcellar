@@ -23,8 +23,8 @@ the server could take part in offloading later. Only then does it write
 anything (the account is named `alex`, from the address; `--name`
 chooses another):
 
-- `<config>/<name>/imap.toml`: the server (`host`, and `port`, `username`
-  or `cafile` if you gave them);
+- `<config>/<name>/imap.toml`: the server (`host`, and `port`, `username`,
+  `cafile` or `review` if you gave them);
 - `<config>/<name>/imap-password`: the password, readable only by you;
 - the address in `accounts.toml`.
 
@@ -35,6 +35,7 @@ If the login is refused, nothing is written. Options:
 | `--port PORT` | The server doesn't use 993 (IMAP over TLS) |
 | `--username NAME` | You log in with something other than the address |
 | `--cafile FILE` | Your own server has a certificate from a private CA |
+| `--review folder` | For offload and dedup, once they come to IMAP: your mail client doesn't show keywords, so mark mail for review by moving it to a `mailcellar/review/` folder instead |
 | `--name NAME` | You want another config name than the one from the address |
 | `--no-auth` | Write the account without signing in now |
 

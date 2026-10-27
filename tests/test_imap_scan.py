@@ -348,6 +348,60 @@ def test_names_stand_in_for_the_roles_a_server_marks_no_folder_for():
     assert imap.marked_roles(entries) == {"SENT", "TRASH"}
 
 
+def test_mailcellars_labels_travel_as_keywords_and_back():
+    assert imap.keyword_for("offload-candidate") == "$mailcellar-offload-candidate"
+    assert imap.keyword_for("restored/2026-10-27") == "$mailcellar-restored.2026-10-27"
+    assert imap.label_from_keyword("$mailcellar-restored.2026-10-27") == "restored/2026-10-27"
+    assert imap.label_from_keyword("$MailCellar-Dedup-Redundant") == "dedup-redundant"  # any case
+    with pytest.raises(gmailapi.GmailError, match="can't be marked on an IMAP server"):
+        imap.keyword_for("Dedup/Check")  # capitals: a keyword can't carry it back
+    assert (
+        imap.label_from_keyword("$Forwarded") is None and imap.label_from_keyword("\\Seen") is None
+    )
+    assert imap.label_from_keyword("$mailcellar-restored/2026") is None  # not a form we write
+    assert imap.flag_labels({"$mailcellar-offload-candidate", "$Forwarded"}) == {
+        "UNREAD",
+        "offload-candidate",
+    }
+
+
+def test_a_review_folder_stands_for_its_label():
+    review = "mailcellar/review/offload-candidate"
+    assert imap.folder_label(review, "/", set()) == "offload-candidate"
+    assert imap.folder_label("mailcellar.review.offload-candidate", ".", set()) == (
+        "offload-candidate"
+    )
+    assert imap.folder_label("mailcellar/notes", "/", set()) == "mailcellar/notes"  # the user's
+
+
+def test_the_scan_reads_review_marks_as_labels(server):
+    server.add("INBOX", msgid="<k@x>", flags={"\\Seen", "$mailcellar-offload-candidate"})
+    server.add_folder("mailcellar/review/dedup-redundant")
+    server.add("mailcellar/review/dedup-redundant", msgid="<f@x>", flags={"\\Seen"})
+    box = account(server)
+    labels = box.message_labels(box.list_message_ids())
+    assert sorted(map(sorted, labels.values())) == [
+        ["INBOX", "offload-candidate"],
+        ["dedup-redundant"],
+    ]
+    names = {entry["name"] for entry in box.label_catalogue()}
+    assert {"offload-candidate", "dedup-redundant"} <= names
+
+
+def test_a_users_folder_named_like_a_mark_gives_the_label_not_the_mark(server):
+    server.add_folder("offload-candidate")  # the user's own
+    server.add("offload-candidate", msgid="<u@x>", flags={"\\Seen"})
+    server.add("INBOX", msgid="<k@x>", flags={"\\Seen", "$mailcellar-offload-candidate"})
+    server.add_folder("mailcellar/review/offload-candidate")
+    server.add("mailcellar/review/offload-candidate", msgid="<f@x>", flags={"\\Seen"})
+    scan = account(server)._scan()[1]
+    by_folder = {m.where[0]: m for m in scan.messages.values()}
+    assert by_folder["offload-candidate"].labels == {"offload-candidate"}
+    assert by_folder["offload-candidate"].marks == frozenset()  # never the mark
+    assert by_folder["INBOX"].marks == {"offload-candidate"}
+    assert by_folder["mailcellar/review/offload-candidate"].marks == {"offload-candidate"}
+
+
 def test_listing_passes_and_when_they_stop():
     first = frozenset(range(1001, 2001))
     assert imap.next_search(frozenset(), first, 2500) == ("UID", "1:1000")

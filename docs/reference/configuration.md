@@ -83,7 +83,9 @@ An account on another provider's IMAP server (`--imap HOST`) is backed up
 only: setup asks for its password, signs in, and says what the server
 allows, then writes `<config>/<name>/imap.toml` (the server) and
 `<config>/<name>/imap-password`, owner-only. Nothing on the server
-changes; offload, dedup and restore don't apply to it yet.
+changes; offload, dedup and restore don't apply to it yet. Setting an
+account up again (for a new password, say) keeps the port, username, CA
+file and review mode its `imap.toml` holds, unless an option changes them.
 
 | Option | What it does |
 | --- | --- |
@@ -94,6 +96,7 @@ changes; offload, dedup and restore don't apply to it yet.
 | `--port PORT` | With `--imap`: the server's port (default 993) |
 | `--username NAME` | With `--imap`: the login name (default: the address) |
 | `--cafile FILE` | With `--imap`: a CA certificate to trust besides the system's, for a private server |
+| `--review MODE` | With `--imap`: how offload and dedup will mark mail for review, `keyword` (default) or `folder` (a `mailcellar/review/` folder) |
 | `--name NAME` | Config name for the account (default: from the address) |
 | `--no-auth` | Don't sign in now |
 | `--force` | Replace the account's client, the domain's service-account key, or an IMAP account's `imap.toml`, if it holds another |

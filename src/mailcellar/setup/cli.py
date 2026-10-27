@@ -238,7 +238,31 @@ def imap_toml(settings: gmailapi.ImapSettings, address: str) -> str:
         lines.append(f"username = {toml_string(settings.username)}")
     if settings.cafile is not None:
         lines.append(f"cafile = {toml_string(str(settings.cafile))}")
+    if settings.review != gmailapi.DEFAULT_REVIEW:
+        lines.append(f"review = {toml_string(settings.review)}")
     return "\n".join(lines) + "\n"
+
+
+IMAP_KEPT = ("port", "username", "cafile", "review")  # what setting up again keeps
+
+
+def kept_settings(folder: Path, address: str) -> dict:
+    """
+    The settings an account's imap.toml holds that setting up again keeps unless
+    given (port, username, cafile, review); none from a file that is missing or
+    doesn't pass imap_settings' checks, which setting up again then replaces.
+    """
+    try:
+        current = gmailapi.imap_settings(folder, address)
+    except gmailapi.GmailError, OSError:
+        return {}
+    if current is None:
+        return {}
+    cafile = str(current.cafile) if current.cafile is not None else None
+    values = dict(
+        zip(IMAP_KEPT, (current.port, current.username, cafile, current.review), strict=True)
+    )
+    return {k: v for k, v in values.items() if v is not None}
 
 
 def gmail_files(folder: Path) -> list[str]:
@@ -342,7 +366,7 @@ def run(args) -> int:
 
     if args.imap is not None:
         return run_imap(args, config, text, entries)
-    stray = [o for o in ("port", "username", "cafile") if getattr(args, o) is not None]
+    stray = [o for o in IMAP_KEPT if getattr(args, o) is not None]
     if stray:
         raise SetupError(f"{', '.join('--' + o for o in stray)}: only with --imap")
     if args.service_account is not None:
@@ -454,10 +478,15 @@ def run_imap(args, config: Path, text: str, entries) -> int:
         )
     # Absolute: a scheduled backup runs from another folder.
     cafile = str(Path(args.cafile).expanduser().resolve()) if args.cafile else None
-    given = {"host": args.imap, "port": args.port, "username": args.username, "cafile": cafile}
+    options = {"port": args.port, "username": args.username, "cafile": cafile}
+    given = {k: v for k, v in (options | {"review": args.review}).items() if v is not None}
+    # What imap.toml already holds stays unless an option changes it: setting up again
+    # for a new password shouldn't drop the port, login name, CA file or review mode.
     try:
         settings = gmailapi.settings_from(
-            {k: v for k, v in given.items() if v is not None}, address, "--imap"
+            kept_settings(folder, address) | given | {"host": args.imap},
+            address,
+            "--imap",
         )
     except gmailapi.GmailError as exc:
         raise SetupError(str(exc)) from None
@@ -529,6 +558,12 @@ def main(argv=None, prog: str | None = None) -> int:
         "--cafile",
         metavar="FILE",
         help="With --imap: a CA certificate to trust besides the system's (a private server)",
+    )
+    p.add_argument(
+        "--review",
+        choices=gmailapi.REVIEW_MODES,
+        help="With --imap: how offload and dedup mark mail for review, a keyword (the "
+        "default) or a mailcellar/review/ folder",
     )
     p.add_argument("--name", help="Config name for the account (default: from the address)")
     p.add_argument("--no-auth", action="store_true", help="Don't sign in now")

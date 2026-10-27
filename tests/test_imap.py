@@ -53,6 +53,7 @@ def test_imap_settings_default_to_port_993_and_the_address(imap_account):
         ('host = "imap.example.org"\nusername = ""\n', "is not a user name"),
         ("host = \n", "imap.toml"),
         ('host = "imap.example.org"\ncafile = "/no/such/ca.pem"\n', "is not a file"),
+        ('host = "imap.example.org"\nreview = "label"\n', "is not one of keyword, folder"),
     ],
 )
 def test_unusable_imap_settings_say_what_is_wrong(imap_account, text, problem):
@@ -60,6 +61,13 @@ def test_unusable_imap_settings_say_what_is_wrong(imap_account, text, problem):
     (folder / gmailapi.IMAP_SETTINGS).write_text(text)
     with pytest.raises(gmailapi.GmailError, match=problem):
         gmailapi.imap_settings(folder, ADDRESS)
+
+
+def test_the_review_mode_defaults_to_keyword(imap_account):
+    _root, folder = imap_account
+    assert gmailapi.imap_settings(folder, ADDRESS).review == "keyword"
+    (folder / gmailapi.IMAP_SETTINGS).write_text('host = "imap.example.org"\nreview = "folder"\n')
+    assert gmailapi.imap_settings(folder, ADDRESS).review == "folder"
 
 
 def test_an_imap_account_needs_no_oauth_client(imap_account):
