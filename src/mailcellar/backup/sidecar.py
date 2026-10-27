@@ -36,7 +36,7 @@ from mailcellar.message import PARSER_VERSION
 logger = logging.getLogger(__name__)
 
 META_NAME = "meta.sqlite"
-SCHEMA_VERSION = "11"
+SCHEMA_VERSION = "12"
 
 
 def _add_run_column(name: str):
@@ -119,6 +119,7 @@ MIGRATIONS = {
     "8": [_add_restored_target],
     "9": [],  # v10 adds the forgotten table (created by _SCHEMA)
     "10": [],  # v11 adds the holds table (created by _SCHEMA)
+    "11": [],  # v12 adds the imap_map table (created by _SCHEMA)
 }
 
 FIELDS = (
@@ -271,6 +272,18 @@ CREATE TABLE IF NOT EXISTS restored (
     run         TEXT NOT NULL,            -- the restore run
     PRIMARY KEY (source_id, target)
 );
+
+-- An IMAP account's backup only: where each backed-up message is on the
+-- server, so an unchanged folder is listed without fetching anything.
+-- A folder's rows are replaced whenever its UIDVALIDITY changes.
+CREATE TABLE IF NOT EXISTS imap_map (
+    folder      TEXT NOT NULL,            -- the server's folder name, as LIST gives it
+    uidvalidity INTEGER NOT NULL,
+    uid         INTEGER NOT NULL,
+    msg_id      TEXT NOT NULL,            -- the message's ID in this backup
+    PRIMARY KEY (folder, uidvalidity, uid)
+);
+CREATE INDEX IF NOT EXISTS imap_map_msg_id ON imap_map (msg_id);
 """
 
 RUN_COUNTS = (
@@ -549,6 +562,42 @@ def record_run(
         ),
     )
     con.commit()
+
+
+def imap_folder_map(con: sqlite3.Connection, folder: str, uidvalidity: int) -> dict[int, str]:
+    """An IMAP folder's UID → message ID, for the UIDVALIDITY given."""
+    rows = con.execute(
+        "SELECT uid, msg_id FROM imap_map WHERE folder = ? AND uidvalidity = ?",
+        (folder, uidvalidity),
+    )
+    return dict(rows)
+
+
+def imap_ids_by_folder(con: sqlite3.Connection) -> dict[str, frozenset[str]]:
+    """Each mapped IMAP folder's message IDs."""
+    out: dict[str, set[str]] = {}
+    for folder, msg_id in con.execute("SELECT folder, msg_id FROM imap_map"):
+        out.setdefault(folder, set()).add(msg_id)
+    return {folder: frozenset(ids) for folder, ids in out.items()}
+
+
+def replace_imap_folder(
+    con: sqlite3.Connection, folder: str, uidvalidity: int, uids: dict[int, str]
+) -> None:
+    """Make `uids` (UID → message ID) the folder's whole map. No commit."""
+    con.execute("DELETE FROM imap_map WHERE folder = ?", (folder,))
+    con.executemany(
+        "INSERT INTO imap_map VALUES (?, ?, ?, ?)",
+        ((folder, uidvalidity, uid, msg_id) for uid, msg_id in uids.items()),
+    )
+
+
+def drop_imap_folders(con: sqlite3.Connection, keep) -> None:
+    """Forget the map of every folder not in `keep` (gone from the server). No commit."""
+    keep = set(keep)
+    for (folder,) in con.execute("SELECT DISTINCT folder FROM imap_map").fetchall():
+        if folder not in keep:
+            con.execute("DELETE FROM imap_map WHERE folder = ?", (folder,))
 
 
 def get_state(con: sqlite3.Connection, name: str) -> str | None:
