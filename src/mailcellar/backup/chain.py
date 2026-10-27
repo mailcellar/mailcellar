@@ -27,6 +27,7 @@ next_link(), replay(), compare() and check_anchor() decide from plain
 values; the rest reads and writes.
 """
 
+import fcntl
 import hashlib
 import json
 import os
@@ -289,28 +290,38 @@ def append(
     """
     Append a link and update the anchor. Nothing to record (no messages, and
     not an event: genesis, hold, release) appends nothing. The line is on
-    disk before this returns.
+    disk before this returns. The chain file is locked while the last link
+    is read, the next written and the anchor updated, so two commands
+    running at once (the scheduled backup and one typed by hand) can't both
+    link to the same previous link. A genesis, if the chain has begun
+    meanwhile, appends nothing.
     """
     added, removed = tuple(added), tuple(removed)
     if not added and not removed and op not in EVENTS:
         return None
-    lines = read_lines(folder)
-    last = None
-    if lines:
-        try:
-            last = (parse_line(lines[-1]).seq, hash_line(lines[-1]))
-        except ChainError:
-            last = (len(lines), hash_line(lines[-1]))  # verify reports the bad line
-    time = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    link = next_link(last, op, added, removed, time, note)
-    line = line_of(link)
     with chain_path(folder).open("a", encoding="utf-8") as fh:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX)  # released when the file closes
+        except OSError:
+            pass  # a filesystem without locks (some network shares): append as before
+        lines = read_lines(folder)
+        if lines and op == "genesis":
+            return None
+        last = None
+        if lines:
+            try:
+                last = (parse_line(lines[-1]).seq, hash_line(lines[-1]))
+            except ChainError:
+                last = (len(lines), hash_line(lines[-1]))  # verify reports the bad line
+        time = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        link = next_link(last, op, added, removed, time, note)
+        line = line_of(link)
         fh.write(line + "\n")
         fh.flush()
         os.fsync(fh.fileno())
-    anchor = anchor_path(account)
-    anchor.parent.mkdir(parents=True, exist_ok=True)
-    write_private(anchor, json.dumps({"seq": link.seq, "hash": hash_line(line)}).encode())
+        anchor = anchor_path(account)
+        anchor.parent.mkdir(parents=True, exist_ok=True)
+        write_private(anchor, json.dumps({"seq": link.seq, "hash": hash_line(line)}).encode())
     return link
 
 
@@ -330,7 +341,7 @@ def start(folder: Path, account: str) -> dict[str, str]:
                 pairs.append((gid, sha))
             hashing.advance()
     append(folder, account, "genesis", pairs)
-    return dict(pairs)
+    return held(folder)  # another command may have begun the chain meanwhile
 
 
 def removal(folder: Path, gmail_ids) -> list[Pair]:

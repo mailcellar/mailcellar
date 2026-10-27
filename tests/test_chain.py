@@ -280,3 +280,31 @@ def test_a_missing_backup_is_refused_only_with_an_anchor():
     assert commands.missing_backup(ACCOUNT, anchor.parent, False, None) == ""  # a first backup
     assert commands.missing_backup(ACCOUNT, anchor.parent, True, anchor) == ""  # it's there
     assert str(anchor) in commands.missing_backup(ACCOUNT, anchor.parent, False, anchor)
+
+
+def test_commands_appending_at_once_cannot_fork_the_chain(backed_up):
+    import threading
+
+    _gmail, folder = backed_up
+    before = len(chain.read_lines(folder))
+
+    def work(n):
+        for i in range(10):
+            chain.append(folder, ACCOUNT, "backup", [(f"t{n}-{i}", "aa")])
+
+    threads = [threading.Thread(target=work, args=(n,)) for n in range(8)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    lines = chain.read_lines(folder)
+    assert len(lines) == before + 80
+    _held, problems, heads = chain.replay(lines)
+    assert [p for p in problems if p.kind == BROKEN] == []  # every link follows the one before
+    assert [seq for seq, _h in heads] == list(range(1, len(lines) + 1))
+    assert chain.read_anchor(ACCOUNT)["seq"] == len(lines)
+
+
+def test_a_second_genesis_appends_nothing(backed_up):
+    _gmail, folder = backed_up
+    before = chain.read_lines(folder)
+    assert chain.append(folder, ACCOUNT, "genesis", [("x", "aa")]) is None
+    assert chain.read_lines(folder) == before

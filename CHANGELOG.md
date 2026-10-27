@@ -12,6 +12,10 @@ in beta, so commands and options may still change before 1.0.
   planned message, so one the sidecar doesn't know (a gyb-era backup that
   hasn't been through `mailcellar meta`) counts as held where a hold
   could cover it, where it was never looked at and could be trashed.
+- The hash chain's file is locked while a link is appended, so two
+  commands running at once (the scheduled backup and one typed by hand)
+  no longer write links to the same previous link, which `verify --chain`
+  reported as a broken chain; a second genesis appends nothing.
 
 ## 0.15.1 (2026-10-27)
 
