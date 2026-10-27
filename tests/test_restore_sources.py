@@ -1,6 +1,7 @@
 """restore --from-pruned, --from-mbox and --from-folder: mail back from other sources."""
 
 import base64
+import csv
 import sqlite3
 from pathlib import Path
 
@@ -8,8 +9,9 @@ import pytest
 
 from mailcellar import cli as mailcellar
 from mailcellar import gmailapi
-from mailcellar.backup import commands, gyb, sidecar
+from mailcellar.backup import chain, commands, gyb, sidecar
 from mailcellar.paths import pruned_folder
+from mailcellar.restore import apply as restore
 from mailcellar.restore import mbox, sources
 from mailcellar.restore.apply import read_raw
 from test_index import make_eml
@@ -187,6 +189,8 @@ def env(tmp_path, monkeypatch):
     gmail = Gmail(msgs)
     folder = tmp_path / "data" / A
     commands.backup(gmail, A, folder)
+    # as backup --prune does: the chain records each file's hash, then the files move
+    chain.append(folder, A, "prune", removed=chain.removal(folder, ["p1", "p2", "p3"]))
     con = gyb.open_backup(folder, A)
     gyb.prune(con, folder, ["p1", "p2", "p3"], pruned_folder(folder) / PRUNED)
     con.close()
@@ -221,6 +225,24 @@ def backup_state(folder):
             "SELECT uid FROM uids ORDER BY 1"
         )
     ]
+
+
+def test_a_pruned_copy_changed_since_the_prune_is_not_uploaded(env):
+    (c,) = [c for c in sources.from_pruned(env.folder, PRUNED) if c.source_id == "p1"]
+    assert c.sha256 == chain.file_hash(c.path)  # as the prune recorded it
+    c.path.write_bytes(c.path.read_bytes().replace(b"Subject: ", b"X-Added: 1\nSubject: ", 1))
+    assert run("--from-pruned", PRUNED, "--yes") == 1
+    with open("log.csv", newline="", encoding="utf-8") as fh:
+        got = {r["source_id"]: (r["outcome"], r["detail"]) for r in csv.DictReader(fh)}
+    assert got["p1"] == ("skipped", restore.CHANGED_SINCE_RECORDED)
+    assert got["p2"][0] == "imported"
+
+
+def test_a_gyb_folder_with_a_chain_is_checked_against_it(env):
+    (path,) = [bm.path for bm in gyb.iter_backup(env.folder) if bm.gmail_id == "k1"]
+    path.write_bytes(path.read_bytes() + b"\nAdded later.\n")
+    (c,) = [c for c in sources.from_folder(env.folder) if c.source_id == "k1"]
+    assert restore.check_backup(c)[0] == restore.CHANGED_SINCE_RECORDED
 
 
 def test_pruned_mail_dry_run_says_what_it_would_do(env, capsys):

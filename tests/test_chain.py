@@ -75,6 +75,17 @@ def test_replay_finds_an_edited_removed_or_reordered_link():
     assert [p.kind for p in chain.replay([lines[0], "garbage", lines[1]])[1]] == [BROKEN, BROKEN]
 
 
+def test_removals_are_what_prune_and_forget_recorded():
+    lines = lines_of(
+        ("genesis", [("g1", "a1"), ("g2", "a2"), ("g3", "a3")], []),
+        ("prune", [], [("g1", "a1")]),
+        ("forget", [], [("g2", "a2")]),
+        ("undo", [("g2", "a2")], []),
+        ("empty", [], [("g3", "")]),  # held files deleted: not a record of their bytes
+    )
+    assert chain.removals(lines + ["not a link"]) == {"g1": "a1", "g2": "a2"}
+
+
 def test_compare_reports_changed_missing_and_unexplained():
     held = {"g1": "a1", "g2": "a2", "g3": "a3"}
     actual = {"g1": "a1", "g2": "XX", "g4": "a4", "g5": None}  # g3 gone; g5's file missing

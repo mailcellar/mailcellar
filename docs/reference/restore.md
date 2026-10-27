@@ -66,7 +66,11 @@ already has is used as it is. A message with no Date header, or one Gmail
 can't read, is given one from the date the backup recorded, since Gmail
 would otherwise date it at the moment of the restore; the backup's file is
 left as it is, and the log says so (not for `--from-mbox`, which records
-no date). The backup indexes each new Gmail ID, sharing the existing `.eml`, so the
+no date). Before uploading, each backup copy is checked against the SHA-256 its
+hash chain recorded (for pruned mail, the one the prune recorded), so a
+copy changed or damaged since it was backed up, headers and links
+included, is skipped and logged; a backup from before the chain is checked
+by its content hash only. The backup indexes each new Gmail ID, sharing the existing `.eml`, so the
 next backup doesn't download it again. A message whose Message-ID Gmail
 already holds with *other* content is skipped: Gmail would match the
 upload to that message instead of storing this one.

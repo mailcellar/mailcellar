@@ -20,7 +20,7 @@ import email.utils
 from datetime import datetime
 from pathlib import Path
 
-from mailcellar.backup import gyb, sidecar
+from mailcellar.backup import chain, gyb, sidecar
 from mailcellar.message import PARSER_VERSION, parse_message
 from mailcellar.paths import pruned_folder
 from mailcellar.restore import mbox
@@ -98,6 +98,7 @@ def from_pruned(folder: Path, batch: str) -> list[Candidate]:
         raise SourceError(f"{dest} has no {gyb.PRUNE_MANIFEST}; pruned batches: {have}")
     with manifest.open(newline="", encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
+    recorded = chain.removed(folder)  # each file's SHA-256 as the prune recorded it
     out = []
     for row in rows:
         labels = [n for n in row["labels"].split(";") if n]
@@ -108,7 +109,17 @@ def from_pruned(folder: Path, batch: str) -> list[Candidate]:
         except OSError:
             out.append(unreadable(row["gmail_id"], None, labels, ms, batch))
             continue
-        out.append(candidate(row["gmail_id"], raw, path, labels, ms, batch=batch))
+        out.append(
+            candidate(
+                row["gmail_id"],
+                raw,
+                path,
+                labels,
+                ms,
+                batch=batch,
+                sha256=recorded.get(row["gmail_id"], ""),
+            )
+        )
     return out
 
 
@@ -117,6 +128,7 @@ def from_folder(folder: Path) -> list[Candidate]:
     if not (folder / "msg-db.sqlite").is_file():
         raise SourceError(f"{folder} is not a gyb backup: it has no msg-db.sqlite")
     superseded = sidecar.superseded_ids(folder)
+    recorded = chain.held(folder)  # a mailcellar backup's own chain, if it has one
     out = []
     for bm in gyb.iter_backup(folder):
         if bm.gmail_id in superseded:
@@ -127,7 +139,11 @@ def from_folder(folder: Path) -> list[Candidate]:
         except OSError:
             out.append(unreadable(bm.gmail_id, None, bm.labels, ms))
             continue
-        out.append(candidate(bm.gmail_id, raw, bm.path, bm.labels, ms))
+        out.append(
+            candidate(
+                bm.gmail_id, raw, bm.path, bm.labels, ms, sha256=recorded.get(bm.gmail_id, "")
+            )
+        )
     return out
 
 
