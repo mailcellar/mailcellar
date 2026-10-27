@@ -27,7 +27,7 @@ def parameters(function):
 
 
 def test_gmail_account_has_every_mailbox_method_with_the_same_parameters():
-    assert len(protocol_methods()) == 18
+    assert len(protocol_methods()) == 19
     for name, method in protocol_methods().items():
         real = getattr(gmailapi.GmailAccount, name, None)
         assert real is not None, f"GmailAccount has no {name}"

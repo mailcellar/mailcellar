@@ -297,6 +297,7 @@ def backup(
         "labels_changed": 0,
         "skipped": 0,
         "deleted_backed_up": 0,
+        "unread": (),  # what the mailbox couldn't read (an IMAP account's folders)
     }
     try:
         _backup(gmail, account, con, mcon, folder, query, refresh_labels, stats)
@@ -304,7 +305,8 @@ def backup(
         _record_backup(con, mcon, started, stats, "error")
         raise
     else:
-        _record_backup(con, mcon, started, stats, "failures" if stats["failed"] else "ok")
+        problems = stats["failed"] or stats["unread"]
+        _record_backup(con, mcon, started, stats, "failures" if problems else "ok")
         return stats
     finally:
         con.close()
@@ -343,6 +345,7 @@ def _backup(
     if gmail.provider != "gmail":  # its IDs aren't Gmail's
         sidecar.set_state(mcon, "provider", gmail.provider)
     gmail.save_state(mcon)  # an IMAP account's UID map, committed with the backup
+    stats["unread"] = gmail.unread()
     logger.info(f"Using backup folder {folder}")
     have = gyb.backed_up_ids(con, folder)
     recorded = chain.start(folder, account)  # the hash chain, begun if there is none
@@ -628,6 +631,14 @@ def cmd_backup(args) -> int:
             logger.warning(
                 f"{len(stats['failed']):,} messages could not be fetched, e.g. "
                 f"{stats['failed'][0]}. Re-run backup to retry them."
+                + (" Prune skipped." if args.prune else "")
+            )
+            return 1
+        if stats["unread"]:
+            logger.warning(
+                f"{len(stats['unread']):,} folders couldn't be read and were left as they "
+                f"were in the backup: {', '.join(stats['unread'])}. Their mail isn't taken "
+                "as deleted; the warnings above say why."
                 + (" Prune skipped." if args.prune else "")
             )
             return 1

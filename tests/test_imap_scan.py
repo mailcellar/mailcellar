@@ -348,11 +348,11 @@ def test_names_stand_in_for_the_roles_a_server_marks_no_folder_for():
     assert imap.marked_roles(entries) == {"SENT", "TRASH"}
 
 
-def test_listing_stops_when_a_pass_finds_nothing_new():
+def test_listing_passes_and_when_they_stop():
     first = frozenset(range(1001, 2001))
     assert imap.next_search(frozenset(), first, 2500) == ("UID", "1:1000")
-    assert imap.next_search(first, first, 2500) is None  # a server ignoring the range
-    assert imap.stalled(first, first) and not imap.stalled(frozenset(), first)
+    assert imap.stalled(first, first) and not imap.stalled(frozenset(), first)  # range ignored
+    assert imap.short_by(first, 2500) == 1500 and imap.short_by(first, None) == 0
     assert imap.next_search(frozenset(), frozenset(), 5) is None  # an empty pass
     assert imap.next_search(frozenset(), frozenset({1, 2}), 9) is None  # down to UID 1
     assert imap.next_search(frozenset(), frozenset({5, 6}), 2) is None  # the count reached
@@ -375,7 +375,24 @@ def test_a_listing_cut_short_skips_the_folder_rather_than_lose_its_mail(
     box = account(server)
     assert len(box.list_message_ids()) == 1  # INBOX's; no hang, and no partial folder
     assert "skipped Projects/2026: listed 2 of 5 messages" in caplog.text
-    assert box._cache[1].skipped == {"Projects/2026"}  # its mail isn't taken as gone
+    assert box.unread() == ("Projects/2026",)
+
+
+def test_a_listing_short_of_the_folders_count_skips_it(server, monkeypatch, caplog):
+    server.message_limit = 2
+    for n in range(5):
+        server.add("Projects/2026", msgid=f"<p{n}@x>", flags={"\\Seen"})
+    search = server.uid
+
+    def empty_below(command, *args):  # SEARCH UID lo:hi finds nothing
+        if command == "SEARCH" and args[1:2] == ("UID",):
+            return "OK", [b""]
+        return search(command, *args)
+
+    monkeypatch.setattr(server, "uid", empty_below)
+    box = account(server)
+    assert box.list_message_ids() == []
+    assert "listed 2 of 5 messages" in caplog.text and box.unread() == ("Projects/2026",)
 
 
 def test_a_folder_examine_gives_no_count_for_is_listed_in_full(server):

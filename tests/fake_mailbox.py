@@ -285,6 +285,9 @@ class FakeMailbox:
     def save_state(self, con):
         pass
 
+    def unread(self):
+        return ()
+
     def close(self):
         self.closed = True
 

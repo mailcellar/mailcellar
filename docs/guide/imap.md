@@ -99,8 +99,10 @@ perhaps by copying the config folder. Run the `chmod 600` the message
 gives.
 
 **A folder is "skipped":** the server listed it but wouldn't open it (a
-shared folder you can't read, say). The rest is backed up, and the
-skipped folder's mail isn't taken as deleted.
+shared folder you can't read, say), or wouldn't list all its messages.
+The rest is backed up, the skipped folder is left as it was in the
+backup (its mail isn't taken as deleted), and the run ends with an
+error, so a scheduled backup records it.
 
 **"certificate verify failed":** your server's certificate isn't one the
 system trusts. Give its CA with `--cafile`.
