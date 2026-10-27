@@ -171,6 +171,7 @@ def history_plan(
         history_summary(
             gmail.provider,
             len(touched),
+            len(touched - deleted),
             len(indexed - have),
             len(todo),
             stats["labels_changed"],
@@ -181,17 +182,18 @@ def history_plan(
 
 
 def history_summary(
-    provider: str, changed: int, missing: int, todo: int, labels: int, skipped: int
+    provider: str, changed: int, present: int, missing: int, todo: int, labels: int, skipped: int
 ) -> str:
     """
     What a history-based run found. An IMAP account has no history: every
-    message on the server is read again and compared, so it says that,
-    not that they all changed. Pure.
+    message on the server is read again and compared, so it says how many
+    are there (`present`: changed, less those deleted), not that they all
+    changed. Pure.
     """
     lead = (
         f"History since last run: {changed:,} messages changed"
         if provider == "gmail"
-        else f"Read the server's {changed:,} messages again"
+        else f"Read the server's {present:,} messages again"
     )
     return (
         lead
