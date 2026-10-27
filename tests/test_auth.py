@@ -125,6 +125,7 @@ def test_auth_reports_failure_and_continues(config, fake_auth, capsys):
 
 
 def test_rejected_refresh_token_falls_back_to_consent(tmp_path, monkeypatch, capsys):
+    (tmp_path / "client_secrets.json").write_text("{}")  # a sign-in needs the client
     """A refresh token Google rejects (e.g. 7-day Testing expiry) re-runs consent."""
     from google.auth.exceptions import RefreshError
     from google.oauth2 import credentials as gcreds
@@ -201,6 +202,7 @@ def test_readonly_request_reuses_modify_token(tmp_path, monkeypatch):
 
 
 def test_ungranted_scope_is_an_error(tmp_path, monkeypatch):
+    (tmp_path / "client_secrets.json").write_text("{}")  # a sign-in needs the client
     from google_auth_oauthlib import flow as gflow
 
     class Partial:

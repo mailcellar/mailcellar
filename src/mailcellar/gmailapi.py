@@ -12,6 +12,13 @@ modify token also serves reads. The token file also records when consent was las
 the token 7 days after that, so ageing tokens are reported before a run
 fails. Every account checks it reached the mailbox it expects.
 
+Workspace accounts can read through a service account instead (#103):
+a key with domain-wide delegation, stored once per domain at
+<config>/service-accounts/<domain>.json, owner-only. An account whose domain
+has a key gets its read-only access from it, with no sign-in and no token
+to renew. Only gmail.readonly, never more: gmail.modify also sends mail, so
+offload, dedup and restore keep the user's own sign-in.
+
 GmailAccount batches requests, shrinking batches when Gmail answers 429
 and retrying rate limits, server errors and timeouts with backoff. Label
 names follow gyb's convention: system labels by ID (INBOX, SENT,
@@ -98,6 +105,8 @@ class HistoryExpired(GmailError):
 
 
 ACCOUNTS_FILE = "accounts.toml"
+SERVICE_ACCOUNTS_DIR = "service-accounts"  # <config>/service-accounts/<domain>.json
+SERVICE_ACCOUNT_KEYS = ("type", "client_email", "client_id", "private_key", "token_uri")
 
 
 def config_accounts(config_root: Path) -> dict[str, Path]:
@@ -148,9 +157,72 @@ def find_config_folder(config_root: Path, account: str) -> Path:
     folder = config_accounts(config_root).get(account.lower())
     if folder is None:
         raise GmailError(f"{account} is not listed in {config_root / ACCOUNTS_FILE}")
-    if not (folder / "client_secrets.json").is_file():
+    if (
+        not (folder / "client_secrets.json").is_file()
+        and service_account_key(folder, account) is None
+    ):
         raise GmailError(f"{folder} has no client_secrets.json")
     return folder
+
+
+def check_service_account(text: str) -> dict:
+    """
+    The fields of a service-account key file, checked. Raises GmailError
+    for anything else (an OAuth client, say). Pure.
+    """
+    try:
+        data = json.loads(text)
+    except ValueError:
+        raise GmailError("that is not a JSON file") from None
+    if not isinstance(data, dict) or data.get("type") != "service_account":
+        raise GmailError("that is not a service-account key (its type isn't service_account)")
+    missing = [k for k in SERVICE_ACCOUNT_KEYS if not isinstance(data.get(k), str)]
+    if missing:
+        raise GmailError(f"the key file is incomplete: no {', '.join(missing)}")
+    return data
+
+
+def service_account_path(config_root: Path, domain: str) -> Path:
+    return config_root / SERVICE_ACCOUNTS_DIR / f"{domain.lower()}.json"
+
+
+def service_account_key(config_folder: Path, account: str) -> Path | None:
+    """The service-account key for the account's domain, if one is installed."""
+    path = service_account_path(config_folder.parent, account.rpartition("@")[2])
+    return path if path.is_file() else None
+
+
+def delegated_credentials(key: Path, account: str):
+    """
+    gmail.readonly credentials for `account` from a service-account key with
+    domain-wide delegation, fetched now so a refusal is reported here, with
+    what to check. The key must be owner-only: it reads every mailbox in the
+    domain.
+    """
+    from google.auth.exceptions import RefreshError
+    from google.auth.transport.requests import Request
+    from google.oauth2 import service_account
+
+    if key.stat().st_mode & 0o077:
+        raise GmailError(f"{key} can be read by others; make it owner-only: chmod 600 {key}")
+    try:
+        data = check_service_account(key.read_text())
+    except GmailError as exc:
+        raise GmailError(f"{key}: {exc}") from None
+    creds = service_account.Credentials.from_service_account_info(
+        data, scopes=[SCOPES["readonly"]]
+    ).with_subject(account)
+    try:
+        creds.refresh(Request())
+    except RefreshError as exc:
+        raise GmailError(
+            f"{account}: Google refused the service account ({exc}). In the Workspace Admin "
+            "console, Security > Access and data control > API controls > Manage Domain Wide "
+            f"Delegation must list client ID {data['client_id']} with the scope "
+            f"{SCOPES['readonly']}, and {account} must be an address in that domain; a new "
+            "entry can take a while to apply"
+        ) from None
+    return creds
 
 
 def new_token_file(config_folder: Path, scope: str) -> Path:
@@ -301,6 +373,9 @@ def load_credentials(
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
 
+    # A Workspace domain with a service-account key: reads go through it.
+    if scope == "readonly" and (key := service_account_key(config_folder, account)) is not None:
+        return delegated_credentials(key, account)
     # A modify token is held for the run unless kept; a read that falls back
     # to a modify token stored earlier keeps using it, for unattended backups.
     keep = scope != "modify" or stores_modify_token(config_folder)
@@ -340,6 +415,12 @@ def load_credentials(
             "in the browser and tick the Gmail permission."
             + ("" if keep else " The token is held for this run only, never stored.")
         )
+        if not (config_folder / "client_secrets.json").is_file():
+            raise GmailError(
+                f"{account}: gmail.{scope} needs the account's own sign-in, and "
+                f"{config_folder} has no OAuth client: mailcellar setup {account} "
+                "--client FILE adds one"
+            )
         flow = InstalledAppFlow.from_client_secrets_file(
             str(config_folder / "client_secrets.json"), [scope_url]
         )

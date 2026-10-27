@@ -175,6 +175,8 @@ def _config(argv: list[str]) -> int:
     for account in sorted(set(configured) | set(backups)):
         cfg = configured.get(account)
         tokens = []
+        if cfg is not None and gmailapi.service_account_key(cfg, account) is not None:
+            tokens.append("readonly (service account)")
         for scope in gmailapi.SCOPES:
             if cfg is not None and gmailapi.token_file(cfg, scope).is_file():
                 authorised = gmailapi.token_authorised_at(cfg, scope)
@@ -245,7 +247,8 @@ def _config(argv: list[str]) -> int:
                 "Tokens: the access each account has granted (readonly, modify) and the days "
                 "since consent was given: with the consent screen in Testing status, Google "
                 "expires a token 7 days after that (renew: mailcellar auth ACCOUNT --scope S "
-                "--renew)."
+                "--renew). Service account: a Workspace domain's key (<config>/"
+                "service-accounts/), read-only, with no token to renew."
             ],
             limit=False,
         ),
