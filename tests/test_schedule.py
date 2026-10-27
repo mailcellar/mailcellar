@@ -108,6 +108,13 @@ def test_cron_lines():
     assert "'/My Apps/mailcellar'" in schedule.cron_line(spaced)
     assert "MAILCELLAR_DATA='/my data'" in schedule.cron_line(spaced)
     assert ">> '/my data/log'" in schedule.cron_line(spaced)
+    # cron ends the command at an unescaped %, so a path holding one is escaped.
+    percent = Job(
+        WEEKLY, ("mailcellar", "backup"), (("MAILCELLAR_DATA", "/mail%20x"),), Path("/l%")
+    )
+    line = schedule.cron_line(percent)
+    assert "MAILCELLAR_DATA=/mail\\%20x" in line and ">> /l\\% 2>&1" in line
+    assert "%" not in line.replace("\\%", "")
 
 
 # ── installing, with the system faked ────────────────────────────────────────

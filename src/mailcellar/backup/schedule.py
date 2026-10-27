@@ -149,12 +149,16 @@ def job_from_plist(data: bytes) -> Job:
 
 
 def cron_line(job: Job) -> str:
-    """The crontab line for a job."""
+    """
+    The crontab line for a job. cron reads an unescaped % as the end of the
+    command (the rest goes to its stdin), so every % is written \\%.
+    """
     s = job.schedule
     day = str(s.weekday) if s.frequency == "weekly" else "*"
     env = " ".join(f"{k}={shlex.quote(v)}" for k, v in job.environment)
     command = " ".join(shlex.quote(a) for a in job.arguments)
-    return f"{s.minute} {s.hour} * * {day} {env} {command} >> {shlex.quote(str(job.log))} 2>&1"
+    line = f"{command} >> {shlex.quote(str(job.log))} 2>&1"
+    return f"{s.minute} {s.hour} * * {day} " + f"{env} {line}".replace("%", "\\%")
 
 
 def accounts_of(job: Job) -> tuple[str, ...]:

@@ -8,6 +8,9 @@ in beta, so commands and options may still change before 1.0.
 ## Unreleased
 
 ### Fixed
+- The crontab line `schedule install` prints escapes `%`, which cron reads
+  as the end of the command, so a data root or log path holding one no
+  longer stops the scheduled backup.
 - A token or OAuth client written by two commands at once (the scheduled
   backup and one typed by hand) is no longer left broken: each write has
   a temporary file of its own.
