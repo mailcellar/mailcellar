@@ -176,7 +176,7 @@ def test_holds_need_the_new_schema_and_copy_the_old_one_aside(backup):
     con.close()
     assert holds.read_holds(folder) == []  # an older sidecar has none
     hold("add", "audit", "--reason", "tax", "--label", "work")
-    assert (folder / "meta.sqlite.pre-v11").is_file()
+    assert (folder / f"meta.sqlite.pre-v{sidecar.SCHEMA_VERSION}").is_file()
     assert [h.name for h in holds.read_holds(folder)] == ["audit"]
 
 

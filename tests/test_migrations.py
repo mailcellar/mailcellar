@@ -75,6 +75,7 @@ def test_meta_migrations_repeat_safely(tmp_path, version):
     con.execute("INSERT INTO offloaded VALUES ('g1', 'b1', 'old', 1, 2, NULL)")
     con.execute("INSERT INTO restored VALUES ('g2', '', 'n2', 'imported', 3, 'r1')")
     con.execute("INSERT INTO forgotten VALUES ('g9', 'b1', 'old', 4, 5, 'run', 6, NULL)")
+    con.execute("INSERT INTO imap_map VALUES ('INBOX', 7, 1, 'g1')")
     con.commit()
     con.close()
     path = sidecar.meta_path(folder)
@@ -120,3 +121,17 @@ def test_search_migrations_repeat_safely(tmp_path):
 
     assert recorded_version(path) == search_db.SCHEMA_VERSION
     assert snapshot(path) == before
+
+
+def test_the_imap_map_is_replaced_per_folder(tmp_path):
+    con = sidecar.open_meta(backed_up(tmp_path))
+    sidecar.replace_imap_folder(con, "INBOX", 7, {1: "m1", 2: "m2"})
+    sidecar.replace_imap_folder(con, "Work", 3, {5: "m1"})
+    assert sidecar.imap_folder_map(con, "INBOX", 7) == {1: "m1", 2: "m2"}
+    sidecar.replace_imap_folder(con, "INBOX", 8, {1: "m3"})  # UIDVALIDITY changed
+    assert sidecar.imap_folder_map(con, "INBOX", 7) == {}
+    assert sidecar.imap_folder_map(con, "INBOX", 8) == {1: "m3"}
+    assert sidecar.imap_ids_by_folder(con) == {"INBOX": {"m3"}, "Work": {"m1"}}
+    sidecar.drop_imap_folders(con, ["INBOX"])  # Work deleted on the server
+    assert sidecar.imap_folder_map(con, "Work", 3) == {}
+    con.close()
