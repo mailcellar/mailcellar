@@ -62,7 +62,11 @@ Restored messages lose the offload label and gain `restored/<date>`
 (`--label NAME` to choose another), so a restore can be found and undone.
 A user label whose name Gmail reserves (such as `Muted`, `Archive` or
 `Bin`) is created as `_Muted` and so on, as gyb does; a label the account
-already has is used as it is. The backup indexes each new Gmail ID, sharing the existing `.eml`, so the
+already has is used as it is. A message with no Date header, or one Gmail
+can't read, is given one from the date the backup recorded, since Gmail
+would otherwise date it at the moment of the restore; the backup's file is
+left as it is, and the log says so (not for `--from-mbox`, which records
+no date). The backup indexes each new Gmail ID, sharing the existing `.eml`, so the
 next backup doesn't download it again. A message whose Message-ID Gmail
 already holds with *other* content is skipped: Gmail would match the
 upload to that message instead of storing this one.

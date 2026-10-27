@@ -67,7 +67,7 @@ def unescape(entry: bytes) -> bytes:
     return _ESCAPED.sub(rb"\1", entry)
 
 
-def _header_end(raw: bytes) -> int:
+def header_end(raw: bytes) -> int:
     """
     Where the header section ends: the line break before the first blank
     line, whichever line endings the two use (a header line ending in LF
@@ -84,7 +84,7 @@ def _header_end(raw: bytes) -> int:
 
 def without_added_headers(raw: bytes) -> bytes:
     """The message without the headers Takeout adds (and their continuation lines)."""
-    end = _header_end(raw)
+    end = header_end(raw)
     lines = raw[:end].splitlines(keepends=True)
     kept, dropping = [], False
     for line in lines:
@@ -152,7 +152,7 @@ def header_bytes(entry: bytes, name: bytes) -> bytes | None:
     parser, which turns raw UTF-8 into replacement characters.
     """
     found = None
-    for line in entry[: _header_end(entry)].splitlines():
+    for line in entry[: header_end(entry)].splitlines():
         if line[:1] in (b" ", b"\t"):
             if found is not None:
                 found += b" " + line.strip()

@@ -38,6 +38,7 @@ apply() with no backup folder records and indexes nothing.
 
 import base64
 import csv
+import email.utils
 import logging
 import sqlite3
 import time
@@ -114,6 +115,45 @@ class Candidate:
     offloaded: bool = True
     sender: str = ""  # the From address, lower case; "" if the sidecar has no row
     span: tuple[int, int] | None = None  # in an mbox file (path): where the message is
+
+
+def dated(raw: bytes, internal_date_ms: int) -> bytes | None:
+    """
+    The message with a Date header from the date the backup recorded, when
+    its own is missing or can't be read; None when it needs none, or there
+    is no recorded date (an mbox entry). Gmail dates an import by its Date
+    header and, without a usable one, by the moment of the import. Pure.
+    """
+    from mailcellar.restore.mbox import header_bytes, header_end
+
+    if internal_date_ms <= 0:
+        return None
+    current = header_bytes(raw, b"date")
+    if current is not None:
+        try:
+            if email.utils.parsedate_to_datetime(current.decode("latin-1")) is not None:
+                return None
+        except TypeError, ValueError, IndexError:
+            pass
+    end = header_end(raw)
+    eol = b"\r\n" if raw[end : end + 2] == b"\r\n" else b"\n"
+    line = b"Date: " + email.utils.formatdate(internal_date_ms / 1000, usegmt=True).encode()
+    if current is None:
+        if end == 0:  # no headers at all
+            return line + eol + raw
+        return raw[:end] + eol + line + raw[end:]
+    out, replacing = [], False
+    for old in raw[:end].splitlines(keepends=True):
+        if replacing and old[:1] in (b" ", b"\t"):
+            continue  # a continuation of the unreadable Date
+        replacing = False
+        if old.split(b":", 1)[0].strip().lower() == b"date" and line:
+            ending = old[len(old.rstrip(b"\r\n")) :]
+            out.append(line + ending)
+            line, replacing = b"", True
+        else:
+            out.append(old)
+    return b"".join(out) + raw[end:]
 
 
 def read_raw(c: Candidate) -> bytes:
@@ -655,8 +695,11 @@ def _import_chunk(gmail, tcon, folder, chunk, record, emit, system, prefix, stri
         keep, dropped = import_labels(d.candidate.labels, system, prefix, strip)
         label_ids, refused = _label_ids(gmail, keep)
         dropped += [f"{name} (Gmail refused it)" for name in refused]
-        note = f"labels not restored: {', '.join(dropped)}" if dropped else ""
-        ready[d.source_id] = (d, raw, fields, note, label_ids)
+        notes = [f"labels not restored: {', '.join(dropped)}"] if dropped else []
+        if (redated := dated(raw, d.candidate.internal_date)) is not None:
+            raw = redated  # the backup's file is left as it is
+            notes.append("Date header added from the backup's date")
+        ready[d.source_id] = (d, raw, fields, "; ".join(notes), label_ids)
     if not ready:
         return
 
