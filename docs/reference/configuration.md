@@ -92,6 +92,9 @@ Signs in, or renews consent. It changes nothing in the mailbox.
 | `--config CONFIG` | Config folder |
 
 Without `--renew`, `auth` signs in only if the token no longer works.
+Other commands that only read (backups, `count`, the reports) use a stored
+modify token when there is no read-only one; `auth --scope readonly` always
+makes a read-only token of its own, which they use from then on.
 mailcellar records when consent was given, shows it in `config` and
 `report health`, and warns when a token is `token_warn_days` (5) or more days
 past consent, printing the `auth --renew` command. It can't see the consent

@@ -10,6 +10,9 @@ in beta, so commands and options may still change before 1.0.
 ### Fixed
 - `report health` prints each hash chain's head hash in full, so it can be
   noted down; the text report cut it at 42 characters.
+- `auth --scope readonly` makes a read-only token when the account has a
+  stored modify token, where it reported "OK (via gmail.modify)" and made
+  none, so backups kept running with modify access.
 
 ## 0.13.0 (2026-10-27)
 

@@ -176,17 +176,19 @@ def cmd_auth(args) -> None:
                     "keep_modify_token = true in settings.toml"
                 )
                 continue
-            creds = gmailapi.load_credentials(folder, account, args.scope, renew=args.renew)
+            # exact: a read-only token of its own, not the stored modify token's
+            creds = gmailapi.load_credentials(
+                folder, account, args.scope, renew=args.renew, exact=True
+            )
             gmailapi.GmailAccount(account, creds)  # confirms the mailbox identity
         except gmailapi.GmailError as exc:
             print(f"  {account}: FAILED — {exc}")
             failed += 1
             continue
-        used = gmailapi.effective_scope(folder, args.scope)
+        used = args.scope
         authorised = gmailapi.token_authorised_at(folder, used)
         print(
             f"  {account}: gmail.{args.scope} OK"
-            + (f" (via gmail.{used})" if used != args.scope else "")
             + (
                 f", authorised {authorised:%Y-%m-%d}"
                 f" ({gmailapi.token_age_days(authorised, datetime.now(UTC)):.0f} days ago)"

@@ -74,15 +74,17 @@ class Calls(list):
     def __init__(self):
         super().__init__()
         self.renewals = []
+        self.exact = []
 
 
 @pytest.fixture
 def fake_auth(monkeypatch):
     calls = Calls()
 
-    def load_credentials(folder, account, scope, renew=False):
+    def load_credentials(folder, account, scope, renew=False, exact=False):
         calls.append((folder.name, account, scope))
         calls.renewals.append(renew)
+        calls.exact.append(exact)
         if account == "bad@example.com":
             raise gmailapi.GmailError("scope not granted")
         return object()
@@ -372,6 +374,30 @@ def test_a_stored_modify_token_is_used_once_more_then_deleted(
     with caplog.at_level(logging.INFO, logger="mailcellar"):
         gmailapi.load_credentials(account_folder, "alex@example.org", "modify")
     assert "deleted" in caplog.text and "--scope readonly" not in caplog.text
+
+
+def test_auth_readonly_gets_its_own_token_beside_a_stored_modify_one(
+    config, account_folder, consent, capsys, monkeypatch
+):
+    monkeypatch.setattr(gmailapi, "GmailAccount", lambda account, creds: None)
+    (config / "settings.toml").write_text("keep_modify_token = true\n")
+    write_token(account_folder, "modify")
+    dedup.main(["auth", "work", "--scope", "readonly", "--config", str(config)])
+    assert consent == ["alex@example.org"]  # signed in for a read-only token
+    assert gmailapi.token_file(account_folder, "readonly").is_file()
+    assert gmailapi.token_file(account_folder, "modify").is_file()  # kept, as configured
+    out = capsys.readouterr().out
+    assert "gmail.readonly OK, authorised" in out and "via gmail.modify" not in out
+
+    # From now on a read uses the read-only token, not the modify one.
+    assert gmailapi.effective_scope(account_folder, "readonly") == "readonly"
+    dedup.main(["auth", "work", "--scope", "readonly", "--config", str(config)])
+    assert consent == ["alex@example.org"]  # no second sign-in
+
+
+def test_auth_asks_for_exactly_the_scope_named(config, fake_auth):
+    dedup.main(["auth", "work", "--scope", "readonly", "--config", str(config)])
+    assert fake_auth.exact == [True]
 
 
 def test_keep_modify_token_stores_it_as_before(config, account_folder, consent):
