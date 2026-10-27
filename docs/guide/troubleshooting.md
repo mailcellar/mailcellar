@@ -55,6 +55,18 @@ Neither mailcellar nor gyb, whose format it keeps, stores Hangouts chats
 (the `CHAT` and `CHATS` labels). `count` lists them on their own line so
 they do not look like missing mail.
 
+## Storage is still full after offloading
+
+Gmail shares its storage with Google Drive and Google Photos: the free
+15 GB, or a Google One plan, covers all three. If most of it is Drive or
+Photos, offloading mail frees only Gmail's part. Google's
+[storage page](https://one.google.com/storage) shows how it is split.
+
+Offloaded mail also counts until it leaves Gmail's Trash, which Gmail
+empties 30 days after the move, and Spam counts too.
+`mailcellar report storage work` shows how much each batch has freed so
+far and how much is still in Trash ([Offloading, step 8](offloading.md#8-check)).
+
 ## Signing in again every week
 
 The Google Cloud project's consent screen is in *Testing* status, where
