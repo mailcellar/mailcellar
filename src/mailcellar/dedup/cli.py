@@ -145,7 +145,7 @@ def cmd_apply(args) -> None:
 
     # Legal holds keep their mail in Gmail: a held duplicate is skipped, saying which hold.
     folders = {a: backup_folder(a) for a in {r["account"] for r in rows}}
-    held = HoldCheck(folders, int(time.time() * 1000))
+    held = HoldCheck(folders, int(time.time() * 1000), rows)
     try:
         log = apply_plan(rows, mode, gmail_for, confirm, dedup_label, local_check=held)
     except gmailapi.GmailError as exc:
