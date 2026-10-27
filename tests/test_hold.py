@@ -285,3 +285,16 @@ def test_a_message_whose_addresses_werent_read_counts_as_held(backup):
     (facts,) = holds.read_facts(folder, ["u1"])
     assert facts.addresses is None
     assert "u1" in holds.held(folder, holds_now(), ["u1"])
+
+
+def test_facts_read_by_id_are_those_of_the_whole_sidecar(backup):
+    _gmail, folder = backup
+    every = {f.gmail_id: f for f in holds.read_facts(folder)}
+    assert holds.read_facts(folder, ["d2", "u1"]) == [every["d2"], every["u1"]]
+    unknown = holds.read_facts(folder, ["nope"])
+    assert [(f.gmail_id, f.known) for f in unknown] == [("nope", False)]
+    many = [f"x{i}" for i in range(40_000)] + ["d1"]  # more IDs than SQL variables allow
+    assert [f for f in holds.read_facts(folder, many) if f.known] == [every["d1"]]
+    before = sidecar.meta_path(folder).stat().st_mtime_ns
+    holds.read_facts(folder, ["d1"])
+    assert sidecar.meta_path(folder).stat().st_mtime_ns == before  # read-only

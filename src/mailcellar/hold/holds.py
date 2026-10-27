@@ -203,35 +203,51 @@ def read_holds(folder: Path) -> list[Hold]:
 def read_facts(folder: Path, gmail_ids=None) -> list[Facts]:
     """
     What holds are checked against, for the backup's messages (or just
-    `gmail_ids`): from meta.sqlite, read-only, forgotten mail included with
-    only what the forgotten table keeps.
+    `gmail_ids`, read by ID rather than reading the whole sidecar): from
+    meta.sqlite, read-only, forgotten mail included with only what the
+    forgotten table keeps.
     """
     con = _read(folder)
     if con is None:
         return [Facts(g, known=False) for g in sorted(gmail_ids or ())]
     try:
+        only = ""
+        if gmail_ids is not None:
+            # A temporary table (the read-only file isn't written), so any number of IDs fits.
+            con.execute("CREATE TEMP TABLE wanted (gmail_id TEXT PRIMARY KEY)")
+            con.executemany("INSERT OR IGNORE INTO wanted VALUES (?)", ((g,) for g in gmail_ids))
+            only = " AND {} IN (SELECT gmail_id FROM temp.wanted)"
         rows = {
             gid: (ms, sender, thread)
             for gid, ms, sender, thread in con.execute(
-                "SELECT gmail_id, internal_date, sender_addr, thread_id FROM messages"
+                "SELECT gmail_id, internal_date, sender_addr, thread_id FROM messages WHERE 1"
+                + only.format("gmail_id")
             )
         }
         addresses: dict[str, set[str]] = {}
-        for gid, address in con.execute("SELECT gmail_id, address FROM recipients"):
+        for gid, address in con.execute(
+            "SELECT gmail_id, address FROM recipients WHERE 1" + only.format("gmail_id")
+        ):
             addresses.setdefault(gid, set()).add(address.lower())
         labels: dict[str, set[str]] = {}
         for gid, name in con.execute(
             """SELECT ml.gmail_id, l.name FROM message_labels ml
                JOIN labels l USING (label_id) WHERE l.type = 'user'"""
+            + only.format("ml.gmail_id")
         ):
             labels.setdefault(gid, set()).add(name.casefold())
-        forgotten = dict(con.execute("SELECT gmail_id, internal_date FROM forgotten"))
+        forgotten = dict(
+            con.execute(
+                "SELECT gmail_id, internal_date FROM forgotten WHERE 1" + only.format("gmail_id")
+            )
+        )
         # What the backup knows Gmail no longer has: offloaded mail Gmail has
         # deleted (a backup or count saw it gone), and rows made after it went.
         gone = {
             g
             for (g,) in con.execute(
                 "SELECT gmail_id FROM offloaded WHERE gone_ms IS NOT NULL AND restored_ms IS NULL"
+                + only.format("gmail_id")
             )
         }
     finally:
