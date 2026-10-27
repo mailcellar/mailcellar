@@ -14,7 +14,9 @@ its hash, and the latest link is kept outside the data root as well.
 ops: genesis (what the backup held when the chain started), backup,
 refetch (a missing file downloaded again), restore (a restored message
 indexed under its new ID), prune, forget, undo (forget --undo) and empty
-(forget --empty: the held files deleted; the backup itself is unchanged).
+(forget --empty: the held files deleted; the backup itself is unchanged);
+hold and release record a legal hold being placed or lifted, its details
+in "note", and change nothing in the backup.
 
 A link is appended before the change it records is committed, so a crash
 leaves a link whose messages never arrived (shown as missing; the next
@@ -39,7 +41,11 @@ from mailcellar.progress import Progress
 
 CHAIN_NAME = "chain.jsonl"
 ANCHOR_DIR = "anchors"
-OPS = ("genesis", "backup", "refetch", "restore", "prune", "forget", "undo", "empty")
+OPS = (
+    "genesis", "backup", "refetch", "restore", "prune", "forget", "undo", "empty",
+    "hold", "release",
+)  # fmt: skip
+EVENTS = ("genesis", "hold", "release")  # appended even with no messages
 
 # What check() finds. The first five fail verify; the last two are warnings.
 BROKEN = "chain broken"
@@ -66,6 +72,7 @@ class Link:
     added: tuple[Pair, ...] = ()
     removed: tuple[Pair, ...] = ()
     prev: str = ""
+    note: str = ""  # hold and release: the hold, as JSON
 
 
 @dataclass(frozen=True)
@@ -79,18 +86,21 @@ class Problem:
 
 
 def line_of(link: Link) -> str:
-    """A link as its line in chain.jsonl (no newline): compact, keys in a fixed order."""
-    return json.dumps(
-        {
-            "seq": link.seq,
-            "time": link.time,
-            "op": link.op,
-            "added": [list(p) for p in link.added],
-            "removed": [list(p) for p in link.removed],
-            "prev": link.prev,
-        },
-        separators=(",", ":"),
-    )
+    """
+    A link as its line in chain.jsonl (no newline): compact, keys in a fixed
+    order; "note" only when there is one, so other links' lines are unchanged.
+    """
+    d = {
+        "seq": link.seq,
+        "time": link.time,
+        "op": link.op,
+        "added": [list(p) for p in link.added],
+        "removed": [list(p) for p in link.removed],
+        "prev": link.prev,
+    }
+    if link.note:
+        d["note"] = link.note
+    return json.dumps(d, separators=(",", ":"))
 
 
 def hash_line(line: str) -> str:
@@ -108,6 +118,7 @@ def parse_line(line: str) -> Link:
             tuple((str(g), str(h)) for g, h in d["added"]),
             tuple((str(g), str(h)) for g, h in d["removed"]),
             str(d["prev"]),
+            str(d.get("note", "")),
         )
     except (ValueError, KeyError, TypeError) as exc:
         raise ChainError(f"not a link: {exc}") from None
@@ -116,10 +127,12 @@ def parse_line(line: str) -> Link:
     return link
 
 
-def next_link(last: tuple[int, str] | None, op: str, added, removed, time: str) -> Link:
+def next_link(
+    last: tuple[int, str] | None, op: str, added, removed, time: str, note: str = ""
+) -> Link:
     """The link after `last` ((seq, hash of its line), None for the first). Pure."""
     seq, prev = last if last else (0, "")
-    return Link(seq + 1, time, op, tuple(added), tuple(removed), prev)
+    return Link(seq + 1, time, op, tuple(added), tuple(removed), prev, note)
 
 
 def replay(lines: list[str]) -> tuple[dict[str, str], list[Problem], list[tuple[int, str]]]:
@@ -146,7 +159,7 @@ def replay(lines: list[str]) -> tuple[dict[str, str], list[Problem], list[tuple[
             problems.append(
                 Problem(BROKEN, detail=f"line {n}: link {link.seq} doesn't follow link {prev_seq}")
             )
-        if link.op != "empty":  # empty deletes held files; the backup is unchanged
+        if link.op not in ("empty", "hold", "release"):  # these leave the backup as it is
             for gid, _h in link.removed:
                 held.pop(gid, None)
             for gid, sha in link.added:
@@ -270,13 +283,16 @@ def removed(folder: Path) -> dict[str, str]:
     return removals(read_lines(folder))
 
 
-def append(folder: Path, account: str, op: str, added=(), removed=()) -> Link | None:
+def append(
+    folder: Path, account: str, op: str, added=(), removed=(), note: str = ""
+) -> Link | None:
     """
     Append a link and update the anchor. Nothing to record (no messages, and
-    not a genesis) appends nothing. The line is on disk before this returns.
+    not an event: genesis, hold, release) appends nothing. The line is on
+    disk before this returns.
     """
     added, removed = tuple(added), tuple(removed)
-    if not added and not removed and op != "genesis":
+    if not added and not removed and op not in EVENTS:
         return None
     lines = read_lines(folder)
     last = None
@@ -286,7 +302,7 @@ def append(folder: Path, account: str, op: str, added=(), removed=()) -> Link | 
         except ChainError:
             last = (len(lines), hash_line(lines[-1]))  # verify reports the bad line
     time = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    link = next_link(last, op, added, removed, time)
+    link = next_link(last, op, added, removed, time, note)
     line = line_of(link)
     with chain_path(folder).open("a", encoding="utf-8") as fh:
         fh.write(line + "\n")

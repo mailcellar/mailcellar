@@ -55,6 +55,7 @@ nav:
       - Removing duplicate mail: guide/dedup.md
       - Restoring mail: guide/restore.md
       - Exporting mail: guide/exporting.md
+      - Keeping mail on hold: guide/legal-holds.md
       - Recovering when something goes wrong: guide/recovery.md
       - Troubleshooting and FAQ: guide/troubleshooting.md
   - How it works: architecture.md
@@ -68,6 +69,7 @@ nav:
       - Restoring mail: reference/restore.md
       - Exporting mail: reference/export.md
       - Searching mail: reference/search.md
+      - Legal holds: reference/hold.md
       - Reports: reference/report.md
   - Releases: https://github.com/mailcellar/mailcellar/releases
 

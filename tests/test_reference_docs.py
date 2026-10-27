@@ -29,6 +29,8 @@ COMMANDS = {
     ("restore",): "restore",
     ("export",): "export",
     ("search",): "search",
+    ("hold", "add"): "hold",
+    ("hold", "list"): "hold",
     ("report", "storage"): "report",
     ("report", "bulk"): "report",
     ("report", "volume"): "report",

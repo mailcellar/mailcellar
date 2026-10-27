@@ -7,6 +7,7 @@ its own name, since it serves every command; `dedup auth` stays as an alias.
 import argparse
 import logging
 import sys
+import time
 from pathlib import Path
 
 from mailcellar.dedup.apply import (
@@ -139,8 +140,14 @@ def cmd_apply(args) -> None:
             return True
         return input(f"{prompt} [y/N] ").strip().lower() == "y"
 
+    from mailcellar.hold.holds import HoldCheck
+    from mailcellar.paths import backup_folder
+
+    # Legal holds keep their mail in Gmail: a held duplicate is skipped, saying which hold.
+    folders = {a: backup_folder(a) for a in {r["account"] for r in rows}}
+    held = HoldCheck(folders, int(time.time() * 1000))
     try:
-        log = apply_plan(rows, mode, gmail_for, confirm, dedup_label)
+        log = apply_plan(rows, mode, gmail_for, confirm, dedup_label, local_check=held)
     except gmailapi.GmailError as exc:
         sys.exit(f"error: {exc}")
     # The log's mode column records which label a label or trash run used.

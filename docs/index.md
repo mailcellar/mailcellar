@@ -23,6 +23,10 @@ mailcellar backup work          # the first backup; Google asks for consent once
 - **Deduplicate, export and report**: remove duplicate copies within and
   across accounts, copy mail out as an mbox or a zip, and see what takes up
   the space.
+- **Keep mail as it is**: a hash chain shows the backup hasn't changed
+  since each message was saved (`verify --chain`), and a legal hold keeps
+  the mail a dispute or an audit needs out of reach of offloading, pruning
+  and dedup, in Gmail and in the backup.
 
 It runs on your own computer with your own Google Cloud project: there is no
 service in between, and your mail goes nowhere but between Gmail and your

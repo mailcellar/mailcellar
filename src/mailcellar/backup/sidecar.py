@@ -36,7 +36,7 @@ from mailcellar.message import PARSER_VERSION
 logger = logging.getLogger(__name__)
 
 META_NAME = "meta.sqlite"
-SCHEMA_VERSION = "10"
+SCHEMA_VERSION = "11"
 
 
 def _add_run_column(name: str):
@@ -118,6 +118,7 @@ MIGRATIONS = {
     "7": [_add_offloaded_restored],
     "8": [_add_restored_target],
     "9": [],  # v10 adds the forgotten table (created by _SCHEMA)
+    "10": [],  # v11 adds the holds table (created by _SCHEMA)
 }
 
 FIELDS = (
@@ -244,6 +245,18 @@ CREATE TABLE IF NOT EXISTS forgotten (
     run           TEXT NOT NULL,          -- the forget run: <data root>/_forgotten/<email>/<run>/
     forgotten_ms  INTEGER NOT NULL,       -- moved out of the backup, ms since epoch, UTC
     emptied_ms    INTEGER                 -- its file deleted for good; NULL while held
+);
+
+-- Legal holds (mailcellar hold): what nothing may remove from Gmail or the backup.
+-- A hold follows its criteria, so mail that matches later is held too.
+CREATE TABLE IF NOT EXISTS holds (
+    id          INTEGER PRIMARY KEY,
+    name        TEXT NOT NULL,            -- unique among holds not released
+    reason      TEXT NOT NULL,
+    criteria    TEXT NOT NULL,            -- JSON: parties, after_ms, before_ms, label, ids
+    created_ms  INTEGER NOT NULL,         -- ms since epoch, UTC
+    until_ms    INTEGER,                  -- ends by itself then; NULL: until released
+    released_ms INTEGER                   -- NULL while in force
 );
 
 -- Backed-up messages put back into Gmail by mailcellar restore.

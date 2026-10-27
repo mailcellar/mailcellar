@@ -409,6 +409,13 @@ def _prune(
             mcon.close()
     if offloaded:
         print(f"Prune: keeping {len(offloaded):,} offloaded messages.")
+    from mailcellar.hold import holds
+
+    held = holds.held(folder, now_ms(), gone)  # legal holds keep their mail in the backup
+    if held:
+        names = ", ".join(sorted(set(held.values())))
+        print(f"Prune: keeping {len(held):,} messages under hold {names}.")
+        gone = [g for g in gone if g not in held]
     if not gone:
         print("Prune: nothing in the backup is gone from Gmail.")
         return {"pruned": 0, "dest": None}, "ok"

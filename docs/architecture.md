@@ -84,6 +84,8 @@ Who touches what:
 | `count` | Gmail, the backup | nothing (a line in `runs`) | read-only |
 | `meta` | the `.eml` files; Gmail, for label and thread details | `meta.sqlite` | read-only |
 | `verify`, `export`, `report` | the backup | `export`: the file you name; the others, nothing | none |
+| `hold add`, `release` | the backup | `meta.sqlite` (`holds`), `chain.jsonl` | none |
+| `hold list`, `show` | the backup | nothing | none |
 | `search` | the backups | `search.sqlite` | none |
 | `dedup index` | the backups | `dedup.sqlite` | none |
 | `dedup match`, `plan` | `dedup.sqlite` | `dedup.sqlite` (groups); `dedup-plan.csv` | none |
@@ -98,7 +100,7 @@ mailcellar` and `python -m mailcellar` both work.
 
 | Module | Role |
 |---|---|
-| `cli.py` | The `mailcellar` command: dispatches `setup`, `backup`, `count`, `meta` (every configured account by default), `verify`, `auth`, `schedule`, `dedup`, `offload`, `restore`, `export`, `search`, `report` (plus `senders`), and `config`, which shows paths and each account's state without printing secrets; sets up logging (stderr; `-v`/`-q` anywhere on the line) |
+| `cli.py` | The `mailcellar` command: dispatches `setup`, `backup`, `count`, `meta` (every configured account by default), `verify`, `auth`, `schedule`, `dedup`, `offload`, `restore`, `export`, `hold`, `search`, `report` (plus `senders`), and `config`, which shows paths and each account's state without printing secrets; sets up logging (stderr; `-v`/`-q` anywhere on the line) |
 | `progress.py` | Progress for long steps: done of total, rate and time left, rewritten on a terminal or logged now and then; Gmail's batches advance the innermost open `Progress` |
 | `paths.py` | Where things are: `config_root()`, `data_root()` and where each was set, `backup_folder()`, `find_backups()`, `pruned_folder()` |
 | `gmailapi.py` | Accounts (`<config>/accounts.toml`), OAuth tokens and scopes, `GmailAccount`: adaptive batching, retries with backoff, listing, history, labels, trash and untrash, batched Message-ID searches, `messages.import` |
@@ -119,6 +121,7 @@ mailcellar` and `python -m mailcellar` both work.
 | `dedup/report.py`, `dedup/paths.py` | Text reports; default output locations |
 | `offload/` | `rules.py` (TOML rules), `plan.py` (selection, plan CSV, summary; the messages each protection keeps), `review.py` (`plan --review`: a local HTML page per rule from the plan's results; samples, largest messages, busiest threads and the page itself are pure), `apply.py` (backup checks, the offload record, batch manifests on top of dedup's label → trash loop), `forget.py` (`offload forget`: what can be forgotten, the 30-day hold, scrubbing every derived store), `cli.py` |
 | `restore/` | `sources.py` and `mbox.py` (`--from-pruned`, `--from-mbox`, `--from-folder`: candidates from a pruned batch, an mbox file or another gyb folder), `apply.py` (which offloaded messages, narrowed by date, label and sender; backup checks; each message's way back: untrash, already in Gmail, found by Message-ID, or import; indexing a new ID in the backup), `cli.py` (the command, and the selection options `export` shares), `export.py` (`export`: the same selection copied out read-only as an mbox file or a zip of `.eml` files with an index; the mbox entry, label header and index row are pure) |
+| `hold/` | `holds.py` (legal holds: `Criteria`, `Hold` and `Facts`; `covers()`, `holding()` and `held_now()` decide, pure; `read_facts()` and `held()` read the sidecar; `HoldCheck` is the `local_check` that keeps held mail in Gmail on `offload apply` and `dedup apply`; `add()` and `release()` write the `holds` table and the hash chain), `cli.py` (the command). `backup --prune`, `offload forget` and `--empty` ask `held()` before removing anything |
 | `search/` | `index.py` (each message's sender, recipients, subject and readable body into the index, incrementally: `document()` and `changes()` are pure), `query.py` (the query language translated to FTS5 by `fts_query()`; `keep()` for the offload filters and `render()` for a result are pure; `find()` reads), `db.py` (`search.sqlite` schema and migrations), `cli.py` (the command) |
 | `report/` | Reports over all accounts' sidecars, attached read-only (`db.py`): `storage` (with each offload batch's space freed, from `offloaded.gone_ms`), `bulk`, `volume`, `threads`, `labels`, `correspondents`, `health`; `senders.py` for one backup; `output.py` formats tables |
 
@@ -139,7 +142,7 @@ mailcellar` and `python -m mailcellar` both work.
   <email>/
     msg-db.sqlite            gyb index (db_version 6)
     <year>/<month>/<day>/<gmail_id>.eml
-    meta.sqlite              sidecar (schema v10)
+    meta.sqlite              sidecar (schema v11), with legal holds
   _pruned/<email>/<timestamp>/  messages moved out by backup --prune, + pruned.csv
   _forgotten/<email>/<run>/     messages offload forget deleted, held 30 days, + forgotten.csv
   logs/
@@ -166,7 +169,7 @@ mailcellar` and `python -m mailcellar` both work.
 | Database | Owner | Contents | Versioning |
 |---|---|---|---|
 | `msg-db.sqlite` | `backup/gyb.py` | gyb's exact schema: `messages`, `uids`, `labels` (names), `settings` | fixed (gyb `db_version` 6) — never extended |
-| `meta.sqlite` | `backup/sidecar.py` | per message: parsed fields (incl. sender name, Reply-To, content hash, header key, list headers, In-Reply-To), thread ID, UTC date, size, `parser_version`; attachments (name, type, size, hash) and recipients; label IDs; label catalogue; `history_id`; a `runs` log of every backup, count and prune; `offloaded`, mail removed from Gmail on purpose; `restored`, mail put back and its ID now | `SCHEMA_VERSION` + `MIGRATIONS`; rows go stale by `parser_version` |
+| `meta.sqlite` | `backup/sidecar.py` | per message: parsed fields (incl. sender name, Reply-To, content hash, header key, list headers, In-Reply-To), thread ID, UTC date, size, `parser_version`; attachments (name, type, size, hash) and recipients; label IDs; label catalogue; `history_id`; a `runs` log of every backup, count and prune; `offloaded`, mail removed from Gmail on purpose; `restored`, mail put back and its ID now; `holds`, legal holds and their criteria | `SCHEMA_VERSION` + `MIGRATIONS`; rows go stale by `parser_version` |
 | `search.sqlite` | `search/db.py` | per message: account, Gmail ID, path, size, date, sender, subject, `text_version`; an FTS5 index of sender, recipients, subject and body that stores no text (`contentless_delete`, SQLite 3.43+) | `SCHEMA_VERSION` + `MIGRATIONS`; `index.TEXT_VERSION` forces a re-read, independent of `PARSER_VERSION` |
 | `dedup.sqlite` | `dedup/db.py` | all accounts' messages (paths relative to `backups.folder`), labels, match groups | `SCHEMA_VERSION` + `MIGRATIONS`; `meta.parser_version` forces a re-parse |
 

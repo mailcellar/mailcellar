@@ -64,6 +64,7 @@ class Choice:
     not_gone: tuple[Offloaded, ...]  # not recorded gone: still in Gmail's Trash, or unseen
     in_gmail: tuple[Offloaded, ...]  # recorded gone, but Gmail has it now
     unchecked: tuple[tuple[Offloaded, str], ...]  # Gmail couldn't be asked: why
+    held: tuple[tuple[Offloaded, str], ...] = ()  # under a legal hold: its name
 
 
 # ── decisions ────────────────────────────────────────────────────────────────
@@ -73,16 +74,20 @@ def choose(
     candidates: list[Offloaded],
     live: dict[str, set[str] | None],
     unread: dict[str, str],
+    held: dict[str, str] | None = None,
 ) -> Choice:
     """
-    Which candidates may be forgotten: recorded gone, and gone now. `live`
-    is what Gmail says of each recorded-gone one (None: it doesn't have
-    it), `unread` the lookups that failed. Pure; nothing is forgotten on
-    a guess.
+    Which candidates may be forgotten: not under a legal hold (`held`: Gmail
+    ID → hold), recorded gone, and gone now. `live` is what Gmail says of
+    each recorded-gone one (None: it doesn't have it), `unread` the lookups
+    that failed. Pure; nothing is forgotten on a guess.
     """
-    forget, not_gone, in_gmail, unchecked = [], [], [], []
+    held = held or {}
+    forget, not_gone, in_gmail, unchecked, kept = [], [], [], [], []
     for c in candidates:
-        if c.gone_ms is None:
+        if c.gmail_id in held:
+            kept.append((c, held[c.gmail_id]))
+        elif c.gone_ms is None:
             not_gone.append(c)
         elif c.gmail_id in unread:
             unchecked.append((c, unread[c.gmail_id]))
@@ -90,7 +95,7 @@ def choose(
             in_gmail.append(c)
         else:
             forget.append(c)
-    return Choice(tuple(forget), tuple(not_gone), tuple(in_gmail), tuple(unchecked))
+    return Choice(tuple(forget), tuple(not_gone), tuple(in_gmail), tuple(unchecked), tuple(kept))
 
 
 def due(runs: list[str], now: datetime, hold_days: int | None = None) -> list[str]:
@@ -150,6 +155,26 @@ def held(account: str) -> list[tuple[str, int]]:
     for run in held_runs(account):
         with (runs_dir(account) / run / MANIFEST).open(newline="", encoding="utf-8") as fh:
             out.append((run, sum(1 for _ in csv.DictReader(fh))))
+    return out
+
+
+def runs_under_hold(
+    folder: Path, account: str, runs: list[str], now_ms: int
+) -> dict[str, list[str]]:
+    """
+    Held forget runs holding mail a legal hold may cover: run → the holds.
+    Forgotten mail keeps no addresses or labels, so a hold that names
+    parties or a label covers it unless its dates or IDs rule it out.
+    """
+    from mailcellar.hold import holds
+
+    out = {}
+    for run in runs:
+        with (runs_dir(account) / run / MANIFEST).open(newline="", encoding="utf-8") as fh:
+            ids = [row["gmail_id"] for row in csv.DictReader(fh)]
+        names = sorted(set(holds.held(folder, now_ms, ids).values()))
+        if names:
+            out[run] = names
     return out
 
 

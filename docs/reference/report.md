@@ -8,7 +8,7 @@ mailcellar report volume                  # received, sent and forwarded mail ov
 mailcellar report threads                 # thread sizes; threads in both accounts
 mailcellar report labels                  # user labels per account; unlabelled mail
 mailcellar report correspondents          # who you write to and hear from; reply rates
-mailcellar report health                  # completeness, runs, gaps, pruned and forgotten mail, chain heads
+mailcellar report health                  # completeness, runs, gaps, pruned and forgotten mail, holds, chain heads
 mailcellar report senders personal --top 30  # top senders and domains in one backup
 ```
 
@@ -45,6 +45,10 @@ with none named, every backup in the data root.
 | `--min-bulk-share PERCENT` | A source is bulk when at least this share of its messages has bulk signals (default 50) |
 
 ### `report health`
+
+Also lists the [legal holds](hold.md) in force, with how many messages each
+keeps and how many only the backup has, and warns when a backup under a
+hold hasn't run for 7 days.
 
 | Option | What it does |
 | --- | --- |

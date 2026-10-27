@@ -14,6 +14,8 @@ mailcellar export personal --all --after 2025-01-01 --before 2026-01-01 \
 The selection is `restore`'s: `--batch`, `--rule`, `--id`, `--offloaded` or
 `--all`, narrowed with `--before`, `--after`, `--has-label` and `--sender`
 (see [Restoring mail](restore.md)), and `--limit` takes the oldest first.
+`--hold NAME` selects the mail a [legal hold](hold.md) keeps, for handing
+over; `--id` then narrows it.
 Mail that has been restored is included, once.
 
 - **`.mbox`** holds one message after another, each preceded by an

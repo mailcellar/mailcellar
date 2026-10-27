@@ -5,6 +5,23 @@ What changed for users in each release. Releases and their dates are on the
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). mailcellar is
 in beta, so commands and options may still change before 1.0.
 
+## Unreleased
+
+**Upgrading from 0.13.1:** each backup's `meta.sqlite` moves to schema 11
+the first time a command writes to it (`backup`, `meta`, `hold add`); until
+then the reports ask you to run `mailcellar meta`. 0.13.1 can't read schema
+11: mailcellar copies the old file to `meta.sqlite.pre-v11` next to it first,
+so to go back, put that copy back.
+
+### Added
+- Legal holds: `mailcellar hold add NAME --reason TEXT` with `--party`,
+  `--after`, `--before`, `--label`, `--id` and `--until` keeps the mail it
+  covers, now and as more arrives: `offload apply` and `dedup apply` leave
+  it in Gmail, and `backup --prune`, `offload forget` and `--empty` leave it
+  in the backup. `hold list`, `show` and `release`; placing and releasing
+  are recorded in the hash chain. `export --hold NAME` copies the mail out,
+  and `report health` lists the holds, warning when backups lapse.
+
 ## 0.13.1 (2026-10-27)
 
 **Upgrading from 0.13.0:** nothing to do: no database's schema changes.
