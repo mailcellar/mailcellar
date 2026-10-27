@@ -3,10 +3,10 @@ from contextlib import closing
 
 import pytest
 
+from fake_mailbox import FakeMailbox, raw_response
 from mailcellar.backup import commands
 from mailcellar.report import bulk, cli
 from mailcellar.report.db import open_sidecars
-from test_backup import FakeGmail, raw_response
 
 ME, OTHER = "me@club.org", "me2@gmail.com"  # club.org is "own"; gmail.com is public
 DAY = 86_400_000
@@ -64,9 +64,9 @@ RELAY = [
 @pytest.fixture
 def report(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        FakeGmail,
+        FakeMailbox,
         "LABELS",
-        {**FakeGmail.LABELS, "SENT": "SENT", "CATEGORY_PROMOTIONS": "CATEGORY_PROMOTIONS"},
+        {**FakeMailbox.LABELS, "SENT": "SENT", "CATEGORY_PROMOTIONS": "CATEGORY_PROMOTIONS"},
     )
     a, b = Mailbox(), Mailbox()
     a.series("news", "Shop <news@shop.com>", labels=PROMO, headers=LIST, days_ago=10)
@@ -89,7 +89,7 @@ def report(tmp_path, monkeypatch):
     a.series("kept", "info@kept.com", headers=RELAY)  # relayed, not categorised
     a.series("own", f"Me <{ME}>")  # from a backed-up address
     for account, box in ((ME, a), (OTHER, b)):
-        commands.backup(FakeGmail(box.messages), account, tmp_path / "data" / account)
+        commands.backup(FakeMailbox(box.messages), account, tmp_path / "data" / account)
     monkeypatch.chdir(tmp_path)
 
     def run(**opts):

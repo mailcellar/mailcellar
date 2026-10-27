@@ -2,10 +2,11 @@ import sqlite3
 
 import pytest
 
+from fake_mailbox import ACCOUNT, MS, FakeMailbox, raw_response
 from mailcellar.backup import commands, sidecar
 from mailcellar.dedup import cli as dedup
 from mailcellar.message import PARSER_VERSION, parse_eml
-from test_backup import ACCOUNT, MS, FakeGmail, raw_response, rows
+from test_backup import rows
 from test_index import make_eml
 
 
@@ -34,7 +35,7 @@ def meta_rows(folder):
 
 def backed_up(tmp_path, messages=None):
     folder = tmp_path / "data" / ACCOUNT
-    gmail = FakeGmail(
+    gmail = FakeMailbox(
         messages
         or {
             "g1": raw_response("g1", label_ids=["INBOX", "Label_1"]),
@@ -228,7 +229,7 @@ def test_cli_meta_offline(tmp_path, monkeypatch, capsys):
 def older_sidecar(tmp_path):
     """A backed-up message's sidecar, set back to schema 9 (before the forgotten table)."""
     folder = tmp_path / "data" / ACCOUNT
-    commands.backup(FakeGmail({"g1": raw_response("g1")}), ACCOUNT, folder)
+    commands.backup(FakeMailbox({"g1": raw_response("g1")}), ACCOUNT, folder)
     con = sqlite3.connect(folder / "meta.sqlite")
     con.execute("DROP TABLE forgotten")
     con.execute("UPDATE meta SET value = '9' WHERE name = 'schema_version'")

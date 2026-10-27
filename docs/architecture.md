@@ -288,7 +288,7 @@ that is pure.
 ## Testing
 
 `uv run pytest` — no network. Gmail is replaced by fakes:
-`FakeGmail` (account level, with history computed from mailbox snapshots)
-and `FakeService` (the googleapiclient surface, for batching and retries);
+`FakeMailbox` (`tests/fake_mailbox.py`: one account, providing `Mailbox`,
+with history computed from mailbox snapshots) and `FakeService` (the googleapiclient surface, for batching and retries);
 `FakeBackup` builds gyb folders. Changes are also checked against real
 backups, read-only, before they are relied on.

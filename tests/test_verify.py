@@ -5,6 +5,7 @@ import sqlite3
 
 import pytest
 
+from fake_mailbox import ACCOUNT, MS, FakeMailbox, raw_response
 from mailcellar import cli
 from mailcellar.backup import commands, gyb, sidecar, verify
 from mailcellar.backup.verify import (
@@ -21,7 +22,6 @@ from mailcellar.backup.verify import (
 )
 from mailcellar.message import PARSER_VERSION
 from mailcellar.paths import backup_folder
-from test_backup import ACCOUNT, MS, FakeGmail, raw_response
 from test_index import make_eml
 
 IDS = ("g1", "g2", "g3")
@@ -35,7 +35,7 @@ def eml(gid, text=None):
 def folder(tmp_path, monkeypatch):
     """A backup of three messages under ./data, with meta.sqlite filled in."""
     monkeypatch.chdir(tmp_path)
-    gmail = FakeGmail({g: raw_response(g, body=eml(g)) for g in IDS})
+    gmail = FakeMailbox({g: raw_response(g, body=eml(g)) for g in IDS})
     path = backup_folder(ACCOUNT)
     commands.backup(gmail, ACCOUNT, path)
     return path
@@ -150,7 +150,7 @@ def link_only(tmp_path, monkeypatch):
     """A backup of g1 and l1, whose body is only a link: no text left to hash."""
     monkeypatch.chdir(tmp_path)
     msgs = {"g1": eml("g1"), "l1": eml("l1", "https://example.com/shared/doc")}
-    gmail = FakeGmail({g: raw_response(g, body=b) for g, b in msgs.items()})
+    gmail = FakeMailbox({g: raw_response(g, body=b) for g, b in msgs.items()})
     path = backup_folder(ACCOUNT)
     commands.backup(gmail, ACCOUNT, path)
     return path
@@ -246,7 +246,7 @@ def test_no_backups_is_an_error(tmp_path, monkeypatch):
 
 def test_one_bad_account_does_not_stop_the_others(folder, capsys):
     other = backup_folder("b@example.org")
-    commands.backup(FakeGmail({"h1": raw_response("h1", body=eml("h1"))}), "b@example.org", other)
+    commands.backup(FakeMailbox({"h1": raw_response("h1", body=eml("h1"))}), "b@example.org", other)
     (other / "msg-db.sqlite").write_bytes(b"not a database")
     assert cli.main(["verify"]) == 1
     captured = capsys.readouterr()

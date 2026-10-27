@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from fake_mailbox import ACCOUNT, MS, FakeMailbox, raw_response
 from mailcellar import cli as mailcellar
 from mailcellar import gmailapi
 from mailcellar.backup import commands, gyb, sidecar
@@ -18,7 +19,7 @@ from mailcellar.dedup.index import index_backup
 from mailcellar.offload.apply import OFFLOAD_LABEL
 from mailcellar.report.db import open_sidecars
 from mailcellar.restore import apply as restore
-from test_backup import ACCOUNT, MS, FakeGmail, FakeService, Req, http_error, raw_response
+from test_backup import FakeService, Req, http_error
 from test_index import make_eml
 
 A, B = "a@x.com", "b@y.com"
@@ -33,98 +34,9 @@ LABELS = {
 BATCH = "2026-01-15-093000"
 
 
-def mid(raw_b64: str) -> str:
-    raw = base64.urlsafe_b64decode(raw_b64)
-    return " ".join(str(BytesHeaderParser().parsebytes(raw).get("Message-ID", "")).split())
-
-
-class Gmail(FakeGmail):
-    """FakeGmail plus the writes restore needs; matches imports by Message-ID like Gmail."""
-
-    def __init__(self, messages, account=A):
-        super().__init__(messages)
-        self.account = account
-        self.labels = dict(LABELS)
-        self.calls = []
-        self.imported = 0
-        self.crash_after_import = False
-
-    def label_names(self, label_ids):
-        return [self.labels[i] for i in label_ids if i in self.labels]
-
-    def label_catalogue(self):
-        return [
-            {"id": i, "name": n, "type": "system" if i == n else "user"}
-            for i, n in self.labels.items()
-        ]
-
-    def message_labels(self, ids):
-        return {
-            gid: set(self.label_names(self.messages[gid]["labelIds"]))
-            | ({"TRASH"} if gid in self.trashed else set())
-            if gid in self.messages
-            else None
-            for gid in ids
-        }
-
-    def find_message_id(self, message_id):
-        return [g for g, m in self.messages.items() if mid(m["raw"]) == message_id]
-
-    def list_message_ids(self, query=None, include_spam_trash=False, label_id=None):
-        self.listings = getattr(self, "listings", []) + [query]
-        if query == "in:trash":
-            return [g for g in self.messages if g in self.trashed]
-        return super().list_message_ids(query, include_spam_trash, label_id)
-
-    def find_message_ids(self, message_ids):
-        self.calls.append(("search", len(message_ids)))
-        return {k: self.find_message_id(m) for k, m in message_ids.items()}
-
-    def untrash(self, ids):
-        self.calls.append(("untrash", sorted(ids)))
-        self.trashed -= set(ids)
-        return []
-
-    def label_ids(self, names):
-        out = []
-        for name in names:
-            found = [i for i, n in self.labels.items() if n == name]
-            if not found:
-                self.labels[f"Label_{len(self.labels) + 1}"] = name
-                found = [f"Label_{len(self.labels)}"]
-            out.append(found[0])
-        return out
-
-    def add_label(self, ids, name):
-        self.calls.append(("label", sorted(ids), name))
-        (label_id,) = self.label_ids([name])
-        for gid in ids:
-            self.messages[gid]["labelIds"].append(label_id)
-
-    def remove_label(self, ids, name):
-        self.calls.append(("unlabel", sorted(ids), name))
-        for gid in ids:
-            self.messages[gid]["labelIds"] = [
-                i for i in self.messages[gid]["labelIds"] if self.labels.get(i) != name
-            ]
-
-    def import_messages(self, messages, on_imported):
-        failed = []
-        for key, (raw, label_ids) in messages.items():
-            b64 = base64.urlsafe_b64encode(raw).decode()
-            existing = self.find_message_id(mid(b64))
-            if existing:  # Gmail returns the message holding that Message-ID
-                new_id = existing[0]
-                self.trashed.discard(new_id)
-            else:
-                self.imported += 1
-                new_id = f"n{self.imported}"
-                self.messages[new_id] = raw_response(new_id, label_ids=label_ids, body=raw)
-            self.calls.append(("import", key, new_id, sorted(label_ids)))
-            if self.crash_after_import:
-                raise gmailapi.GmailError("connection lost")
-            on_imported(key, new_id)
-        return failed
+def Gmail(messages, account=A):
+    """The shared fake, with the labels restore's tests use."""
+    return FakeMailbox(messages, account=account, labels=LABELS)
 
 
 def message(gid, labels=("Label_1",), body=None):
@@ -430,7 +342,7 @@ def test_offloading_again_clears_the_restore():
 def test_v7_and_v8_sidecars_gain_the_restore_record_repeatably(tmp_path):
     """v8 adds offloaded.restored_ms; v9 rebuilds v8's restored table with a target."""
     folder = tmp_path / "data" / A
-    commands.backup(FakeGmail({"g1": raw_response("g1")}), A, folder)
+    commands.backup(FakeMailbox({"g1": raw_response("g1")}), A, folder)
     con = sqlite3.connect(folder / "meta.sqlite")
     con.executescript(
         """ALTER TABLE offloaded DROP COLUMN restored_ms;
@@ -593,7 +505,7 @@ def test_all_leaves_mail_still_in_gmail_alone(env, capsys, monkeypatch):
     monkeypatch.setattr(restore, "LISTING_THRESHOLD", 0)
     monkeypatch.setattr(env, "message_labels", lambda ids: pytest.fail("looked up one by one"))
     run("--all")
-    assert "in:trash" in env.listings
+    assert "in:trash" in env.queries
     got = log()
     assert got["k1"][0] == "already in Gmail" and "x1" not in got  # x1 was never backed up
     assert got["t1"][0] == "would untrash" and got["o1"][0] == "would record (already in Gmail)"

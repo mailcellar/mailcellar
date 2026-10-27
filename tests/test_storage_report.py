@@ -3,11 +3,11 @@ from email.message import EmailMessage
 
 import pytest
 
+from fake_mailbox import FakeMailbox, raw_response
 from mailcellar.backup import commands
 from mailcellar.report import cli, storage
 from mailcellar.report.db import AnalyticsError, completeness, open_sidecars
 from mailcellar.report.output import Table, cell, render
-from test_backup import FakeGmail, raw_response
 
 A, B = "a@example.com", "b@example.com"
 OLD = 1_300_000_000_000  # 2011-03-13
@@ -36,7 +36,7 @@ def message(gid, sender, subject, ms, size, labels=("INBOX",), attach=None):
 def two_accounts(tmp_path, monkeypatch):
     """Two backups in tmp_path/data with known sizes, labels and attachments."""
     monkeypatch.setattr(
-        FakeGmail, "LABELS", {**FakeGmail.LABELS, "STARRED": "STARRED", "SENT": "SENT"}
+        FakeMailbox, "LABELS", {**FakeMailbox.LABELS, "STARRED": "STARRED", "SENT": "SENT"}
     )
     a = {
         "a1": message("a1", "Big <big@corp.com>", "old-big", OLD, 9_000_000, attach=PDF),
@@ -48,7 +48,7 @@ def two_accounts(tmp_path, monkeypatch):
     }
     b = {"b1": message("b1", "other@z.net", "b-copy", NEW, 2_000_000, attach=PDF)}
     for account, msgs in ((A, a), (B, b)):
-        commands.backup(FakeGmail(msgs), account, tmp_path / "data" / account)
+        commands.backup(FakeMailbox(msgs), account, tmp_path / "data" / account)
     monkeypatch.chdir(tmp_path)
     con, accounts = open_sidecars(cli.resolve_folders([]))
     yield con, accounts
@@ -195,7 +195,7 @@ def test_cli_rejects_unmigrated_sidecar(tmp_path, monkeypatch):
     import sqlite3
 
     folder = tmp_path / "data" / A
-    commands.backup(FakeGmail({"a1": message("a1", "x@y", "s", NEW, 10)}), A, folder)
+    commands.backup(FakeMailbox({"a1": message("a1", "x@y", "s", NEW, 10)}), A, folder)
     side = sqlite3.connect(folder / "meta.sqlite")
     side.execute("UPDATE meta SET value = '3' WHERE name = 'schema_version'")
     side.commit()

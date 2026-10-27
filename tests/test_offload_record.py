@@ -4,10 +4,10 @@ import sqlite3
 
 import pytest
 
+from fake_mailbox import FakeMailbox, raw_response
 from mailcellar.backup import commands, sidecar
 from mailcellar.report import health
 from mailcellar.report.db import open_sidecars
-from test_backup import FakeGmail, raw_response
 
 A = "a@x.com"
 OFFLOADED = ("g0", "g1", "g2")
@@ -21,7 +21,7 @@ def yes(prompt):
 def setup(tmp_path):
     """20 backed-up messages; g0–g2 offloaded (recorded, then trashed in Gmail)."""
     folder = tmp_path / "data" / A
-    gmail = FakeGmail({f"g{i}": raw_response(f"g{i}") for i in range(20)})
+    gmail = FakeMailbox({f"g{i}": raw_response(f"g{i}") for i in range(20)})
     commands.backup(gmail, A, folder)
     con = sidecar.open_meta(folder)
     sidecar.record_offloaded(con, OFFLOADED, "2026-10-24-120000", "old bulk", 1_000)
@@ -50,7 +50,7 @@ def last_run(folder, *cols):
 
 def test_v5_sidecar_gains_offloaded_repeatably(tmp_path):
     folder = tmp_path / "data" / A
-    commands.backup(FakeGmail({"g1": raw_response("g1")}), A, folder)
+    commands.backup(FakeMailbox({"g1": raw_response("g1")}), A, folder)
     con = sqlite3.connect(folder / "meta.sqlite")
     con.execute("DROP TABLE offloaded")
     con.execute("ALTER TABLE runs DROP COLUMN offloaded")
@@ -95,7 +95,7 @@ def test_v6_purge_record_becomes_the_offload_record_repeatably(setup):
 def test_v5_sidecar_with_both_run_columns_keeps_the_count(tmp_path):
     """A v5 sidecar migrated by v6's step gains runs.offloaded; a stray purged column merges."""
     folder = tmp_path / "data" / A
-    commands.backup(FakeGmail({"g1": raw_response("g1")}), A, folder)
+    commands.backup(FakeMailbox({"g1": raw_response("g1")}), A, folder)
     con = sqlite3.connect(folder / "meta.sqlite")
     con.execute("ALTER TABLE runs ADD COLUMN purged INTEGER")
     con.execute("UPDATE runs SET purged = 4")

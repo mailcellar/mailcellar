@@ -12,12 +12,12 @@ import sqlite3
 
 import pytest
 
+from fake_mailbox import ACCOUNT, FakeMailbox, raw_response
 from mailcellar.backup import commands, sidecar
 from mailcellar.dedup import cli as dedup
 from mailcellar.dedup import db as dedup_db
 from mailcellar.search import db as search_db
 from mailcellar.search import index
-from test_backup import ACCOUNT, FakeGmail, raw_response
 
 # Rebuilt on every match (dedup's v5 step drops them), so not data to keep.
 REBUILT = {"match_groups", "match_members"}
@@ -25,7 +25,7 @@ REBUILT = {"match_groups", "match_members"}
 
 def backed_up(tmp_path):
     folder = tmp_path / "data" / ACCOUNT
-    gmail = FakeGmail({gid: raw_response(gid) for gid in ("g1", "g2")})
+    gmail = FakeMailbox({gid: raw_response(gid) for gid in ("g1", "g2")})
     commands.backup(gmail, ACCOUNT, folder)
     return folder
 

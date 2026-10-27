@@ -6,6 +6,7 @@ import hashlib
 import sqlite3
 from email.message import EmailMessage
 
+from fake_mailbox import ACCOUNT, FakeMailbox, raw_response
 from mailcellar.backup import commands, sidecar
 from mailcellar.message import (
     attachment_hashes,
@@ -16,7 +17,6 @@ from mailcellar.message import (
     parse_message,
     recipients,
 )
-from test_backup import ACCOUNT, FakeGmail, raw_response
 
 
 def parse(raw: bytes):
@@ -177,7 +177,7 @@ def children(folder):
 def backed_up(tmp_path, n=1):
     folder = tmp_path / "data" / ACCOUNT
     body = with_parts((b"%PDF ticket", "application", "pdf", "ticket.pdf"))
-    gmail = FakeGmail({f"g{i}": raw_response(f"g{i}", body=body) for i in range(n)})
+    gmail = FakeMailbox({f"g{i}": raw_response(f"g{i}", body=body) for i in range(n)})
     commands.backup(gmail, ACCOUNT, folder)
     return gmail, folder
 

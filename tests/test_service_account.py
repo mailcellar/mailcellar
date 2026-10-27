@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from fake_mailbox import FakeMailbox, raw_response
 from mailcellar import cli, gmailapi
 from mailcellar.backup import schedule
 from mailcellar.setup import cli as setup
@@ -236,17 +237,12 @@ def test_a_network_failure_is_a_gmail_error_not_a_traceback(configured, fake_goo
     assert not isinstance(exc.value, gmailapi.AccessRefused)  # not the admin's to fix
 
 
-class FakeAccount:
-    """Stands in for GmailAccount: its identity check, and the mail backup reads."""
+class FakeAccount(FakeMailbox):
+    """Stands in for GmailAccount: the credentials the key gives, then one message."""
 
     def __init__(self, account, creds):
-        from test_backup import FakeGmail, raw_response
-
         assert creds.subject == account  # the key acting as the account
-        self.inner = FakeGmail({"s1": raw_response("s1")})
-
-    def __getattr__(self, name):
-        return getattr(self.inner, name)
+        super().__init__({"s1": raw_response("s1")}, account=account)
 
 
 def test_setup_checks_the_mailbox_and_says_when_it_cant(

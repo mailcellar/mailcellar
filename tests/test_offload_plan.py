@@ -4,6 +4,7 @@ import csv
 
 import pytest
 
+from fake_mailbox import FakeMailbox, raw_response
 from mailcellar.backup import commands, sidecar
 from mailcellar.backup.gyb import backup_account
 from mailcellar.offload import cli
@@ -11,7 +12,6 @@ from mailcellar.offload.plan import PLAN_COLUMNS, build_plan
 from mailcellar.offload.rules import DEFAULT_PROTECT, RuleError, fold, load_rules
 from mailcellar.report.cli import parse_before, resolve_folders
 from mailcellar.report.db import open_sidecars
-from test_backup import FakeGmail, raw_response
 
 A, B = "a@x.com", "b@y.com"
 OLD = 1_300_000_000_000  # 2011-03-13
@@ -89,9 +89,17 @@ account = "a@x"
 
 @pytest.fixture
 def data(tmp_path, monkeypatch):
-    monkeypatch.setattr(FakeGmail, "LABELS", LABELS)
+    monkeypatch.setattr(FakeMailbox, "LABELS", LABELS)
     for account, msgs in {A: MAILBOX_A, B: [message("b1")]}.items():
-        commands.backup(FakeGmail({m["id"]: m for m in msgs}), account, tmp_path / "data" / account)
+        # Mail already in Trash isn't listed, as in Gmail: back it up first, then
+        # trash it, and the next backup records the label.
+        gmail = FakeMailbox({m["id"]: m for m in msgs})
+        trashed = set(gmail.trashed)
+        for gid in trashed:
+            gmail.trashed.discard(gid)
+        commands.backup(gmail, account, tmp_path / "data" / account)
+        gmail.trashed.update(trashed)
+        commands.backup(gmail, account, tmp_path / "data" / account)
     con = sidecar.open_meta(tmp_path / "data" / A)
     sidecar.record_offloaded(con, ["w10"], "batch", "work", 1)
     con.commit()

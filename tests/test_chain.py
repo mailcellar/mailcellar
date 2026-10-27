@@ -5,6 +5,7 @@ import sqlite3
 
 import pytest
 
+from fake_mailbox import ACCOUNT, FakeMailbox, raw_response
 from mailcellar.backup import chain, commands, gyb, verify
 from mailcellar.backup.chain import (
     ANCHOR_MISMATCH,
@@ -17,7 +18,6 @@ from mailcellar.backup.chain import (
     Link,
 )
 from mailcellar.report import health
-from test_backup import ACCOUNT, FakeGmail, raw_response
 
 
 def lines_of(*links):
@@ -120,7 +120,7 @@ def ops(folder):
 @pytest.fixture
 def backed_up(tmp_path):
     folder = tmp_path / "data" / ACCOUNT
-    gmail = FakeGmail({g: raw_response(g) for g in ("g1", "g2", "g3")})
+    gmail = FakeMailbox({g: raw_response(g) for g in ("g1", "g2", "g3")})
     commands.backup(gmail, ACCOUNT, folder)
     return gmail, folder
 
@@ -263,7 +263,7 @@ def test_the_text_report_prints_the_head_hash_in_full(backed_up):
 
 
 def test_a_backup_refuses_a_backup_it_anchored_that_isnt_there(tmp_path):
-    gmail = FakeGmail({"g1": raw_response("g1")})
+    gmail = FakeMailbox({"g1": raw_response("g1")})
     folder = tmp_path / "volume" / ACCOUNT
     commands.backup(gmail, ACCOUNT, folder)  # the first backup: no anchor yet
     (tmp_path / "volume").rename(tmp_path / "unmounted")  # the volume goes away

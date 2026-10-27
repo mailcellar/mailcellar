@@ -2,14 +2,15 @@ import httplib2
 import pytest
 from googleapiclient.errors import HttpError
 
+from fake_mailbox import ACCOUNT, FakeMailbox, raw_response
 from mailcellar import gmailapi
 from mailcellar.backup import commands, sidecar
-from test_backup import ACCOUNT, FakeGmail, raw_response, rows
+from test_backup import rows
 from test_meta import meta_rows
 
 
 def first_run(tmp_path, messages=None):
-    gmail = FakeGmail(messages or {"g1": raw_response("g1"), "g2": raw_response("g2")})
+    gmail = FakeMailbox(messages or {"g1": raw_response("g1"), "g2": raw_response("g2")})
     folder = tmp_path / "data" / ACCOUNT
     stats = commands.backup(gmail, ACCOUNT, folder)
     assert stats["mode"] == "full"
