@@ -35,6 +35,10 @@ in beta, so commands and options may still change before 1.0.
   in `X-Gmail-Labels`, where they became labels of replacement characters.
 - `restore`'s summary names the label restored mail carries (`--label`),
   not always `restored/`.
+- `restore --from-mbox` finds the end of a message's headers when a header
+  line ends in LF and the blank line after it in CRLF, where it took the
+  whole message for headers and could drop a body line that looked like
+  `X-Gmail-Labels`.
 
 ## 0.12.0 (2026-10-26)
 

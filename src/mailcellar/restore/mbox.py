@@ -68,8 +68,18 @@ def unescape(entry: bytes) -> bytes:
 
 
 def _header_end(raw: bytes) -> int:
-    ends = [i for i in (raw.find(b"\r\n\r\n"), raw.find(b"\n\n")) if i != -1]
-    return min(ends) if ends else len(raw)
+    """
+    Where the header section ends: the line break before the first blank
+    line, whichever line endings the two use (a header line ending in LF
+    and a blank line in CRLF too); len(raw) if there is no blank line.
+    """
+    pos, prev_break = 0, 0
+    while (nl := raw.find(b"\n", pos)) != -1:
+        if raw[pos : nl + 1] in (b"\n", b"\r\n"):
+            return pos - prev_break
+        prev_break = 2 if raw[nl - 1 : nl] == b"\r" else 1
+        pos = nl + 1
+    return len(raw)
 
 
 def without_added_headers(raw: bytes) -> bytes:
