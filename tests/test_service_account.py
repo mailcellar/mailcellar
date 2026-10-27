@@ -143,7 +143,15 @@ def test_setup_installs_the_key_once_for_the_domain(tmp_path, capsys):
     assert json.loads(key.read_text()) == KEY and key.stat().st_mode & 0o777 == 0o600
     assert key.parent.stat().st_mode & 0o777 == 0o700
     assert (root / "accounts.toml").read_text() == f'alex = "{ADDRESS}"\n'
-    assert "read through the service account" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "read through the service account" in out and "--client FILE adds" in out
+
+    # An account that already has an OAuth client keeps it, and isn't told to add one.
+    (root / "alex" / "client_secrets.json").write_text("{}")
+    assert setup_run(*args) == 0
+    out = capsys.readouterr().out
+    assert "already listed" in out and "with the account's OAuth client" in out
+    assert "--client FILE adds" not in out
 
     # A second address in the domain shares it; another key is refused without --force.
     other = ("sam@example.org", "--service-account", str(source), "--no-auth")
