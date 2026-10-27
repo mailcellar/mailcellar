@@ -176,9 +176,9 @@ def list_entries(lines) -> tuple[tuple[str, str | None, frozenset[str]], ...]:
 def folders_from(entries) -> tuple[Folder, ...]:
     """
     The folders to back up, with their labels. A name stands for a role
-    (Trash, Junk…) only when the server marks no folder for it: iCloud marks
-    Sent and Trash but not its Junk, while a user's own folder called Junk
-    stays theirs on a server that marks its real one. Pure.
+    (Trash, Junk…) only when the server marks no folder for it: a server may
+    mark Sent and Trash but not its Junk, while a user's own folder called
+    Junk stays theirs on a server that marks its real one. Pure.
     """
     by_name = frozenset(BY_NAME.values()) - marked_roles(entries)
     return tuple(
@@ -210,6 +210,15 @@ def exists_from(data) -> int | None:
     """EXAMINE's message count (its EXISTS), or None if it gave none. Pure."""
     first = data[0] if data else None
     return int(first) if isinstance(first, bytes) and first.strip().isdigit() else None
+
+
+def stalled(before: frozenset[int], got: frozenset[int]) -> bool:
+    """
+    A SEARCH pass below the lowest UID found that found UIDs, none of them
+    new: the server ignored the range, so what it lists may be cut short.
+    Pure.
+    """
+    return bool(got) and not got - before and min(got) > 1
 
 
 def next_search(before: frozenset[int], got: frozenset[int], exists: int | None):
@@ -640,13 +649,20 @@ class ImapAccount:
         """
         The examined folder's UIDs, in as many SEARCH passes as next_search
         asks for: a server with MESSAGELIMIT says it cut a SEARCH short in an
-        OK that imaplib doesn't return.
+        OK that imaplib doesn't return. A listing that stalls is refused
+        (GmailError), so the folder is skipped and its mail not taken as gone.
         """
         found: frozenset[int] = frozenset()
         criteria: tuple[str, ...] | None = ("ALL",)
         while criteria is not None:
             typ, data = conn.uid("SEARCH", None, *criteria)
             got = search_uids(self._ok(typ, data, "SEARCH"))
+            if stalled(found, got):
+                shown = f" of {exists:,}" if exists is not None else ""
+                raise gmailapi.GmailError(
+                    f"listed {len(found):,}{shown} messages: the server cut SEARCH short "
+                    "and ignored the UID range that would list the rest"
+                )
             criteria = next_search(found, got, exists)
             found |= got
         return sorted(found)

@@ -32,6 +32,7 @@ class FakeImap:
         self.stalls = 0  # how many of the next commands time out
         self.breaks = 0  # how many of the next commands stop halfway (Ctrl-C, say)
         self.message_limit: int | None = None  # MESSAGELIMIT (RFC 9738): highest N only
+        self.no_exists = False  # EXAMINE answers without a message count
         self.refused: set[str] = set()  # folders EXAMINE answers NO for
         self.bodiless: set[int] = set()  # UIDs whose BODY.PEEK[] comes back without a body
         self.capabilities = ("IMAP4REV1", "LITERAL+", "AUTH=PLAIN")  # the greeting's, as imaplib
@@ -107,7 +108,7 @@ class FakeImap:
         if name not in self.folders or name in self.refused:
             return "NO", [b"Mailbox doesn't exist"]
         self.selected = name
-        return "OK", [str(len(self.folders[name]["uids"])).encode()]
+        return "OK", [None if self.no_exists else str(len(self.folders[name]["uids"])).encode()]
 
     def response(self, code):
         assert code == "UIDVALIDITY"

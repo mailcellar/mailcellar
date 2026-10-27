@@ -325,7 +325,7 @@ def test_a_copy_in_trash_doesnt_hide_mail_that_lives_in_the_inbox(server):
 
 
 def test_names_stand_in_for_the_roles_a_server_marks_no_folder_for():
-    # iCloud's LIST: Sent and Trash marked, Junk and Drafts known only by name.
+    # A server marking Sent and Trash only: Junk and Drafts are known by name.
     lines = [
         b'(\\Noinferiors) "/" "INBOX"',
         b'(\\HasNoChildren) "/" "Archive"',
@@ -352,14 +352,18 @@ def test_listing_stops_when_a_pass_finds_nothing_new():
     first = frozenset(range(1001, 2001))
     assert imap.next_search(frozenset(), first, 2500) == ("UID", "1:1000")
     assert imap.next_search(first, first, 2500) is None  # a server ignoring the range
+    assert imap.stalled(first, first) and not imap.stalled(frozenset(), first)
     assert imap.next_search(frozenset(), frozenset(), 5) is None  # an empty pass
     assert imap.next_search(frozenset(), frozenset({1, 2}), 9) is None  # down to UID 1
     assert imap.next_search(frozenset(), frozenset({5, 6}), 2) is None  # the count reached
     assert imap.next_search(frozenset(), frozenset({5, 6}), None) == ("UID", "1:4")
 
 
-def test_a_server_ignoring_the_uid_range_doesnt_hang_the_listing(server, monkeypatch):
+def test_a_listing_cut_short_skips_the_folder_rather_than_lose_its_mail(
+    server, monkeypatch, caplog
+):
     server.message_limit = 2
+    server.add("INBOX", msgid="<kept@x>", flags={"\\Seen"})
     for n in range(5):
         server.add("Projects/2026", msgid=f"<p{n}@x>", flags={"\\Seen"})
     search = server.uid
@@ -368,7 +372,18 @@ def test_a_server_ignoring_the_uid_range_doesnt_hang_the_listing(server, monkeyp
         return search(command, *((None, "ALL") if command == "SEARCH" else args))
 
     monkeypatch.setattr(server, "uid", ignoring_ranges)
-    assert len(account(server).list_message_ids()) == 2  # the two it was given; no hang
+    box = account(server)
+    assert len(box.list_message_ids()) == 1  # INBOX's; no hang, and no partial folder
+    assert "skipped Projects/2026: listed 2 of 5 messages" in caplog.text
+    assert box._cache[1].skipped == {"Projects/2026"}  # its mail isn't taken as gone
+
+
+def test_a_folder_examine_gives_no_count_for_is_listed_in_full(server):
+    server.message_limit = 1000  # fetches go 200 at a time, under it
+    server.no_exists = True
+    for n in range(1500):
+        server.add("Projects/2026", msgid=f"<p{n}@x>", flags={"\\Seen"})
+    assert len(account(server).list_message_ids()) == 1500  # passes until one is empty
 
 
 def test_examine_without_a_count_lists_until_a_pass_is_empty():
