@@ -47,6 +47,10 @@ in beta, so commands and options may still change before 1.0.
   reads back, keep calling it `gmail_id`, and the restore log `source_id`.
 
 ### Fixed
+- A new data root is created owner-only (mode 700), as the config folder
+  is: it used to take the umask's mode, usually 755, so other users on the
+  machine could read the backed-up mail. A root that already exists keeps
+  its mode; `chmod 700` it to close it.
 - `restore`'s notes reach its log. A restored message whose restore label
   couldn't be added (or, on an IMAP account, whose offload mark couldn't be
   taken off) gets a second row with the note; the note used to be lost,
