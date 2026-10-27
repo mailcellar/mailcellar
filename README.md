@@ -1,6 +1,10 @@
 # mailcellar
 
 [![CI](https://github.com/mailcellar/mailcellar/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mailcellar/mailcellar/actions/workflows/ci.yml?query=branch%3Amain)
+[![Docs](https://github.com/mailcellar/mailcellar/actions/workflows/docs.yml/badge.svg?branch=main)](https://mailcellar.github.io/mailcellar/)
+[![PyPI](https://img.shields.io/pypi/v/mailcellar)](https://pypi.org/project/mailcellar/)
+[![Python](https://img.shields.io/pypi/pyversions/mailcellar)](https://pypi.org/project/mailcellar/)
+[![License](https://img.shields.io/github/license/mailcellar/mailcellar)](https://github.com/mailcellar/mailcellar/blob/main/LICENSE)
 
 **Gmail storage full? Move old mail out of Gmail without losing it.**
 mailcellar keeps a local backup of your Gmail accounts. You can then take old
