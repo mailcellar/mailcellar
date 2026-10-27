@@ -248,7 +248,7 @@ class FakeMailbox:
     def label_ids(self, names):
         return self._ids_for(names)
 
-    def add_label(self, gmail_ids, label_name):
+    def add_label(self, gmail_ids, label_name, review=True):
         self._record(self.calls, ("label", sorted(gmail_ids), label_name))
         (label_id,) = self._ids_for([label_name])
         for gid in gmail_ids:
@@ -302,7 +302,7 @@ class FakeMailbox:
         self._record(self.calls, ("search", len(message_ids)))
         return {k: self._with_message_id(m) for k, m in message_ids.items()}
 
-    def import_messages(self, messages, on_imported):
+    def import_messages(self, messages, on_imported, dates=None):
         """Matches an import to the message holding its Message-ID, as Gmail does."""
         for key, (raw, label_ids) in messages.items():
             existing = self._with_message_id(message_id(base64.urlsafe_b64encode(raw).decode()))

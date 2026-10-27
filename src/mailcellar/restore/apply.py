@@ -295,6 +295,7 @@ def candidates(
         }
         done = set() if include_restored else sidecar.restored_ids(con, target)
         done |= sidecar.forgotten_ids(con)  # deleted from the backup: nothing to restore from
+        marks = sidecar.mark_labels(con)  # an IMAP backup's review marks: not put back
     finally:
         con.close()
     whole = everything or (bool(ids) and not offloaded_only)
@@ -311,7 +312,7 @@ def candidates(
             batch,
             rule,
             bm.path if bm else None,
-            tuple(bm.labels) if bm else (),
+            tuple(label for label in bm.labels if label not in marks) if bm else (),
             internal_date or 0,
             content_hash or "",
             version or "",
@@ -639,7 +640,7 @@ def apply(
             if not target:
                 gmail.remove_label(done, OFFLOAD_LABEL)
             gmail.label_ids([label])  # creates restored/ first
-            unlabelled = unmarked(gmail.add_label(done, label))
+            unlabelled = unmarked(gmail.add_label(done, label, review=False))
             for source_id, r in list(results.items()):
                 if r.new_id in unlabelled:  # restored all the same: only the label is missing
                     results[source_id] = with_note(
@@ -687,6 +688,9 @@ def _import(
     system = {label["id"] for label in gmail.label_catalogue() if label["type"] == "system"}
     index_folder = target_folder or folder
     tcon = sidecar.open_meta(target_folder) if target_folder else mcon
+    if tcon is not None and gmail.provider != "gmail":  # its IDs aren't Gmail's, as backup marks
+        sidecar.set_state(tcon, "provider", gmail.provider)
+        tcon.commit()
     try:
         progress(f"Importing {len(imports):,} messages")
         with Progress("Importing", len(imports)):
@@ -737,7 +741,11 @@ def _import_chunk(gmail, tcon, folder, chunk, record, emit, system, prefix, stri
         label_ids, refused = _label_ids(gmail, keep)
         dropped += [f"{name} (Gmail refused it)" for name in refused]
         notes = [f"labels not restored: {', '.join(dropped)}"] if dropped else []
-        if (redated := dated(raw, d.candidate.internal_date)) is not None:
+        # Gmail dates an import by its Date header, so one without gets the backup's
+        # date; an IMAP server takes the date apart (INTERNALDATE), and adding a
+        # header there would change the bytes, and so the ID it comes back under.
+        redated = dated(raw, d.candidate.internal_date) if gmail.provider == "gmail" else None
+        if redated is not None:
             raw = redated  # the backup's file is left as it is
             notes.append("Date header added from the backup's date")
         ready[d.source_id] = (d, raw, fields, "; ".join(notes), label_ids)
@@ -749,7 +757,8 @@ def _import_chunk(gmail, tcon, folder, chunk, record, emit, system, prefix, stri
         results[source_id] = emit(record(d, new_id, "imported", "imported", note))
 
     messages = {sid: (raw, label_ids) for sid, (_d, raw, _f, _n, label_ids) in ready.items()}
-    for failure in gmail.import_messages(messages, on_imported):
+    dates = {sid: v[0].candidate.internal_date for sid, v in ready.items()}
+    for failure in gmail.import_messages(messages, on_imported, dates):
         sid = failure.split(":", 1)[0]
         results[sid] = emit(Result(ready[sid][0], "failed", failure))
 

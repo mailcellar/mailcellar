@@ -123,17 +123,32 @@ def restore_dir() -> Path:
     return data_root() / "restore"
 
 
-def refuse_imap_source(folder: Path) -> None:
-    """Exit if `folder` is a backup of an IMAP account, or can't be told: its IDs aren't Gmail's."""
+def provider_problem(source: str, target: str) -> str:
+    """Why a `source` backup can't go into a `target` account yet, or "". Pure."""
+    if source == target:
+        return ""
+    kind = {"gmail": "a Gmail", "imap": "an IMAP"}
+    return (
+        f"restoring {kind.get(source, source)} backup into {kind.get(target, target)} "
+        "account isn't supported yet (#113)"
+    )
+
+
+def refuse_other_provider(folder: Path, target_config: Path) -> None:
+    """
+    Exit if `folder`'s mail can't go into the account configured in
+    `target_config`: a backup of the other provider (its IDs and labels are
+    the other kind), or one whose provider can't be told.
+    """
+    from mailcellar import gmailapi
+
     try:
-        is_imap = sidecar.provider(folder) == "imap"
+        source = sidecar.provider(folder)
     except sidecar.MetaError as exc:
         sys.exit(f"error: {exc}")
-    if is_imap:
-        sys.exit(
-            f"error: {folder} is a backup of an IMAP account; "
-            "restoring it isn't supported yet (#108)"
-        )
+    target = "imap" if gmailapi.is_imap(target_config) else "gmail"
+    if problem := provider_problem(source, target):
+        sys.exit(f"error: {folder}: {problem}")
 
 
 def main(argv=None, prog: str | None = None) -> int:
@@ -229,7 +244,7 @@ def main(argv=None, prog: str | None = None) -> int:
     folder = backup_folder(account)
     if not sidecar.meta_path(folder).is_file():
         sys.exit(f"error: {folder} has no meta.sqlite; run mailcellar meta")
-    refuse_imap_source(folder)
+    refuse_other_provider(folder, target_config)
     try:
         cands = candidates(
             folder,
@@ -266,7 +281,12 @@ def main(argv=None, prog: str | None = None) -> int:
             sys.exit(f"error: {problem}")
     try:
         with closing(
-            mailbox.open_mailbox(target, target_config, "modify" if args.yes else "readonly")
+            mailbox.open_mailbox(
+                target,
+                target_config,
+                "modify" if args.yes else "readonly",
+                folder=backup_folder(target),  # an IMAP account's map, and where mail lived
+            )
         ) as gmail:
             decisions = plan(gmail, cands, same_account=not other, progress=progress)
             with RestoreLog(Path(args.log), mode, account, target if other else "") as log:
@@ -312,7 +332,7 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
     try:
         if args.from_pruned:
             where = f"pruned batch {args.from_pruned}"
-            refuse_imap_source(backup_folder(account))
+            refuse_other_provider(backup_folder(account), target_config)
             cands = sources.from_pruned(backup_folder(account), args.from_pruned)
         elif args.from_mbox:
             where = args.from_mbox
@@ -325,7 +345,7 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
                     "--from-folder is the backup of the account restored into; select its "
                     "mail with --offloaded, --batch, --rule, --id or --all instead"
                 )
-            refuse_imap_source(folder)
+            refuse_other_provider(folder, target_config)
             cands = sources.from_folder(folder)
     except sources.SourceError as exc:
         sys.exit(f"error: {exc}")
@@ -342,7 +362,12 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
     progress = logger.info
     try:
         with closing(
-            mailbox.open_mailbox(target, target_config, "modify" if args.yes else "readonly")
+            mailbox.open_mailbox(
+                target,
+                target_config,
+                "modify" if args.yes else "readonly",
+                folder=backup_folder(target),  # an IMAP account's map, and where mail lived
+            )
         ) as gmail:
             decisions = plan(gmail, cands, same_account=False, progress=progress)
             target_name = target if target != account else ""
@@ -396,11 +421,11 @@ def report(
             "(more for large messages)."
         )
     if mode == "dry-run":
-        print("Nothing in Gmail or the backup was changed. Run again with --yes to restore.")
+        print("Nothing in the mailbox or the backup was changed. Run again with --yes to restore.")
     else:
         done = sum(counts[o] for o in DONE)
         if done:
             print(
                 f"Restored {done:,} at {time.strftime('%H:%M')}; they carry the label "
-                f"{label or 'restored/'!r} in Gmail."
+                f"{label or 'restored/'!r} (on an IMAP server, as a $mailcellar- keyword)."
             )

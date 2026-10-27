@@ -14,13 +14,18 @@ in beta, so commands and options may still change before 1.0.
   `meta`, `verify`, `schedule`, `search`, `export`, holds and the reports
   work on it as on Gmail. Read-only: nothing on the server changes, not
   even a message's read state. Folders and flags become labels; Junk and
-  Trash are left out, as Spam and Trash are for Gmail. Restore into IMAP
-  accounts doesn't work yet. A new guide covers it.
+  Trash are left out, as Spam and Trash are for Gmail. A new guide
+  covers it.
 - `offload apply` and `dedup apply` work on IMAP accounts whose server has
   MOVE and a special-use Trash: `--label` marks each candidate with a
   `$mailcellar-` keyword (clear it in a mail client to keep the message),
   `--trash` moves what is still marked to Trash and confirms it there.
   Nothing is expunged; other servers are refused, saying what's missing.
+- `restore` works on IMAP accounts: an IMAP backup goes back into its
+  account, or another IMAP account. Mail still in Trash is moved back to
+  the folders it lived in; mail the server no longer has is appended with
+  its flags and date, under the same ID. Between Gmail and IMAP accounts
+  it is refused for now.
 - `setup --imap --review keyword|folder` chooses how offload and dedup
   mark an IMAP account's mail for review: a `$mailcellar-` keyword, or a
   move into a `mailcellar/review/` folder (moving it out keeps it), the

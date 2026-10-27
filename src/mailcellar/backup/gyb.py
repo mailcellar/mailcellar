@@ -121,6 +121,25 @@ def message_files(folder: Path, gmail_ids) -> dict[str, Path]:
     return {uid: p for uid, p in found.items() if p is not None and p.is_file()}
 
 
+def labels_of(folder: Path, gmail_ids) -> dict[str, list[str]]:
+    """Each ID's labels in the backup's index, read-only; empty for no backup."""
+    path = folder / DB_NAME
+    if not path.is_file():
+        return {}
+    wanted = set(gmail_ids)
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        out: dict[str, list[str]] = {}
+        for uid, label in con.execute(
+            "SELECT uid, label FROM uids NATURAL JOIN labels ORDER BY uid, label"
+        ):
+            if uid in wanted:
+                out.setdefault(uid, []).append(label)
+        return out
+    finally:
+        con.close()
+
+
 def is_chat(label_ids) -> bool:
     return bool(CHAT_LABELS & set(label_ids))
 

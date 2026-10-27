@@ -3,7 +3,8 @@
 `restore` puts backed-up mail back into Gmail: offloaded messages, or a
 whole backup, into its own account or another configured one. Without
 `--yes` it is a dry run, which checks the backup and Gmail and says what
-it would do.
+it would do. An IMAP account's backup restores the same way into an IMAP
+account; see [Backing up an IMAP account](../guide/imap.md#4-restore).
 
 ```bash
 mailcellar restore personal --batch 2026-01-15-093000   # dry run of one offload batch

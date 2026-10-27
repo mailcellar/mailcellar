@@ -626,6 +626,18 @@ def record_imap_review(con: sqlite3.Connection, label: str, origins: Mapping, no
     )
 
 
+def read_message_ids(folder: Path) -> dict[str, str]:
+    """Every backed-up message's Message-ID header (ID → it), read-only; empty if none."""
+    path = meta_path(folder)
+    if not path.is_file():
+        return {}
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        return dict(con.execute("SELECT gmail_id, message_id FROM messages"))
+    finally:
+        con.close()
+
+
 def keep_imap_reviews(con: sqlite3.Connection, keep, before_ms: int) -> None:
     """
     Drop the review records not in `keep`, (ID, label) pairs, that were written
@@ -656,7 +668,9 @@ def read_imap_reviews(folder: Path) -> dict[str, dict[str, tuple[tuple[str, str]
         if "imap_review" not in tables:
             return {}
         out: dict[str, dict[str, tuple[tuple[str, str], ...]]] = {}
-        for msg_id, label, origins in con.execute("SELECT msg_id, label, origins FROM imap_review"):
+        for msg_id, label, origins in con.execute(
+            "SELECT msg_id, label, origins FROM imap_review ORDER BY marked_at, label"
+        ):
             out.setdefault(msg_id, {})[label] = tuple(tuple(o) for o in json.loads(origins))
         return out
     finally:
@@ -695,6 +709,31 @@ def read_imap_map(folder: Path) -> dict[str, tuple[int, dict[int, str]]]:
         for name, uidvalidity, uid, msg_id in con.execute("SELECT * FROM imap_map"):
             out.setdefault(name, (uidvalidity, {}))[1][uid] = msg_id
         return out
+    finally:
+        con.close()
+
+
+def mark_labels(con: sqlite3.Connection) -> frozenset[str]:
+    """The labels an IMAP backup has seen as mailcellar's marks (keywords, review folders)."""
+    return frozenset(json.loads(get_state(con, "imap_marks") or "[]"))
+
+
+def add_mark_labels(con: sqlite3.Connection, labels) -> None:
+    """Remember more mark labels, keeping those seen before. No commit."""
+    seen = mark_labels(con) | set(labels)
+    set_state(con, "imap_marks", json.dumps(sorted(seen)))
+
+
+def read_mark_labels(folder: Path) -> frozenset[str]:
+    """mark_labels of the backup in `folder`, read-only; none without a sidecar."""
+    path = meta_path(folder)
+    if not path.is_file():
+        return frozenset()
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        return mark_labels(con)
+    except sqlite3.Error:
+        return frozenset()
     finally:
         con.close()
 

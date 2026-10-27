@@ -115,7 +115,7 @@ def test_dry_run_says_what_it_would_do_and_changes_nothing(env, capsys):
     assert [c[0] for c in env.calls] == ["search"] and env.scopes == ["readonly"]
     assert restored_rows(env.folder) == {}
     captured = capsys.readouterr()
-    assert "Nothing in Gmail or the backup was changed" in captured.out
+    assert "Nothing in the mailbox or the backup was changed" in captured.out
     # Progress lines go to stderr, unless --quiet.
     assert captured.err.startswith("Checked 5 backup copies")
     assert "Searching Gmail for the Message-IDs" in captured.err
@@ -219,12 +219,12 @@ def test_crash_after_import_is_found_next_time_not_uploaded_twice(env):
 def test_an_interrupted_restore_leaves_its_log(env, monkeypatch):
     real = env.import_messages
 
-    def import_then_interrupt(messages, on_imported):
+    def import_then_interrupt(messages, on_imported, dates=None):
         def first_then_stop(key, new_id):
             on_imported(key, new_id)
             raise KeyboardInterrupt
 
-        return real(messages, first_then_stop)
+        return real(messages, first_then_stop, dates)
 
     monkeypatch.setattr(env, "import_messages", import_then_interrupt)
     with pytest.raises(KeyboardInterrupt):
@@ -798,9 +798,9 @@ def test_an_untrash_that_fails_is_reported_and_not_recorded(env):
 def test_an_import_that_fails_is_reported_and_not_indexed(env):
     real = env.import_messages
 
-    def fail_g1(messages, on_imported):
+    def fail_g1(messages, on_imported, dates=None):
         messages.pop("g1")
-        return [*real(messages, on_imported), "g1: HttpError 500"]
+        return [*real(messages, on_imported, dates), "g1: HttpError 500"]
 
     env.import_messages = fail_g1
     assert run("--id", "g1", "--id", "g2", "--yes") == 1
@@ -816,7 +816,9 @@ def test_an_import_that_fails_is_reported_and_not_indexed(env):
 
 def test_when_every_import_fails_nothing_is_indexed(env):
     before = {bm.gmail_id for bm in gyb.iter_backup(env.folder)}
-    env.import_messages = lambda messages, on_imported: [f"{k}: HttpError 500" for k in messages]
+    env.import_messages = lambda messages, on_imported, dates=None: [
+        f"{k}: HttpError 500" for k in messages
+    ]
     assert run("--id", "g1", "--id", "g2", "--yes") == 1
     assert {log()[g][0] for g in ("g1", "g2")} == {"failed"}
     assert restored_rows(env.folder) == {}
@@ -1094,7 +1096,7 @@ def test_restore_into_another_account_refuses_a_backup_it_had_that_is_missing(en
 
 
 def test_a_restored_message_that_cant_be_labelled_is_restored_all_the_same(env, capsys):
-    env.add_label = lambda ids, label: [f"{i}: not allowed here" for i in ids]
+    env.add_label = lambda ids, label, review=True: [f"{i}: not allowed here" for i in ids]
     assert run("--id", "t1", "--yes") == 0
     assert "t1" not in env.trashed  # restored
     assert "couldn't be labelled restored/" in capsys.readouterr().err
