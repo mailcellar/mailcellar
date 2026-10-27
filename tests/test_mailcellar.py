@@ -181,3 +181,13 @@ def test_fatal_errors_use_the_log_prefix(setup):
     with pytest.raises(SystemExit) as fatal:
         cli.main(["backup", "--folder", "x"])
     assert str(fatal.value).startswith("error: ")
+
+
+def test_backup_refuses_a_missing_backup_and_goes_on_to_the_next(setup, capsys):
+    tmp_path, _connect = setup
+    (tmp_path / "data" / A).rename(tmp_path / "elsewhere")  # e.g. a volume not mounted
+    assert cli.main(["backup"]) == 1
+    captured = capsys.readouterr()
+    assert f"{A}: no backup in" in captured.err and "isn't mounted" in captured.err
+    assert not (tmp_path / "data" / A).exists()
+    assert f"── {B} ──" in captured.out + captured.err and "Downloaded 0 messages" in captured.out

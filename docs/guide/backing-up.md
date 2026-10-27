@@ -139,7 +139,8 @@ is stored on:
   or a LUKS container on Linux, with `data_dir` in `settings.toml` (or
   `MAILCELLAR_DATA`) pointing inside it. Mounted, it is an ordinary folder,
   so gyb reads it too. Mount it before any backup runs, the scheduled one
-  included: while it is not mounted the data root isn't there.
+  included. While it isn't, `backup` refuses an account it has backed up
+  before rather than starting afresh on the wrong disk.
 - **The second copy.** [restic](https://restic.net/) and
   [borg](https://www.borgbackup.org/) take encrypted, deduplicated
   snapshots to another disk or to cloud storage; take them while no

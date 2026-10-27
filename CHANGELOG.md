@@ -5,6 +5,15 @@ What changed for users in each release. Releases and their dates are on the
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). mailcellar is
 in beta, so commands and options may still change before 1.0.
 
+## Unreleased
+
+### Fixed
+- `backup` refuses an account it has backed up before (its hash chain
+  anchor is in the config folder) when the backup isn't there, creating
+  nothing, where it started a new full backup in its place: on a data
+  root whose volume wasn't mounted, that meant the wrong disk, and
+  unencrypted. The other accounts still run, and the exit status is 1.
+
 ## 0.14.0 (2026-10-27)
 
 **Upgrading from 0.13.1:** each backup's `meta.sqlite` moves to schema 11

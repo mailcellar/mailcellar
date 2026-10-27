@@ -260,3 +260,23 @@ def test_the_text_report_prints_the_head_hash_in_full(backed_up):
     render([health.chains([folder])], 50, out)
     head = chain.replay(chain.read_lines(folder))[2][-1][1]
     assert len(head) == 64 and head in out.getvalue()  # all of it, not cut with …
+
+
+def test_a_backup_refuses_a_backup_it_anchored_that_isnt_there(tmp_path):
+    gmail = FakeGmail({"g1": raw_response("g1")})
+    folder = tmp_path / "volume" / ACCOUNT
+    commands.backup(gmail, ACCOUNT, folder)  # the first backup: no anchor yet
+    (tmp_path / "volume").rename(tmp_path / "unmounted")  # the volume goes away
+    with pytest.raises(commands.BackupMissing, match="isn't mounted"):
+        commands.backup(gmail, ACCOUNT, folder)
+    assert not folder.exists()  # nothing started in its place
+    # Starting afresh there on purpose: move the anchor aside first.
+    chain.anchor_path(ACCOUNT).rename(tmp_path / "old-anchor.json")
+    assert commands.backup(gmail, ACCOUNT, folder)["downloaded"] == 1
+
+
+def test_a_missing_backup_is_refused_only_with_an_anchor():
+    anchor = chain.anchor_path(ACCOUNT)
+    assert commands.missing_backup(ACCOUNT, anchor.parent, False, None) == ""  # a first backup
+    assert commands.missing_backup(ACCOUNT, anchor.parent, True, anchor) == ""  # it's there
+    assert str(anchor) in commands.missing_backup(ACCOUNT, anchor.parent, False, anchor)

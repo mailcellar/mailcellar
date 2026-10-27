@@ -166,6 +166,28 @@ def history_plan(
     return todo, new_history_id
 
 
+class BackupMissing(Exception):
+    pass
+
+
+def missing_backup(account: str, folder: Path, has_backup: bool, anchor_file: Path | None) -> str:
+    """
+    Why backing up into `folder` would be wrong, or "": the account has a
+    hash chain anchor in the config folder, so it has been backed up
+    before, but the folder has no backup. Most likely the data root is on
+    a volume that isn't mounted; a backup would start afresh in its place,
+    on the wrong disk. Pure.
+    """
+    if has_backup or anchor_file is None:
+        return ""
+    return (
+        f"no backup in {folder}, though {account} has been backed up before (its hash "
+        f"chain anchor is {anchor_file}). If the data root is on a volume that isn't "
+        "mounted, mount it and run backup again. To start a new backup there on purpose, "
+        "move that anchor file aside first."
+    )
+
+
 def backup(
     gmail,
     account: str,
@@ -182,8 +204,19 @@ def backup(
     history_id; otherwise (first run, history expired, --search,
     --refresh-labels or full=True) lists every message. Stores the next
     history_id only after a run without download failures. Records the run
-    in meta.sqlite's runs table, also when it fails.
+    in meta.sqlite's runs table, also when it fails. Raises BackupMissing,
+    creating nothing, when the account was backed up before and the
+    backup isn't in `folder`.
     """
+    anchor = chain.anchor_path(account)
+    problem = missing_backup(
+        account,
+        folder,
+        (folder / gyb.DB_NAME).is_file(),
+        anchor if chain.read_anchor(account) is not None else None,
+    )
+    if problem:
+        raise BackupMissing(problem)
     con = gyb.open_backup(folder, account)
     mcon = sidecar.open_meta(folder)
     started = now_ms()
@@ -858,7 +891,7 @@ def main(argv=None, prog: str | None = None) -> int:
             print(f"\n── {account} ──")
         try:
             status = max(status, args.func(argparse.Namespace(**vars(args), account=account)))
-        except (gmailapi.GmailError, gyb.FormatError, sidecar.MetaError) as exc:
+        except (gmailapi.GmailError, gyb.FormatError, sidecar.MetaError, BackupMissing) as exc:
             if len(accounts) == 1:
                 sys.exit(f"error: {exc}")
             logger.error(f"{account}: {exc}")
