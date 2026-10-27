@@ -286,7 +286,12 @@ def run_service_account(args, config: Path, accounts_file: Path, text: str, entr
     print(f"{address} is account '{name}', read through the service account in {key}")
     print(f"  accounts.toml: {'already listed' if name in entries else 'added'}")
     print("  read-only: backups need no sign-in; anything that changes Gmail needs the")
-    print(f"  user's own sign-in (mailcellar setup {address} --client FILE adds an OAuth client)")
+    if (folder / CLIENT_FILE).is_file():
+        print("  user's own sign-in, with the account's OAuth client")
+    else:
+        print(
+            f"  user's own sign-in (mailcellar setup {address} --client FILE adds an OAuth client)"
+        )
     if args.no_auth:
         return 0
     print(f"\nChecking {address} through the service account (read-only)...")
