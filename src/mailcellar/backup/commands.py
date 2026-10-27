@@ -169,11 +169,10 @@ def history_plan(
     stats["deleted_backed_up"] = len(gone - offloaded)
     logger.info(
         history_summary(
-            gmail.provider,
             changed=len(touched),
-            # An IMAP account's mail outside Junk and Trash, as backup and count say it
-            # elsewhere; its scan is already read, so listing it costs nothing.
-            present=len(gmail.list_message_ids()) if gmail.provider != "gmail" else 0,
+            # Without a history (IMAP), how much mail is there outside Junk and Trash, as
+            # backup and count say it elsewhere; the scan is already read, so it's free.
+            present=None if gmail.provider == "gmail" else len(gmail.list_message_ids()),
             missing=len(indexed - have),
             todo=len(todo),
             labels=stats["labels_changed"],
@@ -184,17 +183,17 @@ def history_plan(
 
 
 def history_summary(
-    provider: str, *, changed: int, present: int, missing: int, todo: int, labels: int, skipped: int
+    *, changed: int, present: int | None, missing: int, todo: int, labels: int, skipped: int
 ) -> str:
     """
-    What a history-based run found. An IMAP account has no history: every
-    message on the server is read again and compared, so it says how many
-    are there (`present`, outside Junk and Trash), not that they all
-    changed. Pure.
+    What a history-based run found. A mailbox without a history (IMAP)
+    reads every message again and compares, so it gives `present`, the mail
+    outside Junk and Trash, and the line says that, not that all changed;
+    None for Gmail. Pure.
     """
     lead = (
         f"History since last run: {changed:,} messages changed"
-        if provider == "gmail"
+        if present is None
         else f"Read the server's {present:,} messages again (excl. junk/trash)"
     )
     return (

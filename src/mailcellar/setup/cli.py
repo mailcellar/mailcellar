@@ -254,13 +254,16 @@ def server_report(info) -> list[str]:
     from mailcellar.imap import BY_NAME, HIDDEN
 
     kept = [f for f in info.folders if f.label not in HIDDEN]
-    # Roles taken from a name, where the server flags no folder for them: a folder of
-    # the user's own that happens to be called Spam or Trash would be left out.
-    by_name = [
-        f"{f.name!r} as {f.label}"
+    # Roles taken from a name, where the server flags no folder for them. Sent and
+    # Drafts are only relabelled; a folder of the user's own taken for Spam or Trash
+    # would be left out, so that gets the warning.
+    named = [
+        f
         for f in info.folders
         if f.label in set(BY_NAME.values()) - info.marked and f.name.upper() != "INBOX"
     ]
+    by_name = [f"{f.name!r} as {f.label}" for f in named]
+    hides = any(f.label in HIDDEN for f in named)
     labels = sorted({f.label for f in kept})
     shown = ", ".join(labels[:8]) + (", …" if len(labels) > 8 else "")
     left_out = sorted({f.label for f in info.folders} & HIDDEN)
@@ -273,8 +276,8 @@ def server_report(info) -> list[str]:
         ),
         *(
             [
-                f"  known by name (the server flags none): {', '.join(by_name)}; "
-                "rename a folder of your own that is taken for one"
+                f"  known by name (the server flags none): {', '.join(by_name)}"
+                + ("; rename a folder of your own taken for Spam or Trash" if hides else "")
             ]
             if by_name
             else []

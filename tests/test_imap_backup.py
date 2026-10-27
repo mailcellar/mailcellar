@@ -96,12 +96,12 @@ def test_a_backup_of_another_provider_is_refused(server, capsys):
 
 def test_an_imap_run_doesnt_call_every_message_changed():
     counts = dict(missing=0, todo=0, labels=0, skipped=0)
-    imap_line = backup_commands.history_summary("imap", changed=20, present=7, **counts)
+    imap_line = backup_commands.history_summary(changed=20, present=7, **counts)
     assert imap_line == (
         "Read the server's 7 messages again (excl. junk/trash); 0 to download, 0 label updates"
     )
     gmail_line = backup_commands.history_summary(
-        "gmail", changed=3, present=0, missing=1, todo=2, labels=1, skipped=1
+        changed=3, present=None, missing=1, todo=2, labels=1, skipped=1
     )
     assert gmail_line == (
         "History since last run: 3 messages changed, 1 missing locally; "
@@ -118,7 +118,7 @@ def test_provider_change_allows_a_first_backup_and_the_same_provider(tmp_path):
 
 
 def test_a_folder_over_the_servers_message_limit_is_listed_in_full(server, capsys):
-    server.message_limit = 1000  # Yahoo's MESSAGELIMIT (RFC 9738)
+    server.message_limit = 1000  # MESSAGELIMIT (RFC 9738), at a usual value
     server.add_folder("Big")
     for n in range(2500):
         server.add("Big", msgid=f"<big{n}@x>", flags={"\\Seen"})
