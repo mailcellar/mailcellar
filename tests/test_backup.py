@@ -1,4 +1,3 @@
-import base64
 import csv
 import sqlite3
 from datetime import datetime
@@ -7,118 +6,12 @@ import httplib2
 import pytest
 from googleapiclient.errors import HttpError
 
+from fake_mailbox import ACCOUNT, MS, FakeMailbox, raw_response
 from mailcellar import gmailapi
 from mailcellar.backup import chain, commands, gyb
 from mailcellar.backup.gyb import backup_account, iter_backup
 from mailcellar.dedup import cli as dedup
 from test_index import make_eml
-
-ACCOUNT = "a@example.com"
-# 2026-10-22 23:30:00.000 UTC: the UTC day differs from most local days
-MS = 1792711800000
-
-
-def raw_response(gid, ms=MS, label_ids=("INBOX",), body=None):
-    body = body if body is not None else make_eml(msgid=f"<{gid}@x>")
-    return {
-        "id": gid,
-        "threadId": f"t-{gid}",
-        "internalDate": str(ms),
-        "labelIds": list(label_ids),
-        "sizeEstimate": len(body),
-        "raw": base64.urlsafe_b64encode(body).decode(),
-    }
-
-
-class FakeGmail:
-    """Account-level stand-in for gmailapi.GmailAccount (as used by backup/count)."""
-
-    LABELS = {"INBOX": "INBOX", "Label_1": "work", "CHAT": "CHAT"}
-
-    def __init__(self, messages: dict[str, dict], fail=()):
-        self.messages = messages  # gmail_id → raw response
-        self.fail = set(fail)
-        self.trashed: set[str] = set()  # in Trash/Spam: listed only with include_spam_trash
-        self.fetched = []
-        # History by snapshot: each historyId handed out records the mailbox
-        # state, and history_changes() reports the difference from it, so
-        # tests can keep editing self.messages directly.
-        self.snapshots: dict[str, dict] = {}
-        self.expired: set[str] = set()
-        self.history_calls = 0
-
-    def _snapshot(self) -> str:
-        hid = str(100 + len(self.snapshots))
-        self.snapshots[hid] = {
-            g: (tuple(m["labelIds"]), g in self.trashed) for g, m in self.messages.items()
-        }
-        return hid
-
-    def current_history_id(self):
-        return self._snapshot()
-
-    def history_changes(self, start):
-        self.history_calls += 1
-        if start not in self.snapshots or start in self.expired:
-            raise gmailapi.HistoryExpired(f"no history from {start}")
-        before = self.snapshots[start]
-        now = {g: (tuple(m["labelIds"]), g in self.trashed) for g, m in self.messages.items()}
-        deleted = set(before) - set(now)
-        touched = deleted | {g for g in now if before.get(g) != now[g]}
-        return touched, deleted, self._snapshot()
-
-    def list_message_ids(self, query=None, include_spam_trash=False, label_id=None):
-        if label_id is None:
-            self.list_calls = getattr(self, "list_calls", 0) + 1
-        return [
-            g
-            for g, m in self.messages.items()
-            if (include_spam_trash or g not in self.trashed)
-            and (label_id is None or label_id in m["labelIds"])
-        ]
-
-    def label_names(self, label_ids):
-        return [self.LABELS[i] for i in label_ids if i in self.LABELS]
-
-    def label_catalogue(self):
-        return [
-            {"id": i, "name": n, "type": "system" if i == n else "user"}
-            for i, n in self.LABELS.items()
-        ]
-
-    def get_raw(self, ids, on_message):
-        failed = []
-        for gid in ids:
-            self.fetched.append(gid)
-            if gid in self.fail:
-                failed.append(f"{gid}: HttpError 500")
-            else:
-                on_message(self.messages[gid])
-        return failed
-
-    def message_labels(self, ids):
-        return {
-            gid: set(self.label_names(self.messages[gid]["labelIds"]))
-            if gid in self.messages
-            else None
-            for gid in ids
-        }
-
-    def labels_by_listing(self):
-        self.listings = getattr(self, "listings", 0) + 1
-        return {g: list(m["labelIds"]) for g, m in self.messages.items()}
-
-    def message_details(self, ids, failures=None):
-        self.detail_lookups = getattr(self, "detail_lookups", []) + list(ids)
-        out = {}
-        for gid in ids:
-            if gid in getattr(self, "fail_details", ()):
-                failures.append(f"{gid}: HttpError 500")
-            elif gid in self.messages:
-                out[gid] = {k: v for k, v in self.messages[gid].items() if k != "raw"}
-            else:
-                out[gid] = None
-        return out
 
 
 def rows(folder):
@@ -148,7 +41,7 @@ def test_backups_live_under_the_data_root(tmp_path, monkeypatch):
     assert backup_folder(ACCOUNT) == tmp_path / "data" / ACCOUNT  # ./data, as conftest sets
     assert backup_folder(ACCOUNT, tmp_path / "x") == tmp_path / "x" / ACCOUNT
 
-    commands.backup(FakeGmail({"g1": raw_response("g1")}), ACCOUNT, backup_folder(ACCOUNT))
+    commands.backup(FakeMailbox({"g1": raw_response("g1")}), ACCOUNT, backup_folder(ACCOUNT))
     (tmp_path / "data" / "_pruned" / ACCOUNT / "2026-10-22-121708").mkdir(parents=True)
     assert find_backups() == [tmp_path / "data" / ACCOUNT]
 
@@ -161,7 +54,7 @@ def test_backups_live_under_the_data_root(tmp_path, monkeypatch):
     root = tmp_path / "mail"
     monkeypatch.setenv(DATA_ENV, str(root))
     chain.anchor_path(ACCOUNT).unlink()  # a second, separate backup of the account
-    commands.backup(FakeGmail({"g1": raw_response("g1")}), ACCOUNT, root / ACCOUNT)
+    commands.backup(FakeMailbox({"g1": raw_response("g1")}), ACCOUNT, root / ACCOUNT)
     assert resolve_folders([]) == [root / ACCOUNT]
     assert default_db() == root / "dedup" / "dedup.sqlite"
     assert offload_dir() == root / "offload"
@@ -286,7 +179,7 @@ def test_interrupted_write_leaves_no_eml(tmp_path, monkeypatch):
 
 def test_backup_writes_gyb_layout(tmp_path):
     body = make_eml(msgid="<g1@x>")
-    gmail = FakeGmail({"g1": raw_response("g1", label_ids=["INBOX", "Label_1"], body=body)})
+    gmail = FakeMailbox({"g1": raw_response("g1", label_ids=["INBOX", "Label_1"], body=body)})
     folder = tmp_path / "data" / ACCOUNT
     stats = commands.backup(gmail, ACCOUNT, folder)
 
@@ -298,14 +191,14 @@ def test_backup_writes_gyb_layout(tmp_path):
 
 
 def test_backup_skips_chats(tmp_path):
-    gmail = FakeGmail({"c1": raw_response("c1", label_ids=["CHAT"]), "g1": raw_response("g1")})
+    gmail = FakeMailbox({"c1": raw_response("c1", label_ids=["CHAT"]), "g1": raw_response("g1")})
     stats = commands.backup(gmail, ACCOUNT, tmp_path)
     assert (stats["downloaded"], stats["chats"]) == (1, 1)
     assert rows(tmp_path)["uids"] == ["g1"]
 
 
 def test_a_full_listing_never_downloads_chats(tmp_path):
-    gmail = FakeGmail({"c1": raw_response("c1", label_ids=["CHAT"]), "g1": raw_response("g1")})
+    gmail = FakeMailbox({"c1": raw_response("c1", label_ids=["CHAT"]), "g1": raw_response("g1")})
     commands.backup(gmail, ACCOUNT, tmp_path)
     gmail.fetched.clear()
     stats = commands.backup(
@@ -318,7 +211,7 @@ def test_a_full_listing_never_downloads_chats(tmp_path):
 
 
 def test_backup_is_incremental_and_refetches_missing_files(tmp_path):
-    gmail = FakeGmail({"g1": raw_response("g1"), "g2": raw_response("g2")})
+    gmail = FakeMailbox({"g1": raw_response("g1"), "g2": raw_response("g2")})
     commands.backup(gmail, ACCOUNT, tmp_path)
 
     gmail.messages["g3"] = raw_response("g3")
@@ -332,7 +225,7 @@ def test_backup_is_incremental_and_refetches_missing_files(tmp_path):
 
 
 def test_backup_never_deletes_messages_gone_from_gmail(tmp_path):
-    gmail = FakeGmail({"g1": raw_response("g1")})
+    gmail = FakeMailbox({"g1": raw_response("g1")})
     commands.backup(gmail, ACCOUNT, tmp_path)
     del gmail.messages["g1"]
     commands.backup(gmail, ACCOUNT, tmp_path)
@@ -341,7 +234,7 @@ def test_backup_never_deletes_messages_gone_from_gmail(tmp_path):
 
 
 def test_backup_reports_failures_and_retries_next_run(tmp_path):
-    gmail = FakeGmail({"g1": raw_response("g1"), "g2": raw_response("g2")}, fail={"g2"})
+    gmail = FakeMailbox({"g1": raw_response("g1"), "g2": raw_response("g2")}, fail={"g2"})
     stats = commands.backup(gmail, ACCOUNT, tmp_path)
     assert stats["failed"] == ["g2: HttpError 500"]
 
@@ -352,7 +245,7 @@ def test_backup_reports_failures_and_retries_next_run(tmp_path):
 
 
 def test_refresh_labels(tmp_path):
-    gmail = FakeGmail({"g1": raw_response("g1", label_ids=["INBOX"])})
+    gmail = FakeMailbox({"g1": raw_response("g1", label_ids=["INBOX"])})
     commands.backup(gmail, ACCOUNT, tmp_path)
     gmail.messages["g1"]["labelIds"] = ["Label_1"]
 
@@ -367,7 +260,7 @@ def test_refresh_labels(tmp_path):
 
 def test_many_labels_are_read_by_listing_the_mailbox(tmp_path, monkeypatch):
     messages = {g: raw_response(g, label_ids=["INBOX"]) for g in ("g1", "g2", "g3")}
-    gmail = FakeGmail(messages)
+    gmail = FakeMailbox(messages)
     commands.backup(gmail, ACCOUNT, tmp_path)
     monkeypatch.setattr(gmailapi, "prefer_listing", lambda wanted, mailbox: True)
     gmail.detail_lookups = []
@@ -387,7 +280,7 @@ def test_many_labels_are_read_by_listing_the_mailbox(tmp_path, monkeypatch):
 
 def test_output_is_readable_by_index(tmp_path):
     folder = tmp_path / "data" / ACCOUNT
-    gmail = FakeGmail({"g1": raw_response("g1", label_ids=["INBOX", "Label_1"])})
+    gmail = FakeMailbox({"g1": raw_response("g1", label_ids=["INBOX", "Label_1"])})
     commands.backup(gmail, ACCOUNT, folder)
 
     assert backup_account(folder) == ACCOUNT
@@ -405,10 +298,10 @@ def test_output_is_readable_by_index(tmp_path):
 
 def test_count(tmp_path):
     with pytest.raises(gyb.FormatError, match="no msg-db.sqlite"):  # no backup yet
-        commands.count(FakeGmail({}), ACCOUNT, tmp_path)
+        commands.count(FakeMailbox({}), ACCOUNT, tmp_path)
     assert not (tmp_path / "msg-db.sqlite").exists()
 
-    gmail = FakeGmail({g: raw_response(g) for g in ("g1", "g2", "g4")})
+    gmail = FakeMailbox({g: raw_response(g) for g in ("g1", "g2", "g4")})
     commands.backup(gmail, ACCOUNT, tmp_path)
     (tmp_path / "2026/10/22/g2.eml").unlink()  # indexed, file lost
     gmail.messages["g3"] = raw_response("g3")  # new in Gmail
@@ -438,7 +331,7 @@ def test_count(tmp_path):
 def synced(tmp_path, n=20, gone=("g0",), trashed=("g1",)):
     """A backup of n messages, then some deleted for good and some trashed in Gmail."""
     folder = tmp_path / "data" / ACCOUNT
-    gmail = FakeGmail(
+    gmail = FakeMailbox(
         {f"g{i}": raw_response(f"g{i}", label_ids=["INBOX", "Label_1"]) for i in range(n)}
     )
     commands.backup(gmail, ACCOUNT, folder)
@@ -531,7 +424,7 @@ def test_pruned_backup_is_still_valid_for_index(tmp_path):
 
 @pytest.fixture
 def cli(tmp_path, monkeypatch):
-    """Run the CLI against a FakeGmail instead of the real API."""
+    """Run the CLI against a FakeMailbox instead of the real API."""
     state = {}
 
     def fake_connect(args):

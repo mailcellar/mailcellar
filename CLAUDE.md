@@ -78,7 +78,7 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
   (`dedup/db.py`, `backup/sidecar.py`); migrations must be safe to repeat.
 - Bump `message.PARSER_VERSION` whenever `parse_message()` output changes.
 - Matching changes need evidence from the real backups.
-- Tests use the fakes in `tests/` (`FakeGmail`, `FakeService`,
+- Tests use the fakes in `tests/` (`FakeMailbox`, `FakeService`,
   `FakeBackup`); never call the real API from tests. `tests/conftest.py`
   pins the data root and config folder to each test's directory, so no
   test can reach the real backups or tokens; keep it that way.

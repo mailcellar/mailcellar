@@ -6,14 +6,13 @@ from pathlib import Path
 
 import pytest
 
+from fake_mailbox import FakeMailbox, raw_response
 from mailcellar import gmailapi
 from mailcellar.backup import commands, sidecar
 from mailcellar.dedup.apply import Result
 from mailcellar.offload import apply as offload_apply
 from mailcellar.offload import cli
 from mailcellar.offload.apply import OFFLOAD_LABEL, second_copy_report
-from test_apply import FakeGmail as LiveGmail
-from test_backup import FakeGmail, raw_response
 
 A = "a@x.com"
 OLD = 1_300_000_000_000  # 2011-03-13
@@ -30,15 +29,15 @@ def message(gid):
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     """Five backed-up work messages, a plan for them, and a live Gmail that agrees."""
-    monkeypatch.setattr(FakeGmail, "LABELS", LABELS)
+    monkeypatch.setattr(FakeMailbox, "LABELS", LABELS)
     monkeypatch.chdir(tmp_path)
-    source = FakeGmail({f"w{i}": message(f"w{i}") for i in range(5)})
+    source = FakeMailbox({f"w{i}": message(f"w{i}") for i in range(5)})
     folder = tmp_path / "data" / A
     commands.backup(source, A, folder)
     (tmp_path / "rules.toml").write_text(RULES)
     cli.main(["plan", "--rules", "rules.toml", "--plan", "plan.csv"])
     set_planned("2000-01-01 00:00:00")  # the backup above counts as newer
-    live = LiveGmail({f"w{i}": {"work"} for i in range(5)})
+    live = FakeMailbox.with_labels({f"w{i}": {"work"} for i in range(5)})
     scopes = []
     monkeypatch.setattr(gmailapi, "find_config_folder", lambda root, account: Path("cfg"))
     monkeypatch.setattr(
@@ -99,7 +98,7 @@ def test_dry_run_reads_only(env):
     log = apply()
     assert {o for o, _d in last(log).values()} == {"would label or trash"}
     assert env.scopes == ["readonly"]
-    assert env.live.calls == [("get", [f"w{i}" for i in range(5)])]
+    assert env.live.lookups == [("get", [f"w{i}" for i in range(5)])] and env.live.calls == []
     assert set(log[0]) == set(offload_apply.APPLY_LOG_COLUMNS) and log[0]["rule"] == "work"
     assert offloaded(env.folder) == {}
 
@@ -127,9 +126,9 @@ def test_backup_checks(env, capsys):
 def test_label_then_trash_records_offloaded(env, capsys):
     apply("--label")
     assert env.scopes == ["modify"]
-    assert all(OFFLOAD_LABEL in labels for labels in env.live.messages.values())
-    env.live.messages["w0"].discard(OFFLOAD_LABEL)  # vetoed in Gmail
-    env.live.messages["w1"].add("keep")  # filed elsewhere since the plan
+    assert all(OFFLOAD_LABEL in env.live.labels_of(g) for g in env.live.messages)
+    env.live.set_labels("w0", env.live.labels_of("w0") - {OFFLOAD_LABEL})  # vetoed in Gmail
+    env.live.set_labels("w1", env.live.labels_of("w1") | {"keep"})  # filed elsewhere since the plan
     log = apply("--trash", "--yes")
     assert last(log) == {
         "w0": ("skipped", f"not labelled {OFFLOAD_LABEL}"),
@@ -164,7 +163,7 @@ def test_trash_declined_records_nothing(env, monkeypatch):
     monkeypatch.setattr("builtins.input", lambda prompt: "n")
     log = apply("--trash")
     assert {o for o, _d in last(log).values()} == {"skipped"}
-    assert not any("TRASH" in labels for labels in env.live.messages.values())
+    assert not env.live.trashed
     assert offloaded(env.folder) == {}
 
 
@@ -251,7 +250,7 @@ def test_trash_batches_advance(env):
 def test_label_batches_advance_and_vetoes_are_not_retried(env):
     batches = list(runs_of(*[("--label", "--limit", "2")] * 3))
     assert [outcomes(b, "labelled") for b in batches] == [["w0", "w1"], ["w2", "w3"], ["w4"]]
-    env.live.messages["w0"].discard(OFFLOAD_LABEL)  # vetoed in Gmail
+    env.live.set_labels("w0", env.live.labels_of("w0") - {OFFLOAD_LABEL})  # vetoed in Gmail
     first, second = runs_of(("--trash", "--yes", "--limit", "2"), ("--trash", "--yes"))
     assert outcomes(first, "skipped") == ["w0"] and outcomes(first, "trashed") == ["w1"]
     assert outcomes(second, "trashed") == ["w2", "w3", "w4"]  # w0 isn't tried again
@@ -262,9 +261,9 @@ def test_label_batches_advance_and_vetoes_are_not_retried(env):
 
 def test_trash_reads_only_the_messages_a_label_run_labelled(env):
     apply("--label", "--limit", "2")
-    env.live.calls.clear()
+    env.live.events.clear()
     log = apply("--trash", "--yes")
-    assert env.live.calls[0] == ("get", ["w0", "w1"])  # w2–w4 were never labelled
+    assert env.live.events[0] == ("get", ["w0", "w1"])  # w2–w4 were never labelled
     assert outcomes(log[-2:], "trashed") == ["w0", "w1"]
     with pytest.raises(SystemExit, match="no plan rows match"):
         apply("--trash", "--yes")  # nothing labelled is left
@@ -294,7 +293,7 @@ def test_messages_trashed_before_a_crash_are_recorded(env, monkeypatch, capsys):
     monkeypatch.setattr(cli, "recorder", crash)
     with pytest.raises(RuntimeError):
         apply("--trash", "--yes")
-    assert all("TRASH" in labels for labels in env.live.messages.values())
+    assert env.live.trashed == set(env.live.messages)
     assert offloaded(env.folder) == {}
     monkeypatch.setattr(cli, "recorder", real)
 
@@ -313,7 +312,7 @@ def test_messages_trashed_before_a_crash_are_recorded(env, monkeypatch, capsys):
 
 def test_trashed_by_hand_without_the_label_is_not_recorded(env):
     apply("--label")
-    env.live.messages["w0"] = {"work", "TRASH"}  # unlabelled and trashed in Gmail by hand
+    env.live.set_labels("w0", {"work", "TRASH"})  # unlabelled and trashed in Gmail by hand
     log = apply("--trash", "--yes")[-5:]
     w0 = next(r for r in log if r["gmail_id"] == "w0")
     assert (w0["outcome"], w0["detail"]) == ("skipped", "already in trash")
@@ -447,7 +446,7 @@ def test_trashing_is_refused_when_no_backup_run_is_recorded(env, capsys):
     with pytest.raises(SystemExit, match="run a backup of each account"):
         apply("--trash", "--yes")
     assert "no backup run recorded" in capsys.readouterr().err
-    assert env.live.messages["w0"] == {"work", OFFLOAD_LABEL}  # nothing was trashed
+    assert env.live.labels_of("w0") == {"work", OFFLOAD_LABEL}  # nothing was trashed
 
 
 def test_a_file_that_is_not_an_offload_plan_is_refused(tmp_path):
@@ -459,7 +458,7 @@ def test_a_file_that_is_not_an_offload_plan_is_refused(tmp_path):
 
 def test_last_backup_is_the_newest_successful_run_of_any_account(env, tmp_path):
     other = tmp_path / "data" / "b@y.com"
-    commands.backup(FakeGmail({"b1": message("b1")}), "b@y.com", other)
+    commands.backup(FakeMailbox({"b1": message("b1")}), "b@y.com", other)
     folders = {A: env.folder, "b@y.com": other}
     newest = offload_apply.last_backup_ms(folders, ["b@y.com", A])  # the older one comes second
     assert newest == offload_apply.last_backup_ms({"b@y.com": other}, ["b@y.com"])

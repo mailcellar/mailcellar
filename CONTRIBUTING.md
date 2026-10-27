@@ -31,7 +31,7 @@ CI runs the same three checks on every push and pull request
   failure Hypothesis finds also gets an ordinary example test, next to the
   fix.
 - **Tests never touch Gmail or real data.** Use the fakes in `tests/`
-  (`FakeGmail`, `FakeService`, `FakeBackup`). `tests/conftest.py` points
+  (`FakeMailbox`, `FakeService`, `FakeBackup`). `tests/conftest.py` points
   the data root and config folder at each test's own directory; keep it
   that way.
 - **No real mail anywhere in the repository.** Not in tests, docs, issues,

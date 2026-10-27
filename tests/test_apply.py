@@ -4,6 +4,7 @@ import dataclasses
 
 import pytest
 
+from fake_mailbox import FakeMailbox
 from mailcellar.dedup import apply as dedup_apply
 from mailcellar.dedup import cli as dedup
 from mailcellar.dedup.apply import (
@@ -16,46 +17,6 @@ from mailcellar.dedup.apply import (
 from mailcellar.dedup.plan import PLAN_COLUMNS
 
 A, B = "a@example.com", "b@example.com"
-
-
-class FakeGmail:
-    """In-memory stand-in for gmailapi.GmailAccount."""
-
-    def __init__(self, messages: dict[str, set[str]], fail_trash=(), fail_lookup=()):
-        self.messages = {gid: set(labels) for gid, labels in messages.items()}
-        self.fail_trash = set(fail_trash)
-        self.fail_lookup = set(fail_lookup)
-        self.calls = []
-
-    def message_labels(self, ids, failures=None):
-        self.calls.append(("get", sorted(ids)))
-        failed = [
-            f"{gid}: HttpError 400 failedPrecondition" for gid in ids if gid in self.fail_lookup
-        ]
-        if failed and failures is None:
-            raise AssertionError("apply must collect lookup failures, not raise")
-        if failures is not None:
-            failures.extend(failed)
-        return {
-            gid: set(self.messages[gid]) if gid in self.messages else None
-            for gid in ids
-            if gid not in self.fail_lookup
-        }
-
-    def add_label(self, ids, label):
-        self.calls.append(("label", sorted(ids), label))
-        for gid in ids:
-            self.messages[gid].add(label)
-
-    def trash(self, ids):
-        self.calls.append(("trash", sorted(ids)))
-        failed = []
-        for gid in ids:
-            if gid in self.fail_trash:
-                failed.append(f"{gid}: HttpError 500")
-            else:
-                self.messages[gid].add("TRASH")
-        return failed
 
 
 def row(tmp_path, gid="b1", keeper="a1", labels="", exists=True):
@@ -81,7 +42,7 @@ def row(tmp_path, gid="b1", keeper="a1", labels="", exists=True):
 
 
 def setup(a_msgs, b_msgs, **b_kwargs):
-    gmail = {A: FakeGmail(a_msgs), B: FakeGmail(b_msgs, **b_kwargs)}
+    gmail = {A: FakeMailbox.with_labels(a_msgs), B: FakeMailbox.with_labels(b_msgs, **b_kwargs)}
     scopes = {}
 
     def gmail_for(account, scope):
@@ -140,7 +101,7 @@ def test_dry_run_reads_only(tmp_path):
     log = apply_plan([row(tmp_path)], "dry-run", gmail_for, confirm=lambda p: True)
     assert outcomes(log) == {"b1": ("would label or trash", "")}
     assert scopes == {A: "readonly", B: "readonly"}
-    assert all(c[0] == "get" for g in gmail.values() for c in g.calls)
+    assert all(g.calls == [] for g in gmail.values())  # only read
 
 
 def test_label_stage_labels_only_passing_rows(tmp_path):
@@ -157,7 +118,7 @@ def test_label_stage_labels_only_passing_rows(tmp_path):
     }
     assert scopes == {A: "readonly", B: "modify"}
     assert ("label", ["b1"], DEDUP_LABEL) in gmail[B].calls
-    assert gmail[A].calls == [("get", ["a1", "a2"])]
+    assert gmail[A].lookups == [("get", ["a1", "a2"])] and gmail[A].calls == []
 
 
 def test_trash_stage_needs_label_and_confirmation(tmp_path):
@@ -171,7 +132,7 @@ def test_trash_stage_needs_label_and_confirmation(tmp_path):
         "b2": ("skipped", f"not labelled {DEDUP_LABEL}"),
     }
     assert prompts == [f"Move 1 messages in {B} to Trash?"]
-    assert "TRASH" in gmail[B].messages["b1"]
+    assert "TRASH" in gmail[B].labels_of("b1")
 
     # declined: nothing is trashed
     gmail, _scopes, gmail_for = setup({"a1": set()}, {"b1": {DEDUP_LABEL}})
@@ -194,7 +155,7 @@ def test_a_message_gmail_could_not_read_is_skipped_and_the_rest_carry_on(tmp_pat
     assert (by_id["b2"].outcome, by_id["b3"].outcome) == ("skipped", "skipped")
     assert by_id["b2"].detail.startswith("couldn't read it from Gmail: HttpError 400")
     assert by_id["b3"].detail.startswith("couldn't read the keeper from Gmail")
-    assert gmail[B].calls[-1] == ("label", ["b1"], DEDUP_LABEL)  # nothing done on a guess
+    assert gmail[B].events[-1] == ("label", ["b1"], DEDUP_LABEL)  # nothing done on a guess
     assert "1 messages couldn't be read from Gmail" in caplog.text
 
 
@@ -205,7 +166,10 @@ def test_trash_failures_are_reported(tmp_path):
     log = apply_plan(
         [row(tmp_path, "b1"), row(tmp_path, "b2")], "trash", gmail_for, confirm=lambda p: True
     )
-    assert outcomes(log) == {"b1": ("trashed", ""), "b2": ("failed", "HttpError 500")}
+    assert outcomes(log) == {
+        "b1": ("trashed", ""),
+        "b2": ("failed", "not in Trash after trashing (HttpError 500)"),
+    }
 
 
 def test_label_then_trash_round_trip(tmp_path):
@@ -228,7 +192,10 @@ def test_cli_limit_and_log(tmp_path, monkeypatch):
         w.writeheader()
         w.writerows(rows)
 
-    gmail = {A: FakeGmail({"a1": set()}), B: FakeGmail({f"b{i}": set() for i in range(3)})}
+    gmail = {
+        A: FakeMailbox.with_labels({"a1": set()}),
+        B: FakeMailbox.with_labels({f"b{i}": set() for i in range(3)}),
+    }
     from mailcellar import gmailapi
 
     monkeypatch.setattr(gmailapi, "find_config_folder", lambda root, acct: tmp_path)
@@ -266,11 +233,11 @@ def test_within_account_rows_label_and_trash_in_one_account(tmp_path):
     log = apply_plan(rows, "label", gmail_for, confirm=lambda p: True)
     assert outcomes(log) == {"b2": ("labelled", "")}
     assert scopes == {B: "modify"}  # A is never contacted
-    assert gmail[B].calls[0] == ("get", ["b1", "b2"])  # copy and keeper in one read
+    assert gmail[B].lookups[0] == ("get", ["b1", "b2"])  # copy and keeper in one read
 
     log = apply_plan(rows, "trash", gmail_for, confirm=lambda p: True)
     assert outcomes(log) == {"b2": ("trashed", "")}
-    assert "TRASH" in gmail[B].messages["b2"] and "TRASH" not in gmail[B].messages["b1"]
+    assert "TRASH" in gmail[B].labels_of("b2") and "TRASH" not in gmail[B].labels_of("b1")
 
 
 def test_within_account_keeper_trashed_meanwhile_blocks_removal(tmp_path):
@@ -325,7 +292,10 @@ def cli(tmp_path, monkeypatch):
         w = csv.DictWriter(fh, fieldnames=PLAN_COLUMNS)
         w.writeheader()
         w.writerows([row(tmp_path, "b0"), {**row(tmp_path, "b1"), "labels": "INBOX;work"}])
-    gmail = {A: FakeGmail({"a1": set()}), B: FakeGmail({"b0": set(), "b1": {"INBOX", "work"}})}
+    gmail = {
+        A: FakeMailbox.with_labels({"a1": set()}),
+        B: FakeMailbox.with_labels({"b0": set(), "b1": {"INBOX", "work"}}),
+    }
     from mailcellar import gmailapi
 
     monkeypatch.setattr(gmailapi, "find_config_folder", lambda root, acct: tmp_path)
@@ -371,7 +341,7 @@ def test_cli_refuses_a_label_planned_messages_already_had(cli, stage):
     gmail, run = cli
     with pytest.raises(SystemExit, match="already had the label 'work'"):
         run(stage, "work")
-    assert gmail[B].calls == []  # Gmail never contacted
+    assert gmail[B].calls == gmail[B].lookups == []  # Gmail never contacted
 
 
 # ── results: frozen values, and the pure steps ───────────────────────────────
@@ -402,7 +372,7 @@ def test_the_steps_after_acting_name_each_outcome(tmp_path):
 
 
 def test_act_in_a_dry_run_touches_nothing(tmp_path):
-    gmail = FakeGmail({"b1": set()})
+    gmail = FakeMailbox.with_labels({"b1": set()})
     done = dedup_apply.act(
         "dry-run", B, [ok(tmp_path)], gmail, lambda p: 1 / 0, DEDUP_LABEL, lambda *a: 1 / 0
     )
@@ -410,7 +380,7 @@ def test_act_in_a_dry_run_touches_nothing(tmp_path):
 
 
 def test_act_labels_the_ids_once(tmp_path):
-    gmail = FakeGmail({"b1": set(), "b2": set()})
+    gmail = FakeMailbox.with_labels({"b1": set(), "b2": set()})
     results = [ok(tmp_path, "b1"), ok(tmp_path, "b2")]
     done = dedup_apply.act("label", B, results, gmail, lambda p: 1 / 0, "to-trash", None)
     assert [r.outcome for r in done] == ["labelled", "labelled"]
@@ -420,7 +390,7 @@ def test_act_labels_the_ids_once(tmp_path):
 def test_act_asks_once_and_trashes_only_when_confirmed(tmp_path):
     results = [ok(tmp_path, "b1"), ok(tmp_path, "b2")]
     prompts, trashed = [], []
-    gmail = FakeGmail({"b1": set(), "b2": set()}, fail_trash={"b2"})
+    gmail = FakeMailbox.with_labels({"b1": set(), "b2": set()}, fail_trash={"b2"})
     done = dedup_apply.act(
         "trash",
         B,
@@ -431,17 +401,26 @@ def test_act_asks_once_and_trashes_only_when_confirmed(tmp_path):
         lambda account, rows: trashed.append((account, [r["gmail_id"] for r in rows])),
     )
     assert prompts == [f"Move 2 messages in {B} to Trash?"]
-    assert [(r.outcome, r.detail) for r in done] == [("trashed", ""), ("failed", "HttpError 500")]
+    assert [(r.outcome, r.detail) for r in done] == [
+        ("trashed", ""),
+        ("failed", "not in Trash after trashing (HttpError 500)"),
+    ]
     assert trashed == [(B, ["b1"])]  # only what was trashed is recorded
 
-    gmail = FakeGmail({"b1": set()})
+    gmail = FakeMailbox.with_labels({"b1": set()})
     done = dedup_apply.act(
         "trash", B, [ok(tmp_path)], gmail, lambda p: False, DEDUP_LABEL, lambda *a: 1 / 0
     )
     assert [(r.outcome, r.detail) for r in done] == [("skipped", "not confirmed")]
     assert gmail.calls == []  # not asked to trash, not recorded
     assert dedup_apply.act(
-        "trash", B, [ok(tmp_path)], FakeGmail({"b1": set()}), lambda p: True, DEDUP_LABEL, None
+        "trash",
+        B,
+        [ok(tmp_path)],
+        FakeMailbox.with_labels({"b1": set()}),
+        lambda p: True,
+        DEDUP_LABEL,
+        None,
     )
 
 

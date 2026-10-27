@@ -4,10 +4,10 @@ from email.message import EmailMessage
 
 import pytest
 
+from fake_mailbox import ACCOUNT, MS, FakeMailbox, raw_response
 from mailcellar.backup import commands, sidecar
 from mailcellar.message import display_name, extract_address, parse_message
 from mailcellar.report import senders
-from test_backup import ACCOUNT, MS, FakeGmail, raw_response
 
 # ── address fields in message.py ──────────────────────────────────────────────
 
@@ -79,7 +79,7 @@ def test_parse_message_sender_fields():
 
 def test_meta_v2_gains_sender_columns_and_rows_go_stale(tmp_path):
     folder = tmp_path / "data" / ACCOUNT
-    commands.backup(FakeGmail({"g1": raw_response("g1")}), ACCOUNT, folder)
+    commands.backup(FakeMailbox({"g1": raw_response("g1")}), ACCOUNT, folder)
     con = sqlite3.connect(folder / "meta.sqlite")
     con.execute("ALTER TABLE messages DROP COLUMN sender_name")
     con.execute("ALTER TABLE messages DROP COLUMN reply_to")
@@ -99,7 +99,7 @@ def test_meta_v2_gains_sender_columns_and_rows_go_stale(tmp_path):
 
 def backup(tmp_path):
     folder = tmp_path / "data" / ACCOUNT
-    gmail = FakeGmail(
+    gmail = FakeMailbox(
         {
             "g1": raw_response("g1", body=mail(reply_to="help@paybank.example", body="one")),
             "g2": raw_response("g2", body=mail(body="two")),

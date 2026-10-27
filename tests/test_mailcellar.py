@@ -2,10 +2,10 @@
 
 import pytest
 
+from fake_mailbox import FakeMailbox, raw_response
 from mailcellar import cli, gmailapi
 from mailcellar.backup import commands
 from mailcellar.paths import CONFIG_ENV, config_root, config_setting
-from test_backup import FakeGmail, raw_response
 
 A, B = "a@x.com", "b@y.com"
 
@@ -22,7 +22,7 @@ def setup(tmp_path, monkeypatch):
     gmailapi.token_file(config / "aa", "modify").write_text('{"token": "SECRET-TOKEN"}')
     gmails = {}
     for account in (A, B):
-        gmails[account] = FakeGmail({f"{account[0]}1": raw_response(f"{account[0]}1")})
+        gmails[account] = FakeMailbox({f"{account[0]}1": raw_response(f"{account[0]}1")})
         commands.backup(gmails[account], account, tmp_path / "data" / account)
 
     def connect(args):
@@ -72,7 +72,9 @@ def test_folder_needs_one_account(setup):
 
 def test_config_shows_paths_and_accounts_but_no_secrets(setup, capsys):
     tmp_path, _connect = setup
-    commands.backup(FakeGmail({"c1": raw_response("c1")}), "c@z.com", tmp_path / "data" / "c@z.com")
+    commands.backup(
+        FakeMailbox({"c1": raw_response("c1")}), "c@z.com", tmp_path / "data" / "c@z.com"
+    )
     assert cli.main(["config"]) == 0
     out = capsys.readouterr().out
     assert "SECRET-TOKEN" not in out and "CLIENT-SECRET" not in out

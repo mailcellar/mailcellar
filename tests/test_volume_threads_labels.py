@@ -2,10 +2,10 @@
 
 import pytest
 
+from fake_mailbox import FakeMailbox, raw_response
 from mailcellar.backup import commands
 from mailcellar.report import cli, labels, threads, volume
 from mailcellar.report.db import open_sidecars
-from test_backup import FakeGmail, raw_response
 
 A, B = "a@x.com", "b@y.com"
 OLD = 1_300_000_000_000  # 2011-03-13
@@ -55,8 +55,10 @@ def con(tmp_path, monkeypatch):
         ),
     }
     for account, (catalogue, msgs) in mailboxes.items():
-        monkeypatch.setattr(FakeGmail, "LABELS", catalogue)
-        commands.backup(FakeGmail({m["id"]: m for m in msgs}), account, tmp_path / "data" / account)
+        monkeypatch.setattr(FakeMailbox, "LABELS", catalogue)
+        commands.backup(
+            FakeMailbox({m["id"]: m for m in msgs}), account, tmp_path / "data" / account
+        )
     monkeypatch.chdir(tmp_path)
     con, accounts = open_sidecars(cli.resolve_folders([]))
     assert accounts == [A, B]

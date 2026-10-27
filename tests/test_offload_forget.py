@@ -6,6 +6,7 @@ from datetime import datetime
 
 import pytest
 
+from fake_mailbox import FakeMailbox, raw_response
 from mailcellar import cli
 from mailcellar.backup import commands, gyb, sidecar
 from mailcellar.dedup import db as dedup_db
@@ -20,7 +21,6 @@ from mailcellar.report.storage import offload_batches
 from mailcellar.restore.apply import candidates as restore_candidates
 from mailcellar.search import db as search_db
 from mailcellar.search import index as search_index
-from test_backup import FakeGmail, raw_response
 
 A = "a@x.com"
 BATCH = "2026-01-15-093000"
@@ -67,7 +67,7 @@ def env(tmp_path, monkeypatch):
     """
     monkeypatch.chdir(tmp_path)
     gids = {"p0": True, "p1": True, "p2": True, "p3": True, "l0": False, "l1": False}
-    gmail = FakeGmail({g: raw_response(g, body=eml(g, p)) for g, p in gids.items()})
+    gmail = FakeMailbox({g: raw_response(g, body=eml(g, p)) for g, p in gids.items()})
     folder = data_root() / A
     commands.backup(gmail, A, folder)
     con = sidecar.open_meta(folder)

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from fake_mailbox import ACCOUNT, FakeMailbox, raw_response
 from mailcellar import cli
 from mailcellar.backup import chain, commands, sidecar
 from mailcellar.hold import holds
@@ -13,7 +14,6 @@ from mailcellar.hold.holds import Criteria, Facts, Hold, HoldError
 from mailcellar.offload import forget
 from mailcellar.paths import data_root
 from mailcellar.report import health
-from test_backup import ACCOUNT, FakeGmail, raw_response
 from test_index import make_eml
 
 
@@ -103,7 +103,7 @@ def landlord(gid, cc=None, sender="Landlord <agent@landlord.example>"):
 def backup():
     """d1 from the landlord, d2 sent with the landlord in Cc, u1 unrelated."""
     folder = data_root() / ACCOUNT
-    gmail = FakeGmail(
+    gmail = FakeMailbox(
         {
             "d1": landlord("d1"),
             "d2": landlord("d2", cc="agent@landlord.example", sender="Me <me@example.com>"),

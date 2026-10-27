@@ -10,11 +10,11 @@ from pathlib import Path
 
 import pytest
 
+from fake_mailbox import ACCOUNT, FakeMailbox, raw_response
 from mailcellar import cli, gmailapi
 from mailcellar.backup import commands, gyb, sidecar
 from mailcellar.restore import apply as restore
 from mailcellar.restore import export
-from test_backup import ACCOUNT, FakeGmail, raw_response
 from test_index import make_eml
 
 DAY = 86_400_000
@@ -234,7 +234,7 @@ def backup(tmp_path, monkeypatch):
         for gid, (ms, sender, subject, labels, body) in specs.items()
     }
     folder = tmp_path / "data" / ACCOUNT
-    commands.backup(FakeGmail(messages), ACCOUNT, folder)
+    commands.backup(FakeMailbox(messages), ACCOUNT, folder)
     con = sidecar.open_meta(folder)
     sidecar.record_offloaded(con, ["m2", "m3", "m4"], BATCH, "old work", 1_000)
     con.commit()

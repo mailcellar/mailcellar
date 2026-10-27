@@ -5,10 +5,10 @@ from contextlib import closing
 
 import pytest
 
+from fake_mailbox import FakeMailbox, raw_response
 from mailcellar.backup import commands, sidecar
 from mailcellar.report import cli, health
 from mailcellar.report.db import open_sidecars
-from test_backup import FakeGmail, raw_response
 
 A, B = "a@x.com", "b@y.com"
 ACCOUNT_DIR = f"data/{A}"
@@ -30,7 +30,7 @@ def yes(prompt):
 
 def test_v4_sidecar_gains_runs_and_offloaded_tables_repeatably(tmp_path):
     folder = tmp_path / ACCOUNT_DIR
-    commands.backup(FakeGmail({"g1": raw_response("g1")}), A, folder)
+    commands.backup(FakeMailbox({"g1": raw_response("g1")}), A, folder)
     con = sqlite3.connect(folder / "meta.sqlite")
     con.execute("DROP TABLE runs")
     con.execute("DROP TABLE offloaded")
@@ -50,7 +50,7 @@ def test_v4_sidecar_gains_runs_and_offloaded_tables_repeatably(tmp_path):
 
 def test_backup_runs_record_mode_reason_and_counts(tmp_path):
     folder = tmp_path / ACCOUNT_DIR
-    gmail = FakeGmail({"g1": raw_response("g1"), "c1": raw_response("c1", label_ids=["CHAT"])})
+    gmail = FakeMailbox({"g1": raw_response("g1"), "c1": raw_response("c1", label_ids=["CHAT"])})
     commands.backup(gmail, A, folder)  # first: no start point
     gmail.messages["g2"] = raw_response("g2")
     commands.backup(gmail, A, folder)  # history
@@ -77,7 +77,7 @@ def test_backup_runs_record_mode_reason_and_counts(tmp_path):
 
 def test_backup_failures_and_errors_are_recorded(tmp_path):
     folder = tmp_path / ACCOUNT_DIR
-    gmail = FakeGmail({"g1": raw_response("g1"), "g2": raw_response("g2")}, fail={"g2"})
+    gmail = FakeMailbox({"g1": raw_response("g1"), "g2": raw_response("g2")}, fail={"g2"})
     commands.backup(gmail, A, folder)
 
     def broken(*a, **k):
@@ -91,7 +91,7 @@ def test_backup_failures_and_errors_are_recorded(tmp_path):
 
 def test_count_and_sync_runs(tmp_path):
     folder = tmp_path / ACCOUNT_DIR
-    gmail = FakeGmail({f"g{i}": raw_response(f"g{i}") for i in range(10)})
+    gmail = FakeMailbox({f"g{i}": raw_response(f"g{i}") for i in range(10)})
     commands.backup(gmail, A, folder)
     del gmail.messages["g0"]
     gmail.messages["g10"] = raw_response("g10")
@@ -120,9 +120,9 @@ def test_count_and_sync_runs(tmp_path):
 def report(tmp_path, monkeypatch):
     """A: runs at known times, a lost .eml and a pruned batch. B: no start point."""
     folder_a, folder_b = tmp_path / "data" / A, tmp_path / "data" / B
-    gmail = FakeGmail({"g1": raw_response("g1"), "g2": raw_response("g2")})
+    gmail = FakeMailbox({"g1": raw_response("g1"), "g2": raw_response("g2")})
     commands.backup(gmail, A, folder_a)
-    commands.backup(FakeGmail({"h1": raw_response("h1")}), B, folder_b, query="x")
+    commands.backup(FakeMailbox({"h1": raw_response("h1")}), B, folder_b, query="x")
     con = sidecar.open_meta(folder_a)
     con.execute("DELETE FROM runs")
     for start, mode, reason, status, downloaded in [

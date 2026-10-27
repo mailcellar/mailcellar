@@ -7,10 +7,10 @@ from email.message import EmailMessage
 
 import pytest
 
+from fake_mailbox import ACCOUNT, FakeMailbox, raw_response
 from mailcellar.backup import commands, sidecar
 from mailcellar.dedup.db import SCHEMA_VERSION, open_db
 from mailcellar.message import PARSER_VERSION, content_hash, header_key, parse_message
-from test_backup import ACCOUNT, FakeGmail, raw_response
 from test_index import FakeBackup, make_eml, run_index
 
 HEADERS = [("Date", "Thu, 18 Sep 2025 10:00:00 +0000")]
@@ -139,7 +139,7 @@ def downgrade_meta(folder):
 
 def test_v1_sidecar_is_ignored_until_migrated_then_reparsed(tmp_path, capsys):
     folder = tmp_path / "data" / ACCOUNT
-    gmail = FakeGmail({"g1": raw_response("g1")})
+    gmail = FakeMailbox({"g1": raw_response("g1")})
     commands.backup(gmail, ACCOUNT, folder)
     downgrade_meta(folder)
 
@@ -157,7 +157,7 @@ def test_v1_sidecar_is_ignored_until_migrated_then_reparsed(tmp_path, capsys):
 
 def test_new_download_writes_both_fields(tmp_path):
     folder = tmp_path / "data" / ACCOUNT
-    commands.backup(FakeGmail({"g1": raw_response("g1")}), ACCOUNT, folder)
+    commands.backup(FakeMailbox({"g1": raw_response("g1")}), ACCOUNT, folder)
     con = sqlite3.connect(folder / "meta.sqlite")
     row = con.execute("SELECT content_hash, header_key, parser_version FROM messages").fetchone()
     assert row[0] and row[2] == PARSER_VERSION

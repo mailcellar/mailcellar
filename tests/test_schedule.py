@@ -9,10 +9,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from fake_mailbox import FakeMailbox, raw_response
 from mailcellar import cli, gmailapi
 from mailcellar.backup import commands, schedule, sidecar
 from mailcellar.backup.schedule import Job, Schedule
-from test_backup import FakeGmail, raw_response
 
 A, B = "a@x.com", "b@y.com"
 NOW = datetime.now(UTC)
@@ -132,7 +132,9 @@ def home(tmp_path, monkeypatch):
         write_token(config / name)
     (config / "accounts.toml").write_text(f'aa = "{A}"\nbb = "{B}"\n')
     for account in (A, B):
-        commands.backup(FakeGmail({"g1": raw_response("g1")}), account, tmp_path / "data" / account)
+        commands.backup(
+            FakeMailbox({"g1": raw_response("g1")}), account, tmp_path / "data" / account
+        )
     calls = []
     state = {"bootstrap": 0, "print": 0}
 
@@ -458,7 +460,7 @@ def test_one_account_failing_does_not_stop_the_others(home, monkeypatch, capsys)
         return object()
 
     monkeypatch.setattr(gmailapi, "load_credentials", load)
-    monkeypatch.setattr(gmailapi, "GmailAccount", lambda account, creds: FakeGmail({}))
+    monkeypatch.setattr(gmailapi, "GmailAccount", lambda account, creds: FakeMailbox({}))
     assert backup_main("--unattended") == 1
     captured = capsys.readouterr()
     assert f"error: {A}: {A}: needs signing in" in captured.err  # the account, then the message

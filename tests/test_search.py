@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from fake_mailbox import ACCOUNT, FakeMailbox, raw_response
 from mailcellar import cli, gmailapi
 from mailcellar.backup import commands, sidecar
 from mailcellar.search import db, index
@@ -20,7 +21,6 @@ from mailcellar.search.query import (
     render_json,
     render_tsv,
 )
-from test_backup import ACCOUNT, FakeGmail, raw_response
 
 DAY = 86_400_000
 T0 = 1_700_006_400_000  # 2023-11-15 00:00 UTC
@@ -259,7 +259,7 @@ def backup(tmp_path, monkeypatch):
     }
     messages = {gid: raw_response(gid, ms=ms, body=body) for gid, (ms, body) in specs.items()}
     folder = tmp_path / "data" / ACCOUNT
-    commands.backup(FakeGmail(messages), ACCOUNT, folder)
+    commands.backup(FakeMailbox(messages), ACCOUNT, folder)
     con = sidecar.open_meta(folder)
     sidecar.record_offloaded(con, ["m2"], BATCH, "old work", 1_000)
     sidecar.record_offloaded(con, ["m3"], "2026-02-01-080000", "news", 1_000)

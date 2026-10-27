@@ -6,8 +6,9 @@ is opened.
     ids = gmail.list_message_ids("before:2020/01/01")
 
 `Mailbox` is the set of operations backup, dedup, offload and restore use;
-`gmailapi.GmailAccount` provides it today. Another provider (IMAP, #108)
-would be a second class, chosen by open_mailbox. Signing in and managing tokens
+`gmailapi.GmailAccount` provides it, and so does the tests' `FakeMailbox`
+(tests/fake_mailbox.py). Another provider (IMAP, #108) would be a second
+class, chosen by open_mailbox. Signing in and managing tokens
 (`auth`, `setup`) stay in gmailapi: they are Gmail's.
 
 The operations are Gmail's as they stand: IDs are Gmail message IDs, and
