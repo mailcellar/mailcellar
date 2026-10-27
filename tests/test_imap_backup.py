@@ -112,6 +112,21 @@ def test_provider_change_allows_a_first_backup_and_the_same_provider(tmp_path):
     )
 
 
+def test_a_folder_over_the_servers_message_limit_is_listed_in_full(server, capsys):
+    server.message_limit = 1000  # Yahoo's MESSAGELIMIT (RFC 9738)
+    server.add_folder("Big")
+    for n in range(2500):
+        server.add("Big", msgid=f"<big{n}@x>", flags={"\\Seen"})
+    assert cli.main(["backup", "home"]) == 0
+    assert rows("SELECT count(*) FROM uids") == [(2503,)]  # nothing missed
+    searches = [c for c in server.commands if c[:2] == ("UID", "SEARCH")]
+    assert len(searches) > len(server.folders)  # Big took three passes
+    capsys.readouterr()
+    assert cli.main(["backup", "home"]) == 0
+    out = capsys.readouterr().out
+    assert "Downloaded 0 messages" in out and "deleted" not in out  # nothing reported gone
+
+
 def test_a_message_without_a_message_id_is_backed_up(server):
     server.add("INBOX", raw=make_eml(msgid=None, body="no id here"), flags={"\\Seen"})
     assert cli.main(["backup", "home"]) == 0
