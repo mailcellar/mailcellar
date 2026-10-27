@@ -171,6 +171,9 @@ def cmd_auth(args) -> None:
     failed = 0
     for account in accounts:
         folder = known[account]
+        if gmailapi.is_imap(folder):
+            print(f"  {account}: an IMAP account, signing in with its password: nothing to do")
+            continue
         try:
             if args.scope == "modify" and not gmailapi.stores_modify_token(folder):
                 print(

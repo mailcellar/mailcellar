@@ -248,6 +248,8 @@ def token_note(config: Path, account: str, now: datetime) -> tuple[str, bool]:
     folder = gmailapi.config_accounts(config).get(account)
     if folder is not None and gmailapi.service_account_key(folder, account) is not None:
         return "reads through the service account (no token to renew)", False
+    if folder is not None and gmailapi.is_imap(folder):
+        return "signs in with its IMAP password (no token to renew)", False
     scopes = token_scopes(config, account)
     if not scopes:
         return f"no token: run mailcellar auth {account} --scope readonly", True

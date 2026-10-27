@@ -114,15 +114,26 @@ class Mailbox(Protocol):
         raise NotImplementedError
 
 
+IMAP_BACKUP_ONLY = (
+    "{account} is an IMAP account: it is backed up only; offload, dedup and restore "
+    "come later (#108)"
+)
+
+
 def open_mailbox(
     account: str, config_folder: Path, scope: str, interactive: bool = True
 ) -> Mailbox:
     """
     The account's mailbox with `scope` ("readonly" or "modify"), signing in if
-    needed and `interactive`. Raises gmailapi.GmailError when it can't.
+    needed and `interactive`. Raises gmailapi.GmailError when it can't, and
+    for an IMAP account asked for anything but reading.
     """
     from mailcellar import gmailapi
 
+    if gmailapi.is_imap(config_folder):
+        if scope != "readonly":
+            raise gmailapi.GmailError(IMAP_BACKUP_ONLY.format(account=account))
+        raise gmailapi.GmailError(f"{account} is an IMAP account, which can't be read yet")
     creds = gmailapi.load_credentials(config_folder, account, scope, interactive=interactive)
     return gmailapi.GmailAccount(account, creds)
 
