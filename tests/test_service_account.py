@@ -325,3 +325,18 @@ def test_setup_checks_the_client_before_it_changes_the_key(tmp_path, fake_google
     assert setup_run(*base, "--service-account", str(second), "--force") == 0
     out = capsys.readouterr().out
     assert "key: replaced (every account in the domain set up with it" in out
+
+
+def test_setup_creates_a_new_config_root_owner_only(tmp_path, fake_google):
+    key = tmp_path / "key.json"
+    key.write_text(json.dumps(KEY))
+    client = tmp_path / "client.json"
+    client.write_text(
+        json.dumps(
+            {"installed": {k: "x" for k in ("client_id", "client_secret", "auth_uri", "token_uri")}}
+        )
+    )
+    for n, extra in enumerate((("--service-account", str(key)), ("--client", str(client)))):
+        root = tmp_path / f"fresh{n}" / "mailcellar"
+        assert setup_run(ADDRESS, *extra, "--no-auth", "--config", str(root)) == 0
+        assert root.stat().st_mode & 0o777 == 0o700, extra[0]
