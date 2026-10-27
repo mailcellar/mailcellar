@@ -21,12 +21,15 @@ KEY = {
 
 class FakeCredentials:
     refused = None  # set to a message to make Google refuse the delegation
+    offline = False  # set to make the token request fail to reach Google
 
     def __init__(self, info, scopes):
         self.info, self.scopes, self.subject = info, scopes, None
 
     @classmethod
     def from_service_account_info(cls, info, scopes):
+        if "damaged" in info["private_key"]:
+            raise ValueError("Unable to load PEM file")  # as google-auth says
         return cls(info, scopes)
 
     def with_subject(self, subject):
@@ -34,8 +37,10 @@ class FakeCredentials:
         return self
 
     def refresh(self, request):
-        from google.auth.exceptions import RefreshError
+        from google.auth.exceptions import RefreshError, TransportError
 
+        if FakeCredentials.offline:
+            raise TransportError("Failed to resolve oauth2.googleapis.com")
         if FakeCredentials.refused:
             raise RefreshError(FakeCredentials.refused)
 
@@ -44,7 +49,7 @@ class FakeCredentials:
 def fake_google(monkeypatch):
     from google.oauth2 import service_account
 
-    FakeCredentials.refused = None
+    FakeCredentials.refused, FakeCredentials.offline = None, False
     monkeypatch.setattr(service_account, "Credentials", FakeCredentials)
     return FakeCredentials
 
@@ -131,7 +136,7 @@ def setup_run(*args):
     return setup.main(list(args))
 
 
-def test_setup_installs_the_key_once_for_the_domain(tmp_path, capsys):
+def test_setup_installs_the_key_once_for_the_domain(tmp_path, capsys, fake_google):
     root = tmp_path / "config"
     source = tmp_path / "Downloads" / "project-key.json"
     source.parent.mkdir()
@@ -163,7 +168,7 @@ def test_setup_installs_the_key_once_for_the_domain(tmp_path, capsys):
     assert json.loads(key.read_text())["client_id"] == "999"
 
 
-def test_setup_refuses_a_file_that_isnt_a_key(tmp_path):
+def test_setup_refuses_a_file_that_isnt_a_key(tmp_path, fake_google):
     source = tmp_path / "client.json"
     source.write_text('{"installed": {}}')
     with pytest.raises(SystemExit, match="not a service-account key"):
@@ -177,3 +182,90 @@ def test_config_and_schedule_status_show_the_service_account(configured, monkeyp
     assert "readonly (service account)" in capsys.readouterr().out
     note, attention = schedule.token_note(root, ADDRESS, datetime.now(UTC))
     assert "service account" in note and not attention
+
+
+# ── review findings: a damaged key, the domain, failures reported ──────────
+
+
+def test_a_damaged_private_key_is_refused_before_it_is_installed(tmp_path, fake_google):
+    source = tmp_path / "key.json"
+    source.write_text(json.dumps({**KEY, "private_key": "damaged in copying"}))
+    root = tmp_path / "config"
+    with pytest.raises(SystemExit, match="private key can't be read"):
+        setup_run(ADDRESS, "--service-account", str(source), "--config", str(root))
+    assert not (root / gmailapi.SERVICE_ACCOUNTS_DIR).exists()  # nothing installed
+
+
+@pytest.mark.parametrize("domain", ["../../somewhere", "x/y.org", "example..org", "localhost"])
+def test_a_domain_that_isnt_a_host_name_has_no_key(tmp_path, domain, fake_google):
+    with pytest.raises(gmailapi.GmailError, match="not a domain name"):
+        gmailapi.service_account_path(tmp_path, domain)
+    assert gmailapi.service_account_key(tmp_path / "alex", f"a@{domain}") is None
+    source = tmp_path / "key.json"
+    source.write_text(json.dumps(KEY))
+    with pytest.raises(SystemExit, match="not a domain name"):
+        setup_run(f"a@{domain}", "--service-account", str(source), "--config", str(tmp_path / "c"))
+
+
+def test_a_network_failure_is_a_gmail_error_not_a_traceback(configured, fake_google):
+    _root, folder, _key = configured
+    fake_google.offline = True
+    with pytest.raises(gmailapi.GmailError, match="couldn't reach Google") as exc:
+        gmailapi.load_credentials(folder, ADDRESS, "readonly")
+    assert not isinstance(exc.value, gmailapi.AccessRefused)  # not the admin's to fix
+
+
+class FakeAccount:
+    """Stands in for GmailAccount: its identity check, and the mail backup reads."""
+
+    def __init__(self, account, creds):
+        from test_backup import FakeGmail, raw_response
+
+        assert creds.subject == account  # the key acting as the account
+        self.inner = FakeGmail({"s1": raw_response("s1")})
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
+
+def test_setup_checks_the_mailbox_and_says_when_it_cant(
+    configured, fake_google, monkeypatch, capsys, caplog
+):
+    root, _folder, key = configured
+    monkeypatch.setattr(gmailapi, "GmailAccount", FakeAccount)
+    args = (ADDRESS, "--service-account", str(key), "--config", str(root))
+    assert setup_run(*args) == 0
+    assert "OK." in capsys.readouterr().out
+    fake_google.refused = "unauthorized_client"
+    assert setup_run(*args) == 1
+    assert "the check failed" in capsys.readouterr().out + caplog.text
+
+
+def test_a_backup_reads_through_the_key(configured, fake_google, monkeypatch):
+    from mailcellar.backup import gyb
+    from mailcellar.paths import backup_folder
+
+    monkeypatch.setattr(gmailapi, "GmailAccount", FakeAccount)
+    assert cli.main(["backup", "alex", "--unattended"]) == 0
+    assert [m.gmail_id for m in gyb.iter_backup(backup_folder(ADDRESS))] == ["s1"]
+
+
+def test_an_unattended_backup_whose_key_is_refused_is_recorded(
+    configured, fake_google, monkeypatch
+):
+    import sqlite3
+
+    from mailcellar.backup import sidecar
+    from mailcellar.paths import backup_folder
+
+    monkeypatch.setattr(gmailapi, "GmailAccount", FakeAccount)
+    assert cli.main(["backup", "alex", "--unattended"]) == 0  # a backup to record against
+    fake_google.refused = "unauthorized_client"  # then the delegation is removed
+    with pytest.raises(SystemExit, match="refused the service account"):
+        cli.main(["backup", "alex", "--unattended"])
+    con = sqlite3.connect(sidecar.meta_path(backup_folder(ADDRESS)))
+    last = con.execute(
+        "SELECT status, reason FROM runs WHERE command = 'backup' ORDER BY rowid DESC LIMIT 1"
+    ).fetchone()
+    con.close()
+    assert last == ("error", "access-refused")  # health and schedule status show it

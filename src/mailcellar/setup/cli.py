@@ -188,9 +188,9 @@ def install_service_account(source: Path, config: Path, address: str, force: boo
     text = source.read_text()
     try:
         gmailapi.check_service_account(text)
+        dest = gmailapi.service_account_path(config, address.rpartition("@")[2])
     except gmailapi.GmailError as exc:
         raise SetupError(f"{source}: {exc}") from None
-    dest = gmailapi.service_account_path(config, address.rpartition("@")[2])
     install_private(
         text.encode(),
         dest,

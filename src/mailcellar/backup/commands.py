@@ -507,10 +507,11 @@ def _prune(
     return {"pruned": len(manifest), "dest": dest}, "ok"
 
 
-def record_unattended_failure(args) -> None:
+def record_unattended_failure(args, reason: str = "needs-consent") -> None:
     """
-    An unattended backup that needed a sign-in is recorded as an `error` run in
-    the account's meta.sqlite, so `report health` and `schedule status` show it.
+    A backup that couldn't get access, needing a sign-in (unattended) or with
+    its service account refused, is recorded as an `error` run in the
+    account's meta.sqlite, so `report health` and `schedule status` show it.
     Nothing is recorded for an account that has no backup yet.
     """
     account, _config = gmailapi.resolve_account(Path(args.config), args.account)
@@ -520,7 +521,7 @@ def record_unattended_failure(args) -> None:
     mcon = sidecar.open_meta(folder)
     try:
         now = now_ms()
-        sidecar.record_run(mcon, "backup", now, now, "error", reason="needs-consent")
+        sidecar.record_run(mcon, "backup", now, now, "error", reason=reason)
     finally:
         mcon.close()
 
@@ -535,6 +536,9 @@ def cmd_backup(args) -> int:
         account, folder, gmail = connect(args)
     except gmailapi.NeedsConsent:
         record_unattended_failure(args)
+        raise
+    except gmailapi.AccessRefused:
+        record_unattended_failure(args, "access-refused")
         raise
     stats = backup(gmail, account, folder, args.search, args.refresh_labels, args.full)
     print(
