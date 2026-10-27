@@ -35,7 +35,11 @@ mailcellar verify --sample 500     # 500 random messages: quick enough for a rou
 ```
 
 For each message it checks that the `.eml` exists and parses, and that its
-content hash matches the one `meta.sqlite` recorded. It also checks that
+content hash matches the one `meta.sqlite` recorded. The content hash covers
+what a reader sees, the visible text and attachments, and leaves out headers,
+links and addresses (it was made for matching duplicates), so plain `verify`
+catches damage to a message's content but not every changed byte;
+`verify --chain` checks the bytes. It also checks that
 `msg-db.sqlite` and `meta.sqlite` agree on which messages exist, and, with
 `--offloaded`, that every offloaded message is in the backup. Problems are
 listed (`--top N` sets how many) and the exit status is 1 if there are any.

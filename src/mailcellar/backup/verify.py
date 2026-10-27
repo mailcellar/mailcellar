@@ -9,11 +9,15 @@ disk, a sync tool rewriting files, an accidental delete. For each message
 indexed in msg-db.sqlite it checks that
 
   - the .eml file exists and parses;
-  - its content hash equals the one meta.sqlite recorded when it was parsed;
+  - its content hash equals the one meta.sqlite recorded when it was parsed:
+    its visible text and attachments, not its headers, links or addresses
+    (message.content_hash, made for matching duplicates), so this catches
+    damage to what a reader sees, not every changed byte;
 
 and that msg-db.sqlite and meta.sqlite agree on which messages exist. With
 --chain it also replays the backup's hash chain (backup/chain.py) against
-every file and the anchor in the config folder. With
+every file's bytes and the anchor in the config folder: the check that
+nothing at all changed. With
 --offloaded it also checks that every message recorded as offloaded is in the
 index. A message whose meta.sqlite row is missing or from an older parser has
 nothing to compare with: it is counted as unchecked, and `mailcellar meta`
@@ -298,7 +302,8 @@ def main(argv=None, prog: str | None = None) -> int:
     p = argparse.ArgumentParser(
         prog=prog or "mailcellar verify",
         description="Check that each backup's files are intact: every indexed message "
-        "has its .eml, it parses, and its content hash matches meta.sqlite. "
+        "has its .eml, it parses, and its content (visible text and attachments) matches "
+        "meta.sqlite. --chain also checks every byte against the hash chain. "
         "Changes nothing; needs no Gmail access. Exits 1 if anything is wrong.",
     )
     p.add_argument(
