@@ -1235,6 +1235,10 @@ class GmailAccount:
     def save_state(self, con) -> None:
         """Nothing to keep: Gmail's history ID is backup's own state."""
 
+    def unread(self) -> tuple[str, ...]:
+        """Nothing: a listing that fails raises instead."""
+        return ()
+
     def close(self) -> None:
         """Nothing held open: each API call is a request of its own."""
 

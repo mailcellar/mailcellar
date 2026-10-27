@@ -212,6 +212,11 @@ def exists_from(data) -> int | None:
     return int(first) if isinstance(first, bytes) and first.strip().isdigit() else None
 
 
+def short_by(found: frozenset[int], exists: int | None) -> int:
+    """How many messages a finished listing is short of EXAMINE's count (0: none known). Pure."""
+    return max(exists - len(found), 0) if exists is not None else 0
+
+
 def stalled(before: frozenset[int], got: frozenset[int]) -> bool:
     """
     A SEARCH pass below the lowest UID found that found UIDs, none of them
@@ -227,10 +232,10 @@ def next_search(before: frozenset[int], got: frozenset[int], exists: int | None)
     ahead of it: the criteria for the next pass, or None when the listing is
     done. A server with MESSAGELIMIT (RFC 9738) answers with the highest UIDs
     only, so the next pass searches below the lowest; done when a pass finds
-    nothing new (a server ignoring the range can't loop it), UID 1 is
-    reached, or EXAMINE's count is. Pure.
+    nothing, UID 1 is reached, or EXAMINE's count is. A pass that finds only
+    old UIDs is stalled(), refused before this is asked. Pure.
     """
-    if not got - before or min(got) <= 1:
+    if not got or min(got) <= 1:
         return None
     if exists is not None and len(before | got) >= exists:
         return None
@@ -577,6 +582,10 @@ class ImapAccount:
         )
         return ServerInfo(caps, folders_from(entries), marked_roles(entries))
 
+    def unread(self) -> tuple[str, ...]:
+        """The folders this run's scan skipped: refused, or listed short."""
+        return tuple(sorted(self._cache[1].skipped)) if self._cache is not None else ()
+
     def close(self) -> None:
         """
         Log out, if signed in: the server sees the session end, not a dropped
@@ -649,8 +658,9 @@ class ImapAccount:
         """
         The examined folder's UIDs, in as many SEARCH passes as next_search
         asks for: a server with MESSAGELIMIT says it cut a SEARCH short in an
-        OK that imaplib doesn't return. A listing that stalls is refused
-        (GmailError), so the folder is skipped and its mail not taken as gone.
+        OK that imaplib doesn't return. A listing that stalls, or ends short of
+        EXAMINE's count, is refused (GmailError): the folder is skipped, and its
+        mail not taken as gone.
         """
         found: frozenset[int] = frozenset()
         criteria: tuple[str, ...] | None = ("ALL",)
@@ -658,13 +668,15 @@ class ImapAccount:
             typ, data = conn.uid("SEARCH", None, *criteria)
             got = search_uids(self._ok(typ, data, "SEARCH"))
             if stalled(found, got):
-                shown = f" of {exists:,}" if exists is not None else ""
-                raise gmailapi.GmailError(
-                    f"listed {len(found):,}{shown} messages: the server cut SEARCH short "
-                    "and ignored the UID range that would list the rest"
-                )
+                break  # criteria still set: refused below
             criteria = next_search(found, got, exists)
             found |= got
+        if criteria is not None or short_by(found, exists):
+            shown = f" of {exists:,}" if exists is not None else ""
+            raise gmailapi.GmailError(
+                f"listed {len(found):,}{shown} messages: the server cut SEARCH short, "
+                "and searching below what it gave didn't list the rest"
+            )
         return sorted(found)
 
     def _read_folder(self, folder: Folder) -> FolderRead | None:

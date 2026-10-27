@@ -119,6 +119,14 @@ class Mailbox(Protocol):
         """Write what the mailbox keeps in the backup's meta.sqlite (con). No commit."""
         raise NotImplementedError
 
+    def unread(self) -> tuple[str, ...]:
+        """
+        What this run couldn't read and so left as it was in the backup (an
+        IMAP account's folders a server refused or listed short); empty when
+        everything was read.
+        """
+        raise NotImplementedError
+
     # ── the connection ───────────────────────────────────────────────────────
     def close(self) -> None:
         """

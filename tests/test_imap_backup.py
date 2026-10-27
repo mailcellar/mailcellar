@@ -132,6 +132,33 @@ def test_a_folder_over_the_servers_message_limit_is_listed_in_full(server, capsy
     assert "Downloaded 0 messages" in out and "deleted" not in out  # nothing reported gone
 
 
+def test_a_folder_listed_short_keeps_its_mail_and_fails_the_run(server, monkeypatch, capsys):
+    for n in range(5):
+        server.add("Projects", msgid=f"<p{n}@x>", flags={"\\Seen"})
+    assert cli.main(["backup", "home"]) == 0  # backed up whole first
+    server.message_limit = 2
+    search = server.uid
+
+    def ignoring_ranges(command, *args):  # a server that cuts SEARCH and ignores UID ranges
+        return search(command, *((None, "ALL") if command == "SEARCH" else args))
+
+    monkeypatch.setattr(server, "uid", ignoring_ranges)
+    capsys.readouterr()
+    assert cli.main(["backup", "home"]) == 1
+    out, err = capsys.readouterr()
+    assert "skipped Projects: listed 2 of 5 messages" in err
+    assert "folders couldn't be read and were left as they were in the backup: Projects" in err
+    assert "permanently deleted" not in out
+    assert rows("SELECT count(*) FROM uids") == [(8,)]  # all still there
+    con = sidecar.open_meta(backup_folder(ADDRESS))
+    last = con.execute(
+        "SELECT status, deleted_in_gmail FROM runs WHERE command = 'backup' "
+        "ORDER BY rowid DESC LIMIT 1"
+    ).fetchone()
+    con.close()
+    assert last == ("failures", 0)  # an unattended run says so
+
+
 def test_a_message_without_a_message_id_is_backed_up(server):
     server.add("INBOX", raw=make_eml(msgid=None, body="no id here"), flags={"\\Seen"})
     assert cli.main(["backup", "home"]) == 0
