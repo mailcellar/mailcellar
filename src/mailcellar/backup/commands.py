@@ -197,6 +197,21 @@ def missing_backup(account: str, folder: Path, has_backup: bool, anchor_file: Pa
     )
 
 
+def provider_change(account: str, folder: Path, held: str, provider: str, messages: int) -> str:
+    """
+    Why backing up `provider`'s mail into a backup of `held`'s would be
+    wrong, or "": their message IDs differ, so every message would look
+    deleted and be downloaded again under another ID. Pure.
+    """
+    if held == provider or not messages:
+        return ""
+    return (
+        f"{folder} holds a {held} backup of {account}, but the account is now set up as "
+        f"{provider}; their message IDs differ, so backing up would mix them. Set the "
+        "account up as it was, or move the backup folder aside to start a new one."
+    )
+
+
 def why_missing(account: str, folder: Path) -> str:
     """missing_backup() for this backup folder and the account's anchor, as they are now."""
     anchor = chain.anchor_path(account)
@@ -290,6 +305,11 @@ def _backup(
     gmail, account: str, con, mcon, folder: Path, query, refresh_labels: bool, stats: dict
 ) -> None:
     """The body of backup(): updates stats as it goes."""
+    held = sidecar.get_state(mcon, "provider") or "gmail"
+    messages = con.execute("SELECT count(*) FROM uids").fetchone()[0]
+    problem = provider_change(account, folder, held, gmail.provider, messages)
+    if problem:
+        raise BackupMissing(problem)
     sidecar.replace_label_catalogue(mcon, gmail.label_catalogue())
     if gmail.provider != "gmail":  # its IDs aren't Gmail's
         sidecar.set_state(mcon, "provider", gmail.provider)

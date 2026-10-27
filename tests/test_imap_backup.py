@@ -6,6 +6,7 @@ import pytest
 
 from fake_imap import FakeImap
 from mailcellar import cli, gmailapi, imap
+from mailcellar.backup import commands as backup_commands
 from mailcellar.backup import sidecar
 from mailcellar.paths import backup_folder
 from test_index import make_eml
@@ -78,6 +79,25 @@ def test_an_imap_account_backs_up_and_follows_changes(server, capsys):
     assert cli.main(["verify", "home", "--chain"]) == 0
     assert cli.main(["meta", "home"]) == 0
     assert all(c[0] in ("LOGIN", "LIST", "EXAMINE", "UID") for c in server.commands)
+
+
+def test_a_backup_of_another_provider_is_refused(server, capsys):
+    assert cli.main(["backup", "home"]) == 0
+    con = sidecar.open_meta(backup_folder(ADDRESS))
+    sidecar.set_state(con, "provider", "gmail")  # as if the folder held a Gmail backup
+    con.commit()
+    con.close()
+    with pytest.raises(SystemExit, match="holds a gmail backup .* now set up as imap"):
+        cli.main(["backup", "home"])
+    assert rows("SELECT count(*) FROM uids") == [(3,)]  # nothing added
+
+
+def test_provider_change_allows_a_first_backup_and_the_same_provider(tmp_path):
+    assert backup_commands.provider_change(ADDRESS, tmp_path, "gmail", "imap", 0) == ""
+    assert backup_commands.provider_change(ADDRESS, tmp_path, "imap", "imap", 5) == ""
+    assert "move the backup folder aside" in backup_commands.provider_change(
+        ADDRESS, tmp_path, "imap", "gmail", 5
+    )
 
 
 def test_a_message_without_a_message_id_is_backed_up(server):
