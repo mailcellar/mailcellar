@@ -334,11 +334,9 @@ def test_a_token_is_never_readable_by_others_while_it_is_written(
 def test_a_private_file_left_half_written_keeps_the_old_one(tmp_path, monkeypatch, open_umask):
     target = tmp_path / "token-readonly.json"
     target.write_text("old")
-    (tmp_path / ".token-readonly.json.part").write_text("from a crash")
-    (tmp_path / ".token-readonly.json.part").chmod(0o644)
 
     def fail(src, dst):
-        assert Path(src).stat().st_mode & 0o777 == 0o600  # a leftover .part is made private too
+        assert Path(src).stat().st_mode & 0o777 == 0o600  # private before anything is written
         raise OSError("disk full")
 
     monkeypatch.setattr(os, "replace", fail)
@@ -346,6 +344,22 @@ def test_a_private_file_left_half_written_keeps_the_old_one(tmp_path, monkeypatc
         write_private(target, b"new")
     assert target.read_text() == "old"
     assert sorted(p.name for p in tmp_path.iterdir()) == ["token-readonly.json"]
+
+
+def test_private_files_written_at_once_never_mix(tmp_path, monkeypatch):
+    target = tmp_path / "token-readonly.json"
+    real_replace, nested = os.replace, []
+
+    def replace(src, dst):
+        if not nested:  # another process writes the same token while this one is mid-write
+            nested.append(src)
+            write_private(target, b"B")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", replace)
+    write_private(target, b"A")  # its own temporary file is still there to rename
+    assert target.read_bytes() == b"A"
+    assert [p.name for p in tmp_path.iterdir()] == ["token-readonly.json"]
 
 
 def test_a_modify_token_is_held_for_the_run_and_never_stored(account_folder, consent, capsys):

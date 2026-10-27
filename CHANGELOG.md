@@ -8,6 +8,9 @@ in beta, so commands and options may still change before 1.0.
 ## Unreleased
 
 ### Fixed
+- A token or OAuth client written by two commands at once (the scheduled
+  backup and one typed by hand) is no longer left broken: each write has
+  a temporary file of its own.
 - `restore --to ACCOUNT` refuses an account that has been backed up before
   when its backup isn't there (a volume not mounted), as `backup` does,
   where it started a new backup in its place holding only the restored

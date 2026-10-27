@@ -153,14 +153,18 @@ def write_private(path: Path, data: bytes) -> None:
     Write a file only its owner can read (mode 600), for tokens and OAuth
     clients: a new file beside it, owner-only before the first byte is
     written, renamed over `path`. Never readable by others, whatever the
-    umask or the old file's mode, and never left half-written.
+    umask or the old file's mode, and never left half-written. The new file
+    has a name of its own, so two processes writing the same token at once
+    (the scheduled backup and a command typed by hand) can't mix their bytes.
     """
     import os
+    import tempfile
 
-    part = path.with_name(f".{path.name}.part")
+    fd, name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".part")
+    part = Path(name)
     try:
-        with open(os.open(part, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb") as fh:
-            os.fchmod(fh.fileno(), 0o600)  # O_CREAT's mode doesn't apply to a leftover .part
+        with open(fd, "wb") as fh:
+            os.fchmod(fh.fileno(), 0o600)  # mkstemp's is 600 already; say so whatever it does
             fh.write(data)
         os.replace(part, path)
     except BaseException:
