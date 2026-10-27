@@ -131,6 +131,8 @@ The [documentation site](https://mailcellar.github.io/mailcellar/) has the guide
   client mailcellar signs in with, and the first consent screen.
 - [Workspace: backing up through a service account](https://mailcellar.github.io/mailcellar/guide/workspace-service-account/):
   unattended, read-only backups of a domain's mailboxes without each person signing in.
+- [Backing up an IMAP account](https://mailcellar.github.io/mailcellar/guide/imap/): back up
+  mail on another provider's server, or your own, read-only.
 - [Backing up, and keeping the backup safe](https://mailcellar.github.io/mailcellar/guide/backing-up/): the
   routine, a second copy of the data root and checking it, `backup --prune`.
 - [Scheduled backups](https://mailcellar.github.io/mailcellar/guide/scheduling/): run backups unattended, and

@@ -7,6 +7,19 @@ in beta, so commands and options may still change before 1.0.
 
 ## Unreleased
 
+### Added
+- IMAP accounts can be backed up: `mailcellar setup ADDRESS --imap HOST`
+  asks for the password, signs in, and keeps the server in the account's
+  `imap.toml` and the password owner-only beside it. `backup`, `count`,
+  `meta`, `verify`, `schedule`, `search`, `export`, holds and the reports
+  work on it as on Gmail. Read-only: nothing on the server changes, not
+  even a message's read state. Folders and flags become labels; Junk and
+  Trash are left out, as Spam and Trash are for Gmail. Offload, dedup and
+  restore don't apply to IMAP accounts yet. A new guide covers it.
+
+**Upgrading:** `meta.sqlite` schema 11 → 12 (a new table for IMAP
+accounts), on the first run, after copying the file aside.
+
 ## 0.16.0 (2026-10-27)
 
 **Upgrading from 0.15.2:** nothing to do: no database's schema changes,
