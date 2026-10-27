@@ -21,6 +21,8 @@ in beta, so commands and options may still change before 1.0.
   it was, and the next run finds the files already moved and lists them
   as moved, so `restore --from-pruned` can bring them back, where it said
   "was missing".
+- `backup --prune --force` counts the messages by year in chunks, so it
+  no longer fails with "too many SQL variables" above about 32,000.
 
 ## 0.15.1 (2026-10-27)
 

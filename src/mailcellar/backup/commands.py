@@ -426,6 +426,24 @@ def prune(
             con.close()
 
 
+def gone_by_year(con, gone: list[str], chunk: int = 500) -> dict[str, int]:
+    """
+    Year → how many of the messages `gone` were dated then. In chunks, so the
+    number of SQL variables stays under SQLite's limit however many are gone.
+    """
+    years: dict[str, int] = {}
+    for start in range(0, len(gone), chunk):
+        ids = gone[start : start + chunk]
+        for year, n in con.execute(
+            f"""SELECT substr(m.message_internaldate, 1, 4), count(*)
+                FROM uids u JOIN messages m USING (message_num)
+                WHERE u.uid IN ({",".join("?" * len(ids))}) GROUP BY 1""",
+            ids,
+        ):
+            years[year] = years.get(year, 0) + n
+    return years
+
+
 def _prune(
     con,
     gmail,
@@ -464,15 +482,9 @@ def _prune(
             f"more than {max_fraction:.0%}; re-run with --force if that is right"
         )
 
-    placeholders = ",".join("?" * len(gone))
-    by_year = con.execute(
-        f"""SELECT substr(m.message_internaldate, 1, 4), count(*)
-            FROM uids u JOIN messages m USING (message_num)
-            WHERE u.uid IN ({placeholders}) GROUP BY 1 ORDER BY 1""",
-        gone,
-    ).fetchall()
+    by_year = gone_by_year(con, gone)
     print(f"Prune: {len(gone):,} messages in the backup are permanently gone from Gmail:")
-    print("  " + ", ".join(f"{year} {n:,}" for year, n in by_year))
+    print("  " + ", ".join(f"{year} {n:,}" for year, n in sorted(by_year.items())))
 
     dest = pruned_folder(folder) / datetime.now().strftime("%Y-%m-%d-%H%M%S")
     if not confirm(f"Move them out of the backup to {dest}?"):

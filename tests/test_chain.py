@@ -364,3 +364,15 @@ def test_a_missing_file_with_no_earlier_copy_is_still_reported_missing(backed_up
     (row,) = gyb.prune(con, folder, ["g1"], folder.parent / "_pruned" / "run1")
     con.close()
     assert row["file"] == "was missing"
+
+
+def test_the_per_year_count_works_in_chunks_of_any_size(backed_up):
+    _gmail, folder = backed_up
+    con = gyb.open_backup(folder, ACCOUNT)
+    ids = ["g1", "g2", "g3"]
+    assert commands.gone_by_year(con, ids, chunk=1) == commands.gone_by_year(con, ids, chunk=500)
+    assert sum(commands.gone_by_year(con, ids, chunk=2).values()) == 3
+    assert commands.gone_by_year(con, []) == {}
+    big = [f"x{i}" for i in range(40_000)]  # more than SQLite's limit of variables
+    assert commands.gone_by_year(con, big) == {}
+    con.close()
