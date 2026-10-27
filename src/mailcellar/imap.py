@@ -75,6 +75,7 @@ class Folder:
     name: str  # as the server names it
     label: str  # as the backup names it
     review: bool = False  # one of mailcellar's review folders (mailcellar/review/<label>)
+    archive: bool = False  # the server marks it \\Archive (RFC 6154): where archived mail goes
 
 
 @dataclass(frozen=True)
@@ -154,6 +155,26 @@ def decode_utf7(name: str) -> str:
         return name
 
 
+def encode_utf7(name: str) -> str:
+    """A folder name in IMAP's modified UTF-7 (RFC 3501 5.1.3), as CREATE wants it. Pure."""
+    out, run = [], []
+
+    def flush():
+        if run:
+            b64 = base64.b64encode("".join(run).encode("utf-16-be")).decode().rstrip("=")
+            out.append("&" + b64.replace("/", ",") + "-")
+            run.clear()
+
+    for ch in name:
+        if 0x20 <= ord(ch) <= 0x7E:
+            flush()
+            out.append("&-" if ch == "&" else ch)
+        else:
+            run.append(ch)
+    flush()
+    return "".join(out)
+
+
 def _decode_shift(part: str) -> str:
     if part == "&-":
         return "&"
@@ -201,6 +222,7 @@ def folders_from(entries) -> tuple[Folder, ...]:
             name,
             folder_label(name, delim, flags, by_name=by_name),
             review=review_label(plain_label(name, delim)) is not None,
+            archive="\\Archive" in flags,
         )
         for name, delim, flags in entries
         if not flags & SKIP
@@ -789,13 +811,14 @@ def home_folders(labels, folders: tuple[Folder, ...]) -> tuple[str, ...]:
     """
     The folders a message with these labels belongs in, by the server's names:
     its folder labels that are folders now (not Trash, Junk or a review
-    folder), INBOX first; INBOX when none is. Pure.
+    folder), INBOX first; with none, the archive folder (archive_folder), as
+    an upload files mail with no folder label. Pure.
     """
     by_label = {f.label: f.name for f in folders if f.label not in HIDDEN and not f.review}
     found = sorted({by_label[label] for label in labels if label in by_label})
     if "INBOX" in found:
         found = ["INBOX", *[n for n in found if n != "INBOX"]]
-    return tuple(found) or ("INBOX",)
+    return tuple(found) or (archive_folder(folders)[0],)
 
 
 @dataclass(frozen=True)
@@ -810,6 +833,7 @@ class PutBack:
     owners: Mapping[str, frozenset[str]]  # from folder → the IDs with a copy there
     homes: Mapping[str, tuple[str, ...]]  # ID → its home folders
     failures: tuple[str, ...]
+    create: tuple[str, ...] = ()  # homes the server doesn't have yet (a new Archive)
 
 
 def put_back(scan: Scan, ids, origins: Mapping, out_of) -> PutBack:
@@ -846,6 +870,7 @@ def put_back(scan: Scan, ids, origins: Mapping, out_of) -> PutBack:
         MappingProxyType({name: frozenset(g) for name, g in owners.items()}),
         MappingProxyType(homes),
         tuple(failures),
+        tuple(sorted({h for hs in homes.values() for h in hs} - {f.name for f in scan.folders})),
     )
 
 
@@ -880,28 +905,76 @@ def append_plan(labels, folders: tuple[Folder, ...], delim: str | None) -> Appen
     """
     Labels to folders and flags: INBOX and the special-use roles to their
     folders (Sent, Drafts by name when the server has none), other labels to
-    the folder of that label (created, in the server's hierarchy, if
-    missing); restored/… to mailcellar's keyword, UNREAD and STARRED to
-    \\Seen and \\Flagged; a message with no folder label to INBOX. Pure.
+    the folder of that label (created, in the server's hierarchy and its
+    modified UTF-7, if missing); restored/… to mailcellar's keyword, UNREAD
+    and STARRED to \\Seen and \\Flagged; Gmail-only labels dropped; a
+    message with no folder label (Gmail's archived mail) to Archive. Pure.
     """
-    by_label = {f.label: f.name for f in folders if not f.review}
-    defaults = {"SENT": "Sent", "DRAFT": "Drafts"}
-    names, create, keywords = [], [], []
-    gmail_only = {label for label in labels if label in GMAIL_ONLY or label.startswith("CATEGORY_")}
-    for label in sorted(set(labels) - {"UNREAD", "STARRED"} - HIDDEN - gmail_only):
-        if label.startswith("restored/") and KEYWORD_SAFE.match(label):
-            keywords.append(keyword_for(label))
-            continue
-        name = by_label.get(label)
-        if name is None:
-            name = defaults.get(label) or (label.replace("/", delim) if delim else label)
-            create.append(name)
-        names.append(name)
-    names = sorted(set(names), key=lambda n: (n != "INBOX", n)) or ["INBOX"]
+    kept = [f for f in folders if not f.review]
+    exact = {f.label: f.name for f in kept}
+    folded = {f.label.casefold(): f.name for f in reversed(kept)}  # the first, on a tie
+    placed = [place_label(label, exact, folded, delim) for label in sorted(set(labels))]
+    homes = [(p.name, p.new) for p in placed if p.kind == "folder"]
+    if not homes:  # archived in Gmail, or its folder gone: in no folder
+        homes = [archive_folder(folders)]
+    keywords = [p.name for p in placed if p.kind == "keyword"]
     flags = (["\\Seen"] if "UNREAD" not in labels else []) + (
         ["\\Flagged"] if "STARRED" in labels else []
     )
-    return Append(tuple(names), tuple(sorted(set(create))), f"({' '.join(flags + keywords)})")
+    return Append(
+        tuple(sorted({name for name, _n in homes}, key=lambda n: (n != "INBOX", n))),
+        tuple(sorted({name for name, new in homes if new})),
+        f"({' '.join(flags + keywords)})",
+    )
+
+
+@dataclass(frozen=True)
+class Placement:
+    """Where one label goes on an IMAP server: decided by place_label."""
+
+    kind: str  # "folder", "keyword" or "drop" (flags, Trash and Spam, Gmail-only labels)
+    name: str = ""  # the folder's name, or the keyword
+    new: bool = False  # a folder the server doesn't have yet
+
+
+DROPPED = Placement("drop")
+
+
+def place_label(label: str, exact, folded, delim: str | None) -> Placement:
+    """
+    Where one label goes. A folder is matched exactly (`exact`: label → name),
+    else without regard to case (`folded`), as Gmail's labels are; a new one
+    nests at '/' only, a separator already in the label made '-', and its
+    name is in modified UTF-7. Pure.
+    """
+    if label in {"UNREAD", "STARRED"} | HIDDEN or label in GMAIL_ONLY:
+        return DROPPED
+    if label.startswith("CATEGORY_"):
+        return DROPPED
+    if label.startswith("restored/") and KEYWORD_SAFE.match(label):
+        return Placement("keyword", keyword_for(label))
+    if label in exact:
+        return Placement("folder", exact[label])
+    if label.casefold() in folded:
+        return Placement("folder", folded[label.casefold()])
+    default = {"SENT": "Sent", "DRAFT": "Drafts"}.get(label)
+    if default is not None:
+        known = folded.get(default.casefold())
+        return Placement("folder", known or default, known is None)
+    parts = [p.replace(delim, "-") if delim and delim != "/" else p for p in label.split("/")]
+    return Placement("folder", encode_utf7((delim or "/").join(parts)), True)
+
+
+def archive_folder(folders: tuple[Folder, ...]) -> tuple[str, bool]:
+    """
+    Where archived mail goes, as (name, new): the folder the server marks
+    \\Archive, else one named Archive, else a new Archive. Pure.
+    """
+    marked = [f.name for f in folders if f.archive]
+    if marked:
+        return marked[0], False
+    named = [f.name for f in folders if f.label.casefold() == "archive" and not f.review]
+    return (named[0], False) if named else ("Archive", True)
 
 
 def append_outcome(key: str, folders, refused: Mapping[str, str]) -> tuple[str | None, list]:
@@ -1502,6 +1575,8 @@ class ImapAccount:
     def _put_back(self, plan: PutBack, what: str) -> dict[str, str]:
         """Move each copy home, then copy into its further homes; folder → why refused."""
         refused: dict[str, str] = {}
+        for name in plan.create:
+            self._retrying(f"creating {name}", lambda c, n=name: self._create(c, n))
         try:
             for src, by_dst in plan.moves.items():
                 for dst, uids in by_dst.items():
@@ -1534,7 +1609,7 @@ class ImapAccount:
     def untrash(self, gmail_ids):
         """
         Move each message out of Trash into the folders it lived in (a review's
-        record, else its labels in the backup; INBOX if none), the first by MOVE
+        record, else its labels in the backup; the archive if none), the first by MOVE
         and the others by COPY; failures as "<id>: <why>".
         """
         scan = self._scan()[1]

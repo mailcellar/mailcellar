@@ -6,6 +6,7 @@ import sqlite3
 import pytest
 
 from fake_imap import FakeImap
+from fake_mailbox import FakeMailbox, raw_response
 from mailcellar import cli, gmailapi, imap, mailbox
 from mailcellar.backup import commands, gyb, sidecar
 from mailcellar.dedup.apply import DEDUP_LABEL, apply_plan
@@ -510,7 +511,9 @@ def test_labels_become_folders_and_flags_for_an_append():
     assert plan.create == ("Receipts.2026",)  # in the server's own hierarchy
     assert plan.flags == "(\\Flagged $mailcellar-restored.2026-10-27)"  # unread: no \Seen
     assert imap.append_plan({"INBOX"}, folders, ".").flags == "(\\Seen)"
-    assert imap.append_plan(set(), folders, ".").folders == ("INBOX",)  # no folder label
+    archived = imap.append_plan({"UNREAD"}, folders, ".")  # no folder label: archived in Gmail
+    assert archived.folders == ("Archive",) and archived.create == ("Archive",)
+    assert imap.append_plan({"Reçus"}, folders, ".").folders == ("Re&AOc-us",)  # modified UTF-7
 
 
 def test_home_folders_skip_trash_junk_and_review():
@@ -523,7 +526,7 @@ def test_home_folders_skip_trash_junk_and_review():
         "INBOX",
         "Projects",
     )
-    assert imap.home_folders({"TRASH", "Gone"}, folders) == ("INBOX",)
+    assert imap.home_folders({"TRASH", "Gone"}, folders) == ("Archive",)  # as an upload files it
 
 
 def test_an_appended_message_gets_the_id_the_next_scan_gives_it():
@@ -535,16 +538,6 @@ def test_an_appended_message_gets_the_id_the_next_scan_gives_it():
     assert imap.appended_id(no_id, 0) == imap.content_id(no_id)
     dated = b"Date: Thu, 01 Jan 2015 10:00:00 +0000\r\nSubject: s\r\n\r\nbody"
     assert imap.date_of(dated) == 1_420_106_400_000 and imap.date_of(b"Subject: s\r\n\r\n") is None
-
-
-def test_restore_refuses_only_a_provider_mismatch():
-    from mailcellar.restore.cli import provider_problem
-
-    assert provider_problem("imap", "imap") == "" and provider_problem("gmail", "gmail") == ""
-    assert "a Gmail backup into an IMAP account" in provider_problem("gmail", "imap")
-
-
-# ── restore: the review's findings ───────────────────────────────────────────
 
 
 def test_mail_dated_apart_from_its_receipt_comes_back_under_the_same_id(home, tmp_path, capsys):
@@ -705,3 +698,150 @@ def test_a_takeout_mbox_restores_into_an_imap_account_without_gmails_folders(hom
     assert cli.main(["restore", "home", "--from-mbox", str(mbox), "--yes"]) == 0
     assert set(home.folders) == {"INBOX", "Trash", "Projects", "Receipts"}  # no Gmail-only ones
     assert len(home.folders["INBOX"]["uids"]) == 1 and len(home.folders["Receipts"]["uids"]) == 1
+
+
+# ── restore between Gmail and IMAP accounts ─────────────────────────────────
+
+GMAIL = "gee@example.com"
+GMAIL_LABELS = {
+    "INBOX": "INBOX",
+    "STARRED": "STARRED",
+    "UNREAD": "UNREAD",
+    "IMPORTANT": "IMPORTANT",
+    "CATEGORY_PROMOTIONS": "CATEGORY_PROMOTIONS",
+    "Label_1": "Reçus",
+    "Label_2": "Work/2026",
+}
+
+
+@pytest.fixture
+def gmail(home, tmp_path, monkeypatch):
+    """A Gmail account `g` (a FakeMailbox) beside the IMAP account `home`."""
+    root = tmp_path / "config"
+    (root / "g").mkdir()
+    (root / "accounts.toml").write_text(f'home = "{ADDRESS}"\ng = "{GMAIL}"\n')
+    box = FakeMailbox(account=GMAIL, labels=GMAIL_LABELS)
+    monkeypatch.setattr(
+        gmailapi, "load_credentials", lambda folder, account, scope, interactive=True: scope
+    )
+    monkeypatch.setattr(gmailapi, "GmailAccount", lambda account, creds: box)
+    return box
+
+
+def test_a_gmail_backup_restores_into_an_imap_account(gmail, home, tmp_path):
+    source = FakeMailbox(
+        {
+            "g1": raw_response(
+                "g1", ms=1_420_106_400_000, label_ids=["INBOX", "STARRED", "IMPORTANT"]
+            ),
+            "g2": raw_response("g2", label_ids=["Label_1", "UNREAD", "CATEGORY_PROMOTIONS"]),
+            "g3": raw_response("g3", label_ids=["Label_2"]),
+            "g4": raw_response("g4", label_ids=[]),  # archived, no label
+        },
+        account=GMAIL,
+        labels=GMAIL_LABELS,
+    )
+    commands.backup(source, GMAIL, backup_folder(GMAIL))
+    assert cli.main(["backup", "home"]) == 0
+    assert cli.main(["restore", "g", "--all", "--to", "home", "--yes"]) == 0
+    by_id = {
+        name: [
+            (
+                m["raw"].split(b"Message-ID: <")[1][:2],
+                {f for f in m["flags"] if not f.startswith("$mailcellar-restored.")},
+            )
+            for m in f["uids"].values()
+        ]
+        for name, f in home.folders.items()
+    }
+    assert (b"g1", {"\\Seen", "\\Flagged"}) in by_id["INBOX"]
+    assert by_id["Re&AOc-us"] == [(b"g2", set())]  # unread, a UTF-7 folder name
+    assert by_id["Work/2026"] == [(b"g3", {"\\Seen"})]
+    assert by_id["Archive"] == [(b"g4", {"\\Seen"})]  # archived in Gmail
+    assert not [n for n in home.folders if "IMPORTANT" in n.upper() or "CATEGORY" in n.upper()]
+    restored = [m for f in home.folders.values() for m in f["uids"].values()]
+    assert (
+        sum(any(k.startswith("$mailcellar-restored.") for k in m["flags"]) for m in restored) == 4
+    )
+
+
+def test_an_imap_backup_restores_into_a_gmail_account(gmail, home, tmp_path):
+    home.folders["Projects"]["uids"][1]["flags"].discard("\\Seen")
+    home.folders["Projects"]["uids"][2]["flags"].add("\\Flagged")
+    assert cli.main(["backup", "home"]) == 0
+    assert cli.main(["restore", "home", "--all", "--to", "g", "--yes"]) == 0
+    imported = [c for c in gmail.calls if c[0] == "import"]
+    assert len(imported) == 3
+    names = {gmail.labels.get(i, i) for c in imported for i in c[3]}
+    assert {"Projects", "UNREAD", "STARRED"} <= names  # the folder as a label, flags as Gmail's
+
+
+def test_folder_names_go_to_modified_utf7_and_back():
+    for name in ("Reçus", "Work & play", "日本語/2026", "Plain"):
+        assert imap.decode_utf7(imap.encode_utf7(name)) == name
+    assert imap.encode_utf7("Work & play") == "Work &- play"
+
+
+def test_a_rerun_after_an_unrecorded_restore_appends_nothing_twice(gmail, home, tmp_path):
+    source = FakeMailbox(
+        {f"g{n}": raw_response(f"g{n}", label_ids=["INBOX"]) for n in range(3)},
+        account=GMAIL,
+        labels=GMAIL_LABELS,
+    )
+    commands.backup(source, GMAIL, backup_folder(GMAIL))
+    assert cli.main(["backup", "home"]) == 0
+    assert cli.main(["restore", "g", "--all", "--to", "home", "--yes"]) == 0
+    con = sqlite3.connect(backup_folder(GMAIL) / "meta.sqlite")
+    con.execute("DELETE FROM restored")  # as if the run stopped before recording them
+    con.commit()
+    con.close()
+    assert cli.main(["restore", "g", "--all", "--to", "home", "--yes"]) == 0
+    assert len(home.folders["INBOX"]["uids"]) == 3  # found by Message-ID, not appended again
+
+
+def test_labels_land_in_the_servers_own_folders():
+    folders = (
+        imap.Folder("INBOX", "INBOX"),
+        imap.Folder("Archives", "Archives", archive=True),
+        imap.Folder("Receipts", "Receipts"),
+    )
+    assert imap.append_plan(set(), folders, ".").folders == ("Archives",)  # \Archive, not new
+    assert imap.append_plan({"receipts"}, folders, ".").folders == ("Receipts",)  # any case
+    plan = imap.append_plan({"Release 1.2/notes"}, folders, ".")
+    assert plan.folders == ("Release 1-2.notes",)  # its own '.' kept from nesting
+
+
+def test_a_same_account_restore_across_providers_is_refused():
+    from mailcellar.restore.cli import same_account_problem
+
+    assert same_account_problem("imap", "imap") == ""
+    assert "now set up as gmail" in same_account_problem("imap", "gmail")
+
+
+def test_the_servers_archive_flag_is_read_from_its_listing():
+    lines = [b'(\\HasNoChildren) "/" "INBOX"', b'(\\HasNoChildren \\Archive) "/" "Archives"']
+    folders = imap.folders_from(imap.list_entries(lines))
+    assert [f.name for f in folders if f.archive] == ["Archives"]
+    assert imap.archive_folder(folders) == ("Archives", False)
+
+
+def test_an_exact_folder_match_wins_over_a_case_insensitive_one():
+    folders = (imap.Folder("work", "work"), imap.Folder("Work", "Work"))
+    assert imap.append_plan({"Work"}, folders, "/").folders == ("Work",)
+    assert imap.append_plan({"work"}, folders, "/").folders == ("work",)
+    assert imap.append_plan({"WORK"}, folders, "/").folders == ("work",)  # the first listed
+
+
+def test_untrash_to_a_new_archive_creates_it(server):
+    server.add("Trash", msgid="<a@x>", flags={"\\Seen"})
+    box = account(server)
+    (gid,) = box.list_message_ids(include_spam_trash=True)
+    assert box.untrash([gid]) == []  # no folder known: the archive, made for it
+    assert len(server.folders["Archive"]["uids"]) == 1
+
+
+def test_restore_into_an_account_set_up_with_the_other_provider_is_refused(home, tmp_path):
+    assert cli.main(["backup", "home"]) == 0
+    (tmp_path / "config" / "home" / gmailapi.IMAP_SETTINGS).unlink()  # now a Gmail account
+    with pytest.raises(SystemExit, match="holds imap IDs but the account is now set up as gmail"):
+        cli.main(["restore", "home", "--all"])

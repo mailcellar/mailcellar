@@ -193,16 +193,6 @@ def test_a_refused_login_is_recorded_for_an_unattended_backup(server):
     assert last == ("error", "access-refused")
 
 
-def test_restore_refuses_an_imap_backup_into_a_gmail_account(server, tmp_path):
-    assert cli.main(["backup", "home"]) == 0
-    (tmp_path / "config" / "work").mkdir()
-    (tmp_path / "config" / "accounts.toml").write_text(
-        f'home = "{ADDRESS}"\nwork = "sam@example.org"\n'
-    )
-    with pytest.raises(SystemExit, match="restoring an IMAP backup into a Gmail account"):
-        cli.main(["restore", "home", "--to", "work", "--all"])
-
-
 def test_the_uid_map_is_kept_with_the_backup_and_spares_rereading(server):
     assert cli.main(["backup", "home"]) == 0
     assert sidecar.read_imap_map(backup_folder(ADDRESS))  # saved with the backup
@@ -235,16 +225,6 @@ def test_an_unattended_backup_that_cant_get_in_is_recorded(server, tmp_path):
     ).fetchone()
     con.close()
     assert last == ("error", "no-access")
-
-
-def test_restore_refuses_imap_mail_from_a_folder_into_gmail(server, tmp_path):
-    assert cli.main(["backup", "home"]) == 0
-    (tmp_path / "config" / "work").mkdir()
-    (tmp_path / "config" / "accounts.toml").write_text(
-        f'home = "{ADDRESS}"\nwork = "sam@example.org"\n'
-    )
-    with pytest.raises(SystemExit, match="restoring an IMAP backup into a Gmail account"):
-        cli.main(["restore", "work", "--from-folder", str(backup_folder(ADDRESS))])
 
 
 def test_restore_refuses_a_backup_whose_sidecar_cant_be_read(server):
