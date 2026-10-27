@@ -281,6 +281,10 @@ COMMANDS = {
 }
 
 
+# Commands that never write to the data root, so don't create it; the rest
+# create it owner-only before they run (paths.make_data_root).
+READS_ONLY = {"config", "count", "verify", "auth", "setup", "export", "report"}
+
 VERBOSE, QUIET = ("-v", "--verbose"), ("-q", "--quiet")
 
 
@@ -351,6 +355,13 @@ def main(argv=None) -> int:
             f"mailcellar: unknown command '{name}'.{hint} See 'mailcellar --help'.", file=sys.stderr
         )
         return 2
+    if name not in READS_ONLY and not any(a in ("-h", "--help") for a in rest):
+        from mailcellar.paths import make_data_root
+
+        try:
+            make_data_root()
+        except ValueError:
+            pass  # a bad settings.toml: the command reports it its own way
     return COMMANDS[name](rest) or 0
 
 

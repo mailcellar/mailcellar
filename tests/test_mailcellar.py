@@ -1,11 +1,13 @@
 """The mailcellar command, and where config and data are found."""
 
+import os
+
 import pytest
 
 from fake_mailbox import FakeMailbox, raw_response
 from mailcellar import cli, gmailapi
 from mailcellar.backup import commands
-from mailcellar.paths import CONFIG_ENV, config_root, config_setting
+from mailcellar.paths import CONFIG_ENV, DATA_ENV, config_root, config_setting, make_data_root
 
 A, B = "a@x.com", "b@y.com"
 
@@ -143,6 +145,34 @@ def test_config_root_precedence(tmp_path, monkeypatch):
     assert config_root() == user  # once moved, the new place wins
     monkeypatch.setenv(CONFIG_ENV, str(tmp_path / "elsewhere"))
     assert config_setting() == (tmp_path / "elsewhere", f"${CONFIG_ENV}")
+
+
+@pytest.fixture
+def usual_umask():
+    """The usual umask, 022, whatever the test runner's: new folders are 755 unless told."""
+    old = os.umask(0o022)
+    yield
+    os.umask(old)
+
+
+def test_a_command_that_writes_creates_the_data_root_owner_only(tmp_path, monkeypatch, usual_umask):
+    data = tmp_path / "home" / "mail" / "data"
+    monkeypatch.setenv(DATA_ENV, str(data))
+    assert cli.main(["config"]) == 0
+    with pytest.raises(SystemExit):
+        cli.main(["search", "--help"])
+    assert not data.exists()  # reading, or asking for help, leaves it alone
+    with pytest.raises(SystemExit, match="no backups found"):
+        cli.main(["search", "anything"])
+    assert data.stat().st_mode & 0o777 == 0o700
+
+
+def test_an_existing_data_root_keeps_its_mode(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    data.chmod(0o750)
+    make_data_root()
+    assert data.stat().st_mode & 0o777 == 0o750
 
 
 def test_verbose_and_quiet_set_the_log_level_anywhere_on_the_line(setup, capsys):

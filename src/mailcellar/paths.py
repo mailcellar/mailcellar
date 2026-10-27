@@ -138,6 +138,18 @@ def data_root() -> Path:
     return _path(data_setting()[0])
 
 
+def make_data_root(data: Path | None = None) -> None:
+    """
+    Create the data root owner-only, if it isn't there yet (data:
+    data_root()). It holds every backed-up message; left to the first
+    mkdir(parents=True) under it, it took the umask's mode and other users
+    could read the mail. A root that exists keeps the mode it has.
+    """
+    data = data or data_root()
+    if not data.is_dir():
+        data.mkdir(parents=True, mode=0o700)
+
+
 def backup_folder(account: str, data: Path | None = None) -> Path:
     """Where an account's backup lives: <data>/<email>/ (data: data_root())."""
     return (data or data_root()) / account
