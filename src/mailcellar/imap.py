@@ -18,10 +18,12 @@ folders is one message with two labels. Where that can't tell messages
 apart (no Message-ID, or one header ID at two new places with different
 content), the content's hash is the ID.
 
-A scan reads (folders, UIDs, flags, the headers of mail the UID map
-doesn't know, content hashes where needed), decides with pure functions
-over frozen values (IDs, labels, where to fetch each message, what is
-gone), then writes the map (meta.sqlite's imap_map, backup/sidecar.py).
+A scan reads (the UID map as the backup last saved it, folders, UIDs,
+flags, the headers of mail the map doesn't know, content hashes where
+needed) and decides with pure functions over frozen values (IDs, labels,
+where to fetch each message, what is gone). The new map is written only
+by save_state, through the backup's own meta.sqlite connection
+(meta.sqlite's imap_map, backup/sidecar.py).
 """
 
 import base64
@@ -389,6 +391,8 @@ def by_folder(messages, ids) -> dict[str, list[tuple[int, str]]]:
 class ImapAccount:
     """The read half of mailbox.Mailbox, over IMAP; see the module docstring."""
 
+    provider = "imap"
+
     def __init__(
         self,
         account: str,
@@ -405,7 +409,7 @@ class ImapAccount:
         self._connect = connect or self._connect_ssl
         self._sleep = sleep
         self._conn = None
-        self._memory: dict[str, tuple[int, dict[int, str]]] = {}  # the map, without a folder
+        self._prior_map: dict[str, tuple[int, dict[int, str]]] | None = None
         self._cache: tuple[Mapping[str, frozenset[str]], Scan] | None = None
 
     # ── connection ───────────────────────────────────────────────────────────
@@ -450,6 +454,10 @@ class ImapAccount:
                 logger.log(level, "%s: %s: %s; retrying in %d s", self.account, what, exc, delay)
                 self._sleep(delay)
 
+    def sign_in(self) -> None:
+        """Connect and log in now; AccessRefused if the server refuses."""
+        self._retrying("signing in", lambda conn: None)
+
     @staticmethod
     def _ok(typ, data, what: str):
         if typ != "OK":
@@ -468,45 +476,31 @@ class ImapAccount:
         return self._retrying(f"{what} in {folder}", run)
 
     # ── the UID map ──────────────────────────────────────────────────────────
-    def _map_ids(self) -> dict[str, frozenset[str]]:
-        if self.folder is None:
-            return {f: frozenset(uids.values()) for f, (_v, uids) in self._memory.items()}
-        from mailcellar.backup import sidecar
+    def _prior(self) -> dict[str, tuple[int, dict[int, str]]]:
+        """The map as the backup last saved it, read once, read-only."""
+        if self._prior_map is None:
+            if self.folder is None:
+                self._prior_map = {}
+            else:
+                from mailcellar.backup import sidecar
 
-        con = sidecar.open_meta(self.folder)
-        try:
-            return sidecar.imap_ids_by_folder(con)
-        finally:
-            con.close()
+                self._prior_map = sidecar.read_imap_map(self.folder)
+        return self._prior_map
 
     def _known(self, name: str, uidvalidity: int) -> dict[int, str]:
-        if self.folder is None:
-            v, uids = self._memory.get(name, (None, {}))
-            return dict(uids) if v == uidvalidity else {}
-        from mailcellar.backup import sidecar
+        v, uids = self._prior().get(name, (None, {}))
+        return dict(uids) if v == uidvalidity else {}
 
-        con = sidecar.open_meta(self.folder)
-        try:
-            return sidecar.imap_folder_map(con, name, uidvalidity)
-        finally:
-            con.close()
-
-    def _write_maps(self, scan: Scan) -> None:
-        keep = set(scan.maps) | set(scan.skipped)
-        if self.folder is None:
-            self._memory = {f: m for f, m in self._memory.items() if f in keep}
-            self._memory |= {f: (v, dict(uids)) for f, (v, uids) in scan.maps.items()}
+    def save_state(self, con) -> None:
+        """The scan's UID map into the backup's meta.sqlite (con). No commit."""
+        if self._cache is None:
             return
         from mailcellar.backup import sidecar
 
-        con = sidecar.open_meta(self.folder)
-        try:
-            for name, (uidvalidity, uids) in scan.maps.items():
-                sidecar.replace_imap_folder(con, name, uidvalidity, uids)
-            sidecar.drop_imap_folders(con, keep)
-            con.commit()
-        finally:
-            con.close()
+        _before, scan = self._cache
+        for name, (uidvalidity, uids) in scan.maps.items():
+            sidecar.replace_imap_folder(con, name, uidvalidity, uids)
+        sidecar.drop_imap_folders(con, set(scan.maps) | set(scan.skipped))
 
     # ── reading ──────────────────────────────────────────────────────────────
     def _read_folders(self) -> tuple[Folder, ...]:
@@ -564,10 +558,10 @@ class ImapAccount:
         return out
 
     def _scan(self) -> tuple[Mapping[str, frozenset[str]], Scan]:
-        """(the map before this run, every message now): read, decide, write the map."""
+        """(the map before this run, every message now): read, then decide."""
         if self._cache is not None:
             return self._cache
-        before = self._map_ids()
+        before = {name: frozenset(uids.values()) for name, (_v, uids) in self._prior().items()}
         folders = self._read_folders()
         reads, skipped = [], []
         with progress.Progress(f"{self.account}: reading folders", len(folders)) as p:
@@ -581,8 +575,7 @@ class ImapAccount:
         digests = self._read_digests(needs_content(reads))
         decided = merge(reads, assign_ids(reads, digests))
         scan = Scan(decided.messages, decided.labels, decided.maps, frozenset(skipped))
-        self._write_maps(scan)
-        self._cache = (before, scan)
+        self._cache = (before, scan)  # the map is written by save_state, through backup's con
         return self._cache
 
     def _messages(self) -> Mapping[str, Message]:

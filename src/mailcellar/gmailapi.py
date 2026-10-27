@@ -217,6 +217,16 @@ def imap_settings(config_folder: Path, account: str) -> ImapSettings | None:
     return ImapSettings(host.lower(), port, username, cafile)
 
 
+def imap_password(config_folder: Path) -> str:
+    """An IMAP account's password, from its owner-only imap-password file."""
+    path = config_folder / IMAP_PASSWORD
+    if not path.is_file():
+        raise GmailError(f"{path} not found: set the password with mailcellar setup --imap")
+    if path.stat().st_mode & 0o077:
+        raise GmailError(f"{path} can be read by others; make it owner-only: chmod 600 {path}")
+    return path.read_text().rstrip("\r\n")
+
+
 def find_config_folder(config_root: Path, account: str) -> Path:
     """The config/<folder> that accounts.toml assigns to `account`."""
     folder = config_accounts(config_root).get(account.lower())
@@ -650,6 +660,8 @@ def prefer_listing(wanted: int, mailbox: int) -> bool:
 
 class GmailAccount:
     """The handful of Gmail operations backup and apply need, for one account."""
+
+    provider = "gmail"
 
     def __init__(self, account: str, creds, service=None, sleep=time.sleep):
         self.account = account
@@ -1211,6 +1223,9 @@ class GmailAccount:
                 on_result(key, None, exc)
             progress.advance()
         return failed
+
+    def save_state(self, con) -> None:
+        """Nothing to keep: Gmail's history ID is backup's own state."""
 
     def trash(self, gmail_ids: list[str]) -> list[str]:
         """

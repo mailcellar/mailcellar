@@ -600,6 +600,42 @@ def drop_imap_folders(con: sqlite3.Connection, keep) -> None:
             con.execute("DELETE FROM imap_map WHERE folder = ?", (folder,))
 
 
+def provider(folder: Path) -> str:
+    """
+    'imap' for a backup of an IMAP account, else 'gmail'. Opens meta.sqlite
+    read-only; raises MetaError if it can't be read, rather than guess.
+    """
+    path = meta_path(folder)
+    if not path.is_file():
+        return "gmail"
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            return get_state(con, "provider") or "gmail"
+        finally:
+            con.close()
+    except sqlite3.Error as exc:
+        raise MetaError(f"{path} can't be read: {exc}") from None
+
+
+def read_imap_map(folder: Path) -> dict[str, tuple[int, dict[int, str]]]:
+    """An IMAP backup's whole UID map, {folder: (UIDVALIDITY, UID → ID)}, read-only."""
+    path = meta_path(folder)
+    if not path.is_file():
+        return {}
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        tables = {n for (n,) in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "imap_map" not in tables:  # an older sidecar: nothing mapped yet
+            return {}
+        out: dict[str, tuple[int, dict[int, str]]] = {}
+        for name, uidvalidity, uid, msg_id in con.execute("SELECT * FROM imap_map"):
+            out.setdefault(name, (uidvalidity, {}))[1][uid] = msg_id
+        return out
+    finally:
+        con.close()
+
+
 def get_state(con: sqlite3.Connection, name: str) -> str | None:
     """A value from the meta table, e.g. 'history_id'; None if unset."""
     row = con.execute("SELECT value FROM meta WHERE name = ?", (name,)).fetchone()

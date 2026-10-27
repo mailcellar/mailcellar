@@ -73,6 +73,7 @@ class FakeMailbox:
     """In-memory mailbox.Mailbox; tests set the failure sets and read the records."""
 
     LABELS = {"INBOX": "INBOX", "Label_1": "work", "CHAT": "CHAT"}
+    provider = "gmail"
 
     def __init__(
         self,
@@ -279,6 +280,9 @@ class FakeMailbox:
     def untrash(self, gmail_ids):
         self._record(self.calls, ("untrash", sorted(gmail_ids)))
         return self._move(gmail_ids, into_trash=False)
+
+    def save_state(self, con):
+        pass
 
     # ── upload ───────────────────────────────────────────────────────────────
     def _with_message_id(self, wanted: str) -> list[str]:

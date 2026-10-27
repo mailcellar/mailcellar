@@ -29,6 +29,7 @@ class Mailbox(Protocol):
     """
 
     account: str
+    provider: str  # "gmail", or "imap": whose IDs the backup holds
 
     # ── listing ──────────────────────────────────────────────────────────────
     def list_message_ids(
@@ -113,6 +114,11 @@ class Mailbox(Protocol):
         """Upload {key: (raw, label IDs)}, calling on_imported(key, new ID); returns failures."""
         raise NotImplementedError
 
+    # ── state kept in the backup ─────────────────────────────────────────────
+    def save_state(self, con) -> None:
+        """Write what the mailbox keeps in the backup's meta.sqlite (con). No commit."""
+        raise NotImplementedError
+
 
 IMAP_BACKUP_ONLY = (
     "{account} is an IMAP account: it is backed up only; offload, dedup and restore "
@@ -121,19 +127,34 @@ IMAP_BACKUP_ONLY = (
 
 
 def open_mailbox(
-    account: str, config_folder: Path, scope: str, interactive: bool = True
+    account: str,
+    config_folder: Path,
+    scope: str,
+    interactive: bool = True,
+    folder: Path | None = None,
 ) -> Mailbox:
     """
     The account's mailbox with `scope` ("readonly" or "modify"), signing in if
     needed and `interactive`. Raises gmailapi.GmailError when it can't, and
-    for an IMAP account asked for anything but reading.
+    for an IMAP account asked for anything but reading. `folder`, the
+    account's backup folder, keeps an IMAP account's UID map; without it the
+    map lasts as long as the mailbox object.
     """
     from mailcellar import gmailapi
 
     if gmailapi.is_imap(config_folder):
         if scope != "readonly":
             raise gmailapi.GmailError(IMAP_BACKUP_ONLY.format(account=account))
-        raise gmailapi.GmailError(f"{account} is an IMAP account, which can't be read yet")
+        from mailcellar import imap
+
+        box = imap.ImapAccount(
+            account,
+            gmailapi.imap_settings(config_folder, account),
+            gmailapi.imap_password(config_folder),
+            folder=folder,
+        )
+        box.sign_in()  # as GmailAccount checks its identity: a refusal shows here
+        return box
     creds = gmailapi.load_credentials(config_folder, account, scope, interactive=interactive)
     return gmailapi.GmailAccount(account, creds)
 

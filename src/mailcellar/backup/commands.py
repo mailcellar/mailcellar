@@ -64,6 +64,11 @@ COMMIT_EVERY = 100
 PRUNE_MAX_FRACTION = 0.10
 
 
+def server_name(gmail) -> str:
+    """What to call where the mail is, in what a command says: Gmail, or the server."""
+    return "Gmail" if gmail is None or gmail.provider == "gmail" else "the server"
+
+
 def now_ms() -> int:
     return int(time.time() * 1000)
 
@@ -71,10 +76,14 @@ def now_ms() -> int:
 def connect(args) -> tuple[str, Path, mailbox.Mailbox]:
     config_root = Path(args.config)
     account, config_folder = gmailapi.resolve_account(config_root, args.account)
-    gmail = mailbox.open_mailbox(
-        account, config_folder, "readonly", interactive=not getattr(args, "unattended", False)
-    )
     folder = Path(args.folder) if args.folder else backup_folder(account)
+    gmail = mailbox.open_mailbox(
+        account,
+        config_folder,
+        "readonly",
+        interactive=not getattr(args, "unattended", False),
+        folder=folder,
+    )
     return account, folder, gmail
 
 
@@ -282,6 +291,9 @@ def _backup(
 ) -> None:
     """The body of backup(): updates stats as it goes."""
     sidecar.replace_label_catalogue(mcon, gmail.label_catalogue())
+    if gmail.provider != "gmail":  # its IDs aren't Gmail's
+        sidecar.set_state(mcon, "provider", gmail.provider)
+    gmail.save_state(mcon)  # an IMAP account's UID map, committed with the backup
     logger.info(f"Using backup folder {folder}")
     have = gyb.backed_up_ids(con, folder)
     recorded = chain.start(folder, account)  # the hash chain, begun if there is none
@@ -322,7 +334,7 @@ def _backup(
         todo = [i for i in ids if i not in have and i not in chats]
         stats["chats"] = sum(1 for i in ids if i in chats)
         logger.info(
-            f"Gmail has {len(ids):,} messages"
+            f"{server_name(gmail)} has {len(ids):,} messages"
             + (f" matching {query!r}" if query else "")
             + f"; {len(ids) - len(todo) - stats['chats']:,} already backed up; "
             + (f"{stats['chats']:,} chats skipped; " if stats["chats"] else "")
@@ -478,17 +490,20 @@ def _prune(
         print(f"Prune: keeping {len(held):,} messages under hold {names}.")
         gone = [g for g in gone if g not in held]
     if not gone:
-        print("Prune: nothing in the backup is gone from Gmail.")
+        print(f"Prune: nothing in the backup is gone from {server_name(gmail)}.")
         return {"pruned": 0, "dest": None}, "ok"
 
     if len(gone) > max_fraction * total and not force:
         raise PruneAborted(
-            f"{len(gone):,} of {total:,} backed-up messages are gone from Gmail, "
+            f"{len(gone):,} of {total:,} backed-up messages are gone from {server_name(gmail)}, "
             f"more than {max_fraction:.0%}; re-run with --force if that is right"
         )
 
     by_year = gone_by_year(con, gone)
-    print(f"Prune: {len(gone):,} messages in the backup are permanently gone from Gmail:")
+    print(
+        f"Prune: {len(gone):,} messages in the backup are permanently gone "
+        f"from {server_name(gmail)}:"
+    )
     print("  " + ", ".join(f"{year} {n:,}" for year, n in sorted(by_year.items())))
 
     dest = pruned_folder(folder) / datetime.now().strftime("%Y-%m-%d-%H%M%S")
@@ -540,6 +555,10 @@ def cmd_backup(args) -> int:
     except gmailapi.AccessRefused:
         record_unattended_failure(args, "access-refused")
         raise
+    except gmailapi.GmailError:  # unreachable, or the account's settings can't be used
+        if getattr(args, "unattended", False):
+            record_unattended_failure(args, "no-access")
+        raise
     stats = backup(gmail, account, folder, args.search, args.refresh_labels, args.full)
     print(
         f"Downloaded {stats['downloaded']:,} messages"
@@ -553,7 +572,7 @@ def cmd_backup(args) -> int:
     if stats["deleted_backed_up"] and not args.prune:
         print(
             f"{stats['deleted_backed_up']:,} backed-up messages were permanently deleted "
-            "from Gmail; 'backup --prune' would move them out of the backup."
+            f"from {server_name(gmail)}; 'backup --prune' would move them out of the backup."
         )
     if stats["failed"]:
         logger.warning(
@@ -699,7 +718,7 @@ def cmd_meta(args) -> int:
     folder = Path(args.folder) if args.folder else backup_folder(account)
     gmail = None
     if not args.offline:
-        gmail = mailbox.open_mailbox(account, config_folder, "readonly")
+        gmail = mailbox.open_mailbox(account, config_folder, "readonly", folder=folder)
     st = backfill(gmail, account, folder)
     print(
         f"{account}: {st['backed_up']:,} backed up; {st['current']:,} already in "
@@ -709,13 +728,17 @@ def cmd_meta(args) -> int:
     )
     if gmail is not None:
         print(
-            f"Gmail details for {st['details']:,} messages"
-            + (f"; {st['gone_from_gmail']:,} no longer in Gmail" if st["gone_from_gmail"] else "")
+            f"{server_name(gmail)} details for {st['details']:,} messages"
+            + (
+                f"; {st['gone_from_gmail']:,} no longer in {server_name(gmail)}"
+                if st["gone_from_gmail"]
+                else ""
+            )
         )
     failures = st["detail_failures"]
     if failures:
         logger.warning(
-            f"{len(failures):,} Gmail lookups failed, e.g. {failures[0]}. "
+            f"{len(failures):,} lookups in {server_name(gmail)} failed, e.g. {failures[0]}. "
             "Re-run meta to retry them."
         )
     return 1 if st["errors"] or failures else 0
@@ -800,22 +823,27 @@ def cmd_count(args) -> int:
         c = count(gmail, account, folder)
     except PruneAborted as exc:
         sys.exit(f"error: {exc}")
+    server = server_name(gmail)
+    on_server = (
+        "In Gmail (excl. spam/trash)" if server == "Gmail" else "On the server (excl. junk/trash)"
+    )
+    in_server = "in Gmail" if server == "Gmail" else "on the server"
     lines = [
-        ("In Gmail (excl. spam/trash)", c["in_gmail"]),
+        (on_server, c["in_gmail"]),
         ("In backup", c["backed_up"]),
         ("Missing from backup", len(c["missing"])),
         ("Chats (never backed up)", c["chats"]),
         ("Only in backup (not in mailbox)", c["only_in_backup"]),
         ("  of which permanently deleted", c["gone_from_server"]),
         ("Offloaded (kept in backup)", c["offloaded"]),
-        ("  of which still in Gmail (Trash)", c["offloaded_in_gmail"]),
+        (f"  of which still {in_server} (Trash)", c["offloaded_in_gmail"]),
         ("Restored to Gmail", c["restored"]),
         ("Forgotten (deleted from the backup)", c["forgotten"]),
         ("Indexed but .eml missing", c["file_missing"]),
     ]
     print(account)
     for label, n in lines:
-        if n or label in ("In Gmail (excl. spam/trash)", "In backup", "Missing from backup"):
+        if n or label in (on_server, "In backup", "Missing from backup"):
             print(f"  {label:<34} {n:>8,}")
     if c["gone_from_server"]:
         print(
