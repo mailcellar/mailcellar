@@ -24,6 +24,8 @@ in beta, so commands and options may still change before 1.0.
   that differs. It compared only the content hash, which leaves out
   headers and links and is empty for a message of only links or images,
   so such changes went through.
+- `verify --help` and the reference say that plain `verify` checks a
+  message's content, not every byte, and that `--chain` checks the bytes.
 
 ## 0.13.0 (2026-10-27)
 
