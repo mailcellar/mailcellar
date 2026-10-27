@@ -195,6 +195,13 @@ def cmd_auth(args) -> None:
         used = args.scope
         if used == "readonly" and (key := gmailapi.service_account_key(folder, account)):
             print(f"  {account}: gmail.readonly OK, through the service account in {key}")
+            if args.renew:
+                marker = folder / gmailapi.SERVICE_ACCOUNT_MARKER
+                print(
+                    "    --renew doesn't apply: the service account has no token to renew. To "
+                    f"have {account} sign in for itself instead, delete {marker} and run "
+                    "this again."
+                )
             continue
         authorised = gmailapi.token_authorised_at(folder, used)
         print(
