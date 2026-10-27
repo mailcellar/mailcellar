@@ -187,6 +187,16 @@ CLIENT_WHY = "the account's tokens belong to the old client, so Google asks for 
 KEY_WHY = "every account in the domain set up with it reads through the new one"
 
 
+def make_config_root(config: Path) -> None:
+    """
+    Create the config folder owner-only, if it isn't there yet: mkdir with
+    parents gives only the last folder its mode, so creating an account's
+    folder first left the config root open to other users.
+    """
+    if not config.is_dir():
+        config.mkdir(parents=True, mode=0o700)
+
+
 def install_client(source: Path, folder: Path, force: bool) -> str:
     """Copy the client into the account's folder, owner-only. 'added', 'kept' or 'replaced'."""
     return install_private(source.read_bytes(), folder / CLIENT_FILE, force, "client", CLIENT_WHY)
@@ -237,6 +247,7 @@ def run(args) -> int:
     check_client(source.read_text())
 
     folder = config / name
+    make_config_root(config)
     installed = install_client(source, folder, args.force)
     if name not in entries:
         config.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -287,6 +298,7 @@ def run_service_account(args, config: Path, accounts_file: Path, text: str, entr
         check_client(client.read_text())
         private_status(client.read_bytes(), folder / CLIENT_FILE, args.force, "client", CLIENT_WHY)
 
+    make_config_root(config)
     install_private(data, key, args.force, "service-account key", KEY_WHY)
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
     # This account, and only this one, reads through the key (gmailapi.service_account_key).

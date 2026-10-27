@@ -20,6 +20,10 @@ in beta, so commands and options may still change before 1.0.
   (`access-refused`). A new guide covers the Admin console and Google
   Cloud steps.
 
+### Fixed
+- `setup` creates a new config folder readable only by you; it was left
+  open to other users (listing the account names) when `setup` made it.
+
 ## 0.15.2 (2026-10-27)
 
 **Upgrading from 0.15.1:** nothing to do: no database's schema changes.
