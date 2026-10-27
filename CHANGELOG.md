@@ -7,6 +7,15 @@ in beta, so commands and options may still change before 1.0.
 
 ## Unreleased
 
+### Added
+- Retention: an offload rule's `forget_after = N` forgets the mail it
+  offloaded once it is more than N years old (from the message's date),
+  with `offload forget --due` (`--rule` to narrow it), through forget's
+  checks and 30-day hold; mail still in Gmail and mail under a legal hold
+  are never forgotten. `offload plan`, the review pages, `report health`
+  and `schedule status` show the policy and what is due, and the hash
+  chain's forget link names the rules.
+
 ### Fixed
 - `backup` refuses an account it has backed up before (its hash chain
   anchor is in the config folder) when the backup isn't there, creating

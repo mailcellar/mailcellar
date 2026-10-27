@@ -10,6 +10,9 @@ mail to take out of Gmail.
     except = { subject = "contract" }  # optional: keep what matches any of these
     waive = ["thread"]                 # optional: default protections to drop
     protect = ["correspondents"]       # optional: protections to add
+    forget_after = 7                   # optional: years from a message's date after which
+                                       # offload forget --due deletes what this rule
+                                       # offloaded from the backup, once Gmail has deleted it
 
 Scope keys take a string or a list (any value matches); different keys
 must all match:
@@ -65,7 +68,7 @@ SCOPES = (
     "query",
 )
 CATEGORIES = ("promotions", "updates", "forums", "social", "personal")
-KEYS = {"name", "before", "account", "except", "waive", "protect", *SCOPES}
+KEYS = {"name", "before", "account", "except", "waive", "protect", "forget_after", *SCOPES}
 
 
 class RuleError(Exception):
@@ -81,6 +84,8 @@ class Rule:
     scope: dict[str, list] = field(default_factory=dict)  # scope key → values
     protect: tuple[str, ...] = DEFAULT_PROTECT
     exceptions: dict[str, list] = field(default_factory=dict)  # same keys; any one keeps
+    forget_after: int | None = None  # years, as written; None: kept for ever
+    forget_ms: int | None = None  # its mail is due for forgetting when older than this
 
     @property
     def waived(self) -> list[str]:
@@ -95,6 +100,11 @@ class Rule:
     def labels(self) -> set[str]:
         """The user labels the rule names, lower case."""
         return {v.lower() for v in self.scope.get("label", [])}
+
+
+def years_text(n: int) -> str:
+    """A forget_after as text: "1 year", "7 years"."""
+    return f"{n} year" + ("" if n == 1 else "s")
 
 
 def fold(text: str) -> str:
@@ -168,10 +178,29 @@ def parse_rule(raw: dict, parse_before, resolve_account) -> Rule:
         p for p in PROTECTIONS if (p in DEFAULT_PROTECT and p not in waive) or p in extra
     )
 
+    forget_after = forget_ms = None
+    if "forget_after" in raw:
+        forget_after = raw["forget_after"]
+        if isinstance(forget_after, bool) or not isinstance(forget_after, int) or forget_after < 1:
+            raise RuleError(
+                f"rule {name!r}: forget_after must be a whole number of years, 1 or more"
+            )
+        forget_ms = parse_before(str(forget_after))
+
     accounts = []
     if "account" in raw:
         accounts = [resolve_account(a) for a in _strings(name, "account", raw["account"])]
-    return Rule(name.strip(), before, before_ms, accounts, scope, protect, exceptions)
+    return Rule(
+        name.strip(),
+        before,
+        before_ms,
+        accounts,
+        scope,
+        protect,
+        exceptions,
+        forget_after,
+        forget_ms,
+    )
 
 
 def _parse_scope(name: str, raw: dict, where: str) -> dict[str, list]:

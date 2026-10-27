@@ -44,7 +44,7 @@ from mailcellar.offload.plan import (
     summary,
 )
 from mailcellar.offload.review import write_reviews
-from mailcellar.offload.rules import RuleError, load_rules
+from mailcellar.offload.rules import RuleError, load_rules, years_text
 from mailcellar.paths import backup_folder, config_root, data_root
 from mailcellar.report.cli import parse_before, resolve_folders
 from mailcellar.report.db import AnalyticsError, completeness, open_sidecars
@@ -276,20 +276,34 @@ def cmd_forget(args) -> None:
     if args.empty:
         return forget_empty(folders, args.yes)
     remind_due(folders)
-    if not (args.batch or args.rule):
-        sys.exit("error: say which offloaded mail: --batch or --rule (or --empty, --undo RUN)")
+    if not (args.batch or args.rule or args.due):
+        sys.exit(
+            "error: say which offloaded mail: --batch, --rule or --due (or --empty, --undo RUN)"
+        )
+    retain = retention_policy(args) if args.due else None
     run = datetime.now().strftime(forget.RUN_FORMAT)
     for folder in folders:
         account = backup_account(folder)
         sidecar.open_meta(folder).close()  # brings an older meta.sqlite up to date
-        found = forget.candidates(folder, set(args.batch or ()), set(args.rule or ()))
+        if retain is None:
+            found = forget.candidates(folder, set(args.batch or ()), set(args.rule or ()))
+        else:
+            cutoffs = {name: rule.forget_ms for name, rule in retain.items()}
+            found = forget.due_by_age(forget.candidates(folder, rules=set(retain)), cutoffs)
         if not found:
+            if retain is not None:
+                print(f"Forget — {account}: nothing due under retention")
             continue
         held = holds.held(folder, int(time.time() * 1000), [c.gmail_id for c in found])
         gone = [c.gmail_id for c in found if c.gone_ms is not None and c.gmail_id not in held]
         live, unread = gmail_state(account, Path(args.config), gone) if gone else ({}, {})
         choice = forget.choose(found, live, unread, held)
-        print(f"Forget — {account}: {len(found):,} offloaded messages selected")
+        if retain is None:
+            print(f"Forget — {account}: {len(found):,} offloaded messages selected")
+        else:
+            print(f"Forget — {account}: {len(found):,} offloaded messages due under retention")
+            for rule, year, n in forget.by_rule_and_year(found):
+                print(f"  {rule} ({years_text(retain[rule].forget_after)}), {year}  {n:>8,}")
         print(f"  can be forgotten                {len(choice.forget):>8,}")
         if choice.not_gone:
             print(
@@ -330,7 +344,13 @@ def cmd_forget(args) -> None:
         if not confirm_count(len(choice.forget), f"Forget {len(choice.forget):,} messages?"):
             print("Nothing forgotten.")
             continue
-        moved = forget.forget(folder, account, list(choice.forget), run, int(time.time() * 1000))
+        why = forget.note(
+            list(choice.forget),
+            None if retain is None else {n: r.forget_after for n, r in retain.items()},
+        )
+        moved = forget.forget(
+            folder, account, list(choice.forget), run, int(time.time() * 1000), why
+        )
         ids = [c.gmail_id for c in choice.forget]
         indexes = forget.scrub_indexes(account, ids)
         files = forget.scrub_files({(account, g) for g in ids})
@@ -347,6 +367,29 @@ def cmd_forget(args) -> None:
             )
             + "."
         )
+
+
+def retention_policy(args) -> dict:
+    """
+    offload forget --due: the rules with forget_after (or only --rule's), by
+    name. Stops on an unreadable rules file, a --batch, or a --rule without
+    forget_after: a retention run must never widen by accident.
+    """
+    if args.batch:
+        sys.exit("error: --due selects by the rules' forget_after; it can't take --batch")
+    try:
+        rules = load_rules(Path(args.rules), parse_before, resolve_account)
+    except RuleError as exc:
+        sys.exit(f"error: {exc}")
+    retain = {r.name: r for r in rules if r.forget_after}
+    if args.rule:
+        missing = sorted(set(args.rule) - set(retain))
+        if missing:
+            sys.exit(f"error: no rule with forget_after named {', '.join(missing)}")
+        retain = {name: retain[name] for name in args.rule}
+    if not retain:
+        sys.exit(f"error: no rule in {args.rules} has forget_after")
+    return retain
 
 
 def remind_due(folders: list[Path]) -> None:
@@ -504,6 +547,13 @@ def main(argv=None, prog: str | None = None) -> None:
         "--batch", action="append", help="Offloaded messages of this batch (repeatable)"
     )
     fg.add_argument("--rule", action="append", help="Offloaded messages of this rule (repeatable)")
+    fg.add_argument(
+        "--due",
+        action="store_true",
+        help="Offloaded mail the rules' forget_after makes due: older than that many years "
+        "(with --rule, only those rules)",
+    )
+    fg.add_argument("--rules", default=str(rules), help=f"Rules file, for --due (default: {rules})")
     fg.add_argument(
         "--yes",
         action="store_true",

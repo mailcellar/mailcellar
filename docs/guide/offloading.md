@@ -286,3 +286,19 @@ yourself) and a backup has run. Forgotten files are held for 30 days in
 next `offload forget` say when a run is due. Copies outside the data
 root, such as an export or Time Machine, keep the mail. The details are in
 the [reference](../reference/offload.md#forgetting-offloaded-mail).
+
+To make that a standing policy, give the rule a `forget_after`, in years
+from each message's date:
+
+```toml
+[[rule]]
+name = "newsletters"
+category = "promotions"
+before = "1"
+forget_after = 2
+```
+
+`mailcellar offload forget --due` then forgets what each rule's
+`forget_after` makes due, through the same checks and the same 30-day
+hold; `report health` shows how much is due. A legal hold always wins
+([Keeping mail on hold](legal-holds.md)).

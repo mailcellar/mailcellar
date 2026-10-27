@@ -39,6 +39,7 @@ from mailcellar import gmailapi
 from mailcellar.backup import sidecar
 from mailcellar.backup.gyb import backup_account
 from mailcellar.paths import (
+    backup_folder,
     config_root,
     data_root,
     find_backups,
@@ -308,6 +309,8 @@ def cmd_install(args) -> int:
 
 
 def cmd_status(args) -> int:
+    from mailcellar.offload import forget
+
     config = Path(args.config)
     now = datetime.now(UTC)
     now_ms = int(now.timestamp() * 1000)
@@ -348,6 +351,9 @@ def cmd_status(args) -> int:
             if overdue(last[0], now_ms, schedule):
                 line += " (overdue)"
         token, token_bad = token_note(config, account, now)
+        due = sum(n[1] for n in forget.retention(backup_folder(account), now_ms).values())
+        if due:
+            token += f"; {due:,} messages due under retention (offload forget --due)"
         print(f"  {account}: {line}; {token}")
         problems = problems or bad or token_bad
     return 1 if problems else 0

@@ -333,3 +333,144 @@ def test_forget_undo_and_empty_keep_the_hash_chain_whole(env, monkeypatch):
 def test_forget_needs_a_selection(env):
     with pytest.raises(SystemExit, match="say which offloaded mail"):
         run()
+
+
+# ── retention: forget_after and --due (#72) ──────────────────────────────────
+
+
+def dated(gid, rule="notices", date="2010-06-01", gone=True):
+    ms = int(datetime.strptime(date, "%Y-%m-%d").timestamp() * 1000)
+    return Offloaded(gid, BATCH, rule, 5_000 if gone else None, ms, 100)
+
+
+def test_due_by_age_takes_mail_older_than_its_rules_cut_off():
+    cut = int(datetime(2019, 1, 1).timestamp() * 1000)
+    found = [
+        dated("old"),
+        dated("new", date="2024-01-01"),
+        dated("other", rule="lunch"),  # its rule has no forget_after
+        Offloaded("undated", BATCH, "notices", 5_000, None, 1),
+    ]
+    assert [c.gmail_id for c in forget.due_by_age(found, {"notices": cut})] == ["old"]
+
+
+def test_retention_counts_and_breakdown():
+    due_now = [
+        dated("a"),
+        dated("b", gone=False),
+        dated("c"),
+        dated("d", rule="lunch", date="2011-02-01"),
+    ]
+    assert forget.retention_counts(due_now, {"c": "audit"}) == {
+        "lunch": (1, 0, 0),
+        "notices": (1, 1, 1),
+    }
+    assert forget.by_rule_and_year(due_now) == [("lunch", "2011", 1), ("notices", "2010", 3)]
+    assert forget.note(due_now, {"notices": 7, "lunch": 2, "x": 1}) == (
+        '{"rules": ["lunch", "notices"], "forget_after": {"lunch": 2, "notices": 7}}'
+    )
+    assert forget.note(due_now) == '{"rules": ["lunch", "notices"]}'
+
+
+def date_messages(folder, dates):
+    con = sidecar.open_meta(folder)
+    for gid, date in dates.items():
+        ms = int(datetime.strptime(date, "%Y-%m-%d").timestamp() * 1000)
+        con.execute("UPDATE messages SET internal_date = ? WHERE gmail_id = ?", (ms, gid))
+    con.commit()
+    con.close()
+
+
+@pytest.fixture
+def retained(env):
+    """env, with p0 and p2 dated 2010, p1 2025, p3 2011; notices forgotten after 5 years."""
+    folder, gmail = env
+    date_messages(folder, {"p0": "2010-03-01", "p1": "2025-03-01", "p2": "2010-04-01"})
+    date_messages(folder, {"p3": "2011-01-01", "l0": "2001-01-01"})
+    rules = data_root() / "offload" / "rules.toml"
+    rules.write_text(
+        '[[rule]]\nname = "notices"\nbefore = 1\nsubject = "notice"\nforget_after = 5\n'
+        '[[rule]]\nname = "lunch"\nbefore = 1\nsubject = "lunch"\n'
+    )
+    return folder, gmail
+
+
+def test_due_dry_run_lists_what_retention_would_take(retained, capsys):
+    folder, _gmail = retained
+    run("--due")
+    out = capsys.readouterr().out
+    assert "3 offloaded messages due under retention" in out  # p0, p2, p3; p1 is too new
+    assert "notices (5 years), 2010         2" in out and "notices (5 years), 2011" in out
+    assert "can be forgotten                       1" in out  # p0
+    assert "Gmail has them again" in out and "not yet gone from Gmail" in out  # p2, p3
+    assert "Dry run" in out and "p0" in {m.gmail_id for m in gyb.iter_backup(folder)}
+
+
+def test_due_forgets_only_what_is_due_and_says_why_in_the_chain(retained, monkeypatch, capsys):
+    from mailcellar.backup import chain
+
+    folder, _gmail = retained
+    run("--due", "--yes", typed="1", monkeypatch=monkeypatch)
+    left = {m.gmail_id for m in gyb.iter_backup(folder)}
+    assert "p0" not in left and {"p1", "p2", "p3", "l0"} <= left  # l0's rule has no forget_after
+    link = chain.parse_line(chain.read_lines(folder)[-1])
+    assert link.op == "forget" and link.removed[0][0] == "p0"
+    assert link.note == '{"rules": ["notices"], "forget_after": {"notices": 5}}'
+
+
+def test_a_legal_hold_keeps_mail_retention_would_take(retained, monkeypatch, capsys):
+    folder, _gmail = retained
+    cli.main(["hold", "add", "audit", "--reason", "r", "--id", "p0"])
+    capsys.readouterr()
+    run("--due", "--yes", typed="1", monkeypatch=monkeypatch)
+    out = capsys.readouterr().out
+    assert "held" in out and "audit" in out and "Forgot" not in out
+    assert "p0" in {m.gmail_id for m in gyb.iter_backup(folder)}
+    now = int(datetime.now().timestamp() * 1000)
+    assert forget.retention(folder, now) == {
+        "notices": (5, 1, 1, 1)
+    }  # p2 due, p3 not gone, p0 held
+
+
+def test_retention_reports_what_is_due_without_asking_gmail(retained):
+    folder, _gmail = retained
+    now = int(datetime.now().timestamp() * 1000)
+    # p0 and p2 are recorded gone (p2 is back in Gmail, which only --due finds out); p3 isn't.
+    assert forget.retention(folder, now) == {"notices": (5, 2, 1, 0)}
+    from mailcellar.report import health
+
+    (row,) = health.retention_table([folder], now).rows
+    assert row == (A, "notices", "5 years", 2, 1, 0)
+
+
+@pytest.mark.parametrize(
+    ("args", "error"),
+    [
+        (("--due", "--batch", BATCH), "can't take --batch"),
+        (("--due", "--rule", "lunch"), "no rule with forget_after named lunch"),
+    ],
+)
+def test_due_refuses_what_would_widen_it(retained, args, error):
+    with pytest.raises(SystemExit, match=error):
+        run(*args)
+
+
+def test_due_needs_a_rule_with_forget_after(env):
+    with pytest.raises(SystemExit, match="no rules file"):
+        run("--due")
+    (data_root() / "offload" / "rules.toml").write_text(
+        '[[rule]]\nname = "lunch"\nbefore = 1\nsubject = "lunch"\n'
+    )
+    with pytest.raises(SystemExit, match="has forget_after"):
+        run("--due")
+
+
+def test_the_review_line_says_when_a_rules_mail_is_forgotten(tmp_path):
+    from mailcellar.offload.review import rule_text
+    from mailcellar.offload.rules import load_rules
+    from mailcellar.report.cli import parse_before
+
+    path = tmp_path / "rules.toml"
+    path.write_text('[[rule]]\nname = "x"\nbefore = 2\nlabel = "a"\nforget_after = 7\n')
+    (rule,) = load_rules(path, parse_before, lambda a: a)
+    assert rule_text(rule).endswith("forgotten from the backup 7 years after its date")

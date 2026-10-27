@@ -19,18 +19,24 @@ It is the one irreversible thing mailcellar does, so:
       Deletes runs held longer than HOLD_DAYS, for good.
   --undo RUN
       Puts a held run back; `mailcellar meta` then re-parses it.
+  --due
+      Retention (#72): instead of a batch or rule, what each offload rule's
+      forget_after makes due, mail it offloaded that is older than that
+      many years, through the same checks and stages.
 
 Copies outside the data root (Time Machine, a second copy, an export) still
-hold the mail; the command says so. choose(), due() and scrub_rows() decide
-from plain values; the rest reads and writes.
+hold the mail; the command says so. choose(), due(), due_by_age(),
+by_rule_and_year(), retention_counts() and scrub_rows() decide from plain
+values; the rest reads and writes.
 """
 
 import csv
+import json
 import os
 import shutil
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from mailcellar.backup import chain, gyb, sidecar
@@ -112,6 +118,51 @@ def due(runs: list[str], now: datetime, hold_days: int | None = None) -> list[st
     return sorted(out)
 
 
+def due_by_age(candidates: list[Offloaded], cutoffs: dict[str, int]) -> list[Offloaded]:
+    """
+    The candidates their rule's forget_after makes due: offloaded by a rule
+    in `cutoffs` (rule → ms) and dated before its cut-off. A message with no
+    recorded date is never due. Pure.
+    """
+    return [
+        c
+        for c in candidates
+        if c.rule in cutoffs and c.internal_date is not None and c.internal_date < cutoffs[c.rule]
+    ]
+
+
+def by_rule_and_year(chosen: list[Offloaded]) -> list[tuple[str, str, int]]:
+    """(rule, year of the message's date, messages), sorted. Pure."""
+    counts: dict[tuple[str, str], int] = {}
+    for c in chosen:
+        year = datetime.fromtimestamp(c.internal_date / 1000, UTC).strftime("%Y")
+        counts[(c.rule, year)] = counts.get((c.rule, year), 0) + 1
+    return [(rule, year, n) for (rule, year), n in sorted(counts.items())]
+
+
+def retention_counts(
+    due_now: list[Offloaded], held: dict[str, str]
+) -> dict[str, tuple[int, int, int]]:
+    """
+    Rule → (recorded gone, not yet gone from Gmail, under a legal hold) among
+    the messages due by age: what offload forget --due would take, before
+    Gmail is asked again. Pure.
+    """
+    out: dict[str, list[int]] = {}
+    for c in due_now:
+        n = out.setdefault(c.rule, [0, 0, 0])
+        n[2 if c.gmail_id in held else 0 if c.gone_ms is not None else 1] += 1
+    return {rule: (a, b, c) for rule, (a, b, c) in sorted(out.items())}
+
+
+def note(chosen: list[Offloaded], forget_after: dict[str, int] | None = None) -> str:
+    """The chain link's note: the rules whose mail a run forgot, and their forget_after."""
+    rules = sorted({c.rule for c in chosen})
+    if forget_after is None:
+        return json.dumps({"rules": rules})
+    return json.dumps({"rules": rules, "forget_after": {r: forget_after[r] for r in rules}})
+
+
 def held_until(run: str, hold_days: int | None = None) -> datetime:
     hold_days = HOLD_DAYS if hold_days is None else hold_days
     return datetime.strptime(run, RUN_FORMAT) + timedelta(days=hold_days)
@@ -178,6 +229,45 @@ def runs_under_hold(
     return out
 
 
+def rules_path() -> Path:
+    """The offload rules file: <data root>/offload/rules.toml."""
+    return data_root() / "offload" / "rules.toml"
+
+
+def policies(path: Path | None = None) -> dict[str, tuple[int, int]]:
+    """
+    Rule → (forget_after years, cut-off ms) for the offload rules that have
+    one; {} without a readable rules file. For the reports, which only say
+    what is due: offload forget --due reads the rules itself and stops on
+    an error.
+    """
+    from mailcellar.offload.rules import RuleError, load_rules
+    from mailcellar.report.cli import parse_before
+
+    try:
+        rules = load_rules(path or rules_path(), parse_before, lambda name: name)
+    except RuleError:
+        return {}
+    return {r.name: (r.forget_after, r.forget_ms) for r in rules if r.forget_after}
+
+
+def retention(folder: Path, now_ms: int, path: Path | None = None) -> dict[str, tuple[int, ...]]:
+    """
+    Rule → (forget_after, recorded gone, not yet gone, held) for the backup's
+    mail due under retention; rules with nothing due are left out. Read-only.
+    """
+    from mailcellar.hold import holds
+
+    found = policies(path)
+    if not found or not sidecar.meta_path(folder).is_file():
+        return {}
+    due_now = due_by_age(
+        candidates(folder, rules=set(found)), {r: ms for r, (_y, ms) in found.items()}
+    )
+    held_ids = holds.held(folder, now_ms, [c.gmail_id for c in due_now]) if due_now else {}
+    return {rule: (found[rule][0], *n) for rule, n in retention_counts(due_now, held_ids).items()}
+
+
 def candidates(folder: Path, batches=(), rules=()) -> list[Offloaded]:
     """
     The backup's offloaded messages (not restored, not forgotten) in any of
@@ -231,14 +321,17 @@ def compact(con: sqlite3.Connection) -> None:
     con.execute("VACUUM")
 
 
-def forget(folder: Path, account: str, chosen: list[Offloaded], run: str, now_ms: int) -> int:
+def forget(
+    folder: Path, account: str, chosen: list[Offloaded], run: str, now_ms: int, why: str = ""
+) -> int:
     """
     Move the chosen messages' files to runs_dir(account)/run, delete their
-    rows in msg-db.sqlite and meta.sqlite, and record them as forgotten.
-    Returns how many were moved out. The caller scrubs the rest.
+    rows in msg-db.sqlite and meta.sqlite, and record them as forgotten;
+    the chain link carries `why` (note()). Returns how many were moved out.
+    The caller scrubs the rest.
     """
     ids = [c.gmail_id for c in chosen]
-    chain.append(folder, account, "forget", removed=chain.removal(folder, ids))
+    chain.append(folder, account, "forget", removed=chain.removal(folder, ids), note=why)
     con = gyb.open_backup(folder, account)
     try:
         manifest = gyb.prune(
