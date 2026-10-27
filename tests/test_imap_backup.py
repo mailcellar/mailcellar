@@ -95,9 +95,14 @@ def test_a_backup_of_another_provider_is_refused(server, capsys):
 
 
 def test_an_imap_run_doesnt_call_every_message_changed():
-    imap_line = backup_commands.history_summary("imap", 157, 69, 0, 0, 0, 0)  # 88 gone
-    assert imap_line == "Read the server's 69 messages again; 0 to download, 0 label updates"
-    gmail_line = backup_commands.history_summary("gmail", 3, 2, 1, 2, 1, 1)
+    counts = dict(missing=0, todo=0, labels=0, skipped=0)
+    imap_line = backup_commands.history_summary("imap", changed=20, present=7, **counts)
+    assert imap_line == (
+        "Read the server's 7 messages again (excl. junk/trash); 0 to download, 0 label updates"
+    )
+    gmail_line = backup_commands.history_summary(
+        "gmail", changed=3, present=0, missing=1, todo=2, labels=1, skipped=1
+    )
     assert gmail_line == (
         "History since last run: 3 messages changed, 1 missing locally; "
         "2 to download, 1 label updates, 1 in Spam/Trash/Chat skipped"

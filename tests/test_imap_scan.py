@@ -348,6 +348,44 @@ def test_names_stand_in_for_the_roles_a_server_marks_no_folder_for():
     assert imap.marked_roles(entries) == {"SENT", "TRASH"}
 
 
+def test_listing_stops_when_a_pass_finds_nothing_new():
+    first = frozenset(range(1001, 2001))
+    assert imap.next_search(frozenset(), first, 2500) == ("UID", "1:1000")
+    assert imap.next_search(first, first, 2500) is None  # a server ignoring the range
+    assert imap.next_search(frozenset(), frozenset(), 5) is None  # an empty pass
+    assert imap.next_search(frozenset(), frozenset({1, 2}), 9) is None  # down to UID 1
+    assert imap.next_search(frozenset(), frozenset({5, 6}), 2) is None  # the count reached
+    assert imap.next_search(frozenset(), frozenset({5, 6}), None) == ("UID", "1:4")
+
+
+def test_a_server_ignoring_the_uid_range_doesnt_hang_the_listing(server, monkeypatch):
+    server.message_limit = 2
+    for n in range(5):
+        server.add("Projects/2026", msgid=f"<p{n}@x>", flags={"\\Seen"})
+    search = server.uid
+
+    def ignoring_ranges(command, *args):  # answers every SEARCH as SEARCH ALL
+        return search(command, *((None, "ALL") if command == "SEARCH" else args))
+
+    monkeypatch.setattr(server, "uid", ignoring_ranges)
+    assert len(account(server).list_message_ids()) == 2  # the two it was given; no hang
+
+
+def test_examine_without_a_count_lists_until_a_pass_is_empty():
+    assert imap.exists_from([b"12"]) == 12
+    assert imap.exists_from([None]) is None and imap.exists_from([]) is None
+
+
+def test_a_flag_on_a_folder_that_cant_be_opened_marks_no_role():
+    lines = [
+        b'(\\Noselect \\Trash) "/" "Parent"',
+        b'(\\HasNoChildren) "/" "Trash"',
+    ]
+    entries = imap.list_entries(lines)
+    assert imap.marked_roles(entries) == frozenset()
+    assert [f.label for f in imap.folders_from(entries)] == ["TRASH"]
+
+
 def test_a_users_own_junk_folder_is_backed_up_on_a_special_use_server(server):
     server.add_folder("Junk Mail")  # the user's own folder; the server marks Junk itself
     server.folders["Spam"] = server.folders.pop("Junk Mail")
