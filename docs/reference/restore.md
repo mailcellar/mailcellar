@@ -82,8 +82,9 @@ about 6 a second, so the dry run's estimate for 4,500 messages is about 13
 minutes and for 50,000 over two hours. Progress lines go to stderr (`-q` turns them off); run
 large restores in the background.
 
-Runs are logged in `<data root>/restore/restore-log.csv`, and each
-restored message is recorded in its backup's `meta.sqlite`. How it works:
+Runs are logged in `<data root>/restore/restore-log.csv`, a row per message
+as it is done, so an interrupted run's log shows how far it got; each
+restored message is also recorded in its backup's `meta.sqlite`. How it works:
 [docs/architecture.md](../architecture.md#restore).
 
 **From elsewhere.** Three other sources hold mail that isn't in a backup's

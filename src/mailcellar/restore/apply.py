@@ -510,12 +510,15 @@ def apply(
     prefix: str = "",
     strip: bool = False,
     progress=_quiet,
+    on_result=None,
 ) -> list[Result]:
     """
     Carry out the decisions into `gmail`: the backup's own account, or
     `target` (whose backup is `target_folder`). Each restore is recorded in
     the backup's meta.sqlite as it succeeds, so an interrupted run carries
-    on where it stopped. Returns a Result per decision, in order.
+    on where it stopped. Returns a Result per decision, in order;
+    on_result(result) is called with each as soon as it is final, so a log
+    kept that way survives an interruption.
 
     folder None: the candidates come from a source other than a backup's
     index (sources.py). Nothing is recorded or indexed; a run again finds
@@ -524,7 +527,17 @@ def apply(
     by_way: dict[str, list[Decision]] = {}
     for d in decisions:
         by_way.setdefault(d.way, []).append(d)
-    results = {d.source_id: r for d in decisions if (r := unchanged(d)) is not None}
+    results: dict[str, Result] = {}
+
+    def emit(r: Result) -> Result:
+        if r.source_id not in results and on_result is not None:
+            on_result(r)
+        results[r.source_id] = r
+        return r
+
+    for d in decisions:
+        if (r := unchanged(d)) is not None:
+            emit(r)
     mcon = sidecar.open_meta(folder) if folder else None
     try:
 
@@ -552,17 +565,16 @@ def apply(
         how = {UNTRASH: "untrashed", FOUND: "found", IN_GMAIL: "in gmail"}
         for d in by_way.get(UNTRASH, []) + found + by_way.get(IN_GMAIL, []):
             if d.new_id in failed:
-                results[d.source_id] = Result(d, "failed", failed[d.new_id])
+                emit(Result(d, "failed", failed[d.new_id]))
             else:
                 outcome = "untrashed" if d.way == UNTRASH else "recorded"
-                results[d.source_id] = record(d, d.new_id, how[d.way], outcome, d.detail)
+                emit(record(d, d.new_id, how[d.way], outcome, d.detail))
 
         imports = by_way.get(IMPORT, [])
         if imports:
-            for r in _import(
-                gmail, mcon, folder, target_folder, imports, record, prefix, strip, progress
-            ):
-                results[r.source_id] = r
+            _import(
+                gmail, mcon, folder, target_folder, imports, record, emit, prefix, strip, progress
+            )
 
         done = sorted({r.new_id for r in results.values() if r.outcome in DONE})
         if done:
@@ -583,31 +595,29 @@ def _import(
     target_folder: Path | None,
     imports,
     record,
+    emit,
     prefix,
     strip,
     progress,
-) -> list[Result]:
+) -> None:
     """
     Upload the gone messages, IMPORT_CHUNK at a time, and index each new ID
     in the backup of the account restored into: `target_folder`, or the
-    backup's own `folder`; neither, for another source.
+    backup's own `folder`; neither, for another source. Each result goes
+    to emit() as soon as it is known.
     """
     system = {label["id"] for label in gmail.label_catalogue() if label["type"] == "system"}
     index_folder = target_folder or folder
     tcon = sidecar.open_meta(target_folder) if target_folder else mcon
-    results: list[Result] = []
     try:
         progress(f"Importing {len(imports):,} messages")
         with Progress("Importing", len(imports)):
             for start in range(0, len(imports), IMPORT_CHUNK):
                 chunk = imports[start : start + IMPORT_CHUNK]
-                results += _import_chunk(
-                    gmail, tcon, index_folder, chunk, record, system, prefix, strip
-                )
+                _import_chunk(gmail, tcon, index_folder, chunk, record, emit, system, prefix, strip)
     finally:
         if target_folder:
             tcon.close()
-    return results
 
 
 def _label_ids(gmail, names: list[str]) -> tuple[list[str], list[str]]:
@@ -630,7 +640,7 @@ def _label_ids(gmail, names: list[str]) -> tuple[list[str], list[str]]:
         return ids, refused
 
 
-def _import_chunk(gmail, tcon, folder, chunk, record, system, prefix, strip) -> list[Result]:
+def _import_chunk(gmail, tcon, folder, chunk, record, emit, system, prefix, strip) -> None:
     results: dict[str, Result] = {}
     # source ID → (decision, raw bytes, parsed fields, labels note, label IDs)
     ready: dict[str, tuple[Decision, bytes, dict, str, list[str]]] = {}
@@ -638,7 +648,9 @@ def _import_chunk(gmail, tcon, folder, chunk, record, system, prefix, strip) -> 
         raw = read_raw(d.candidate)
         fields = parse_message(raw)
         if fields["content_hash"] != d.candidate.content_hash:  # changed since plan()
-            results[d.source_id] = Result(d, "skipped", "backup copy differs from the sidecar")
+            results[d.source_id] = emit(
+                Result(d, "skipped", "backup copy differs from the sidecar")
+            )
             continue
         keep, dropped = import_labels(d.candidate.labels, system, prefix, strip)
         label_ids, refused = _label_ids(gmail, keep)
@@ -646,21 +658,20 @@ def _import_chunk(gmail, tcon, folder, chunk, record, system, prefix, strip) -> 
         note = f"labels not restored: {', '.join(dropped)}" if dropped else ""
         ready[d.source_id] = (d, raw, fields, note, label_ids)
     if not ready:
-        return list(results.values())
+        return
 
     def on_imported(source_id: str, new_id: str) -> None:
         d, _raw, _fields, note, _labels = ready[source_id]
-        results[source_id] = record(d, new_id, "imported", "imported", note)
+        results[source_id] = emit(record(d, new_id, "imported", "imported", note))
 
     messages = {sid: (raw, label_ids) for sid, (_d, raw, _f, _n, label_ids) in ready.items()}
     for failure in gmail.import_messages(messages, on_imported):
         sid = failure.split(":", 1)[0]
-        results[sid] = Result(ready[sid][0], "failed", failure)
+        results[sid] = emit(Result(ready[sid][0], "failed", failure))
 
     imported = [r for r in results.values() if r.outcome == "imported"]
     if imported and folder is not None:
         _index_new_ids(gmail, tcon, folder, imported, {sid: v[2] for sid, v in ready.items()})
-    return list(results.values())
 
 
 def _index_new_ids(gmail, tcon, folder, imported: list[Result], fields: dict) -> None:
@@ -698,29 +709,44 @@ def _index_new_ids(gmail, tcon, folder, imported: list[Result], fields: dict) ->
         con.close()
 
 
-def write_log(path: Path, results: list[Result], mode: str, account: str, target: str) -> None:
-    upgrade_log(path, LOG_COLUMNS)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    new = not path.is_file()
-    now = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
-    with path.open("a", newline="", encoding="utf-8") as fh:
-        w = csv.DictWriter(fh, fieldnames=LOG_COLUMNS)
+class RestoreLog:
+    """
+    The restore log, appended to a row at a time and flushed after each, so
+    a run that is interrupted or fails still leaves what it did. Use with
+    `with`; add() takes each Result as apply() reports it.
+    """
+
+    def __init__(self, path: Path, mode: str, account: str, target: str):
+        self.path, self.mode, self.account, self.target = path, mode, account, target
+
+    def __enter__(self) -> RestoreLog:
+        upgrade_log(self.path, LOG_COLUMNS)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        new = not self.path.is_file()
+        self._fh = self.path.open("a", newline="", encoding="utf-8")
+        self._w = csv.DictWriter(self._fh, fieldnames=LOG_COLUMNS)
         if new:
-            w.writeheader()
-        for r in results:
-            c = r.decision.candidate
-            w.writerow(
-                {
-                    "time": now,
-                    "mode": mode,
-                    "account": account,
-                    "target": target,
-                    "source_id": c.source_id,
-                    "new_id": r.new_id,
-                    "outcome": r.outcome,
-                    "detail": r.detail,
-                    "batch": c.batch,
-                    "rule": c.rule,
-                    "path": str(c.path or ""),
-                }
-            )
+            self._w.writeheader()
+        return self
+
+    def add(self, r: Result) -> None:
+        c = r.decision.candidate
+        self._w.writerow(
+            {
+                "time": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
+                "mode": self.mode,
+                "account": self.account,
+                "target": self.target,
+                "source_id": c.source_id,
+                "new_id": r.new_id,
+                "outcome": r.outcome,
+                "detail": r.detail,
+                "batch": c.batch,
+                "rule": c.rule,
+                "path": str(c.path or ""),
+            }
+        )
+        self._fh.flush()
+
+    def __exit__(self, *exc) -> None:
+        self._fh.close()

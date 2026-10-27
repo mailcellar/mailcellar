@@ -23,6 +23,7 @@ from mailcellar.restore.apply import (
     IMPORT,
     IMPORTS_PER_SECOND,
     Narrowing,
+    RestoreLog,
     apply,
     candidates,
     dry_run,
@@ -30,7 +31,6 @@ from mailcellar.restore.apply import (
     matches,
     plan,
     restored_label,
-    write_log,
 )
 
 logger = logging.getLogger(__name__)
@@ -247,26 +247,29 @@ def main(argv=None, prog: str | None = None) -> int:
             gmailapi.load_credentials(target_config, target, "modify" if args.yes else "readonly"),
         )
         decisions = plan(gmail, cands, same_account=not other, progress=progress)
-        if args.yes:
-            run = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-            results = apply(
-                gmail,
-                folder,
-                decisions,
-                run,
-                args.label or restored_label(),
-                target=target if other else "",
-                target_folder=backup_folder(target) if other else None,
-                prefix=args.label_prefix,
-                strip=args.strip_labels,
-                progress=progress,
-            )
-        else:
-            results = dry_run(decisions)
+        with RestoreLog(Path(args.log), mode, account, target if other else "") as log:
+            if args.yes:
+                run = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+                results = apply(
+                    gmail,
+                    folder,
+                    decisions,
+                    run,
+                    args.label or restored_label(),
+                    target=target if other else "",
+                    target_folder=backup_folder(target) if other else None,
+                    prefix=args.label_prefix,
+                    strip=args.strip_labels,
+                    progress=progress,
+                    on_result=log.add,
+                )
+            else:
+                results = dry_run(decisions)
+                for r in results:
+                    log.add(r)
     except gmailapi.GmailError as exc:
-        sys.exit(f"error: {exc}")
+        sys.exit(f"error: {exc} (the log has what was done: {args.log})")
 
-    write_log(Path(args.log), results, mode, account, target if other else "")
     report(results, mode, account, target, label=args.label or restored_label())
     print(f"Log → {args.log}")
     return 1 if any(r.outcome in ("failed", "skipped") for r in results) else 0
@@ -319,25 +322,29 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
             gmailapi.load_credentials(target_config, target, "modify" if args.yes else "readonly"),
         )
         decisions = plan(gmail, cands, same_account=False, progress=progress)
-        if args.yes:
-            run = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-            results = apply(
-                gmail,
-                None,
-                decisions,
-                run,
-                args.label or restored_label(),
-                target=target,
-                prefix=args.label_prefix,
-                strip=args.strip_labels,
-                progress=progress,
-            )
-        else:
-            results = dry_run(decisions)
+        target_name = target if target != account else ""
+        with RestoreLog(Path(args.log), mode, account, target_name) as log:
+            if args.yes:
+                run = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+                results = apply(
+                    gmail,
+                    None,
+                    decisions,
+                    run,
+                    args.label or restored_label(),
+                    target=target,
+                    prefix=args.label_prefix,
+                    strip=args.strip_labels,
+                    progress=progress,
+                    on_result=log.add,
+                )
+            else:
+                results = dry_run(decisions)
+                for r in results:
+                    log.add(r)
     except gmailapi.GmailError as exc:
-        sys.exit(f"error: {exc}")
+        sys.exit(f"error: {exc} (the log has what was done: {args.log})")
 
-    write_log(Path(args.log), results, mode, account, target if target != account else "")
     report(results, mode, account, target, where, label=args.label or restored_label())
     print(f"Log → {args.log}")
     return 1 if any(r.outcome in ("failed", "skipped") for r in results) else 0

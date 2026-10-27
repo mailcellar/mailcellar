@@ -297,6 +297,27 @@ def test_crash_after_import_is_found_next_time_not_uploaded_twice(env):
     assert restored_rows(env.folder)["g1"] == ("n1", "found")
 
 
+def test_an_interrupted_restore_leaves_its_log(env, monkeypatch):
+    real = env.import_messages
+
+    def import_then_interrupt(messages, on_imported):
+        def first_then_stop(key, new_id):
+            on_imported(key, new_id)
+            raise KeyboardInterrupt
+
+        return real(messages, first_then_stop)
+
+    monkeypatch.setattr(env, "import_messages", import_then_interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        run("--offloaded", "--yes")
+    got = log()
+    # Written as it happened: the untrash and the first upload, and what was
+    # decided before anything ran; not the upload that never happened.
+    assert got["t1"][0] == "untrashed" and got["c1"][0] == "skipped"
+    assert [g for g in ("g1", "g2") if got.get(g, ("",))[0] == "imported"] == ["g1"]
+    assert "g2" not in got
+
+
 def test_damaged_backup_copy_is_not_uploaded(env):
     (path,) = [bm.path for bm in gyb.iter_backup(env.folder) if bm.gmail_id == "g1"]
     path.write_bytes(path.read_bytes().replace(b"Hello there", b"Hello thera"))
