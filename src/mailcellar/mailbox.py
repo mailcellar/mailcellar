@@ -2,8 +2,8 @@
 mailbox: what the commands need from a mail account, and the one place one
 is opened.
 
-    gmail = open_mailbox(account, config_folder, "readonly")
-    ids = gmail.list_message_ids("before:2020/01/01")
+    with closing(open_mailbox(account, config_folder, "readonly")) as gmail:
+        ids = gmail.list_message_ids("before:2020/01/01")
 
 `Mailbox` is the set of operations backup, dedup, offload and restore use;
 `gmailapi.GmailAccount` provides it, and so does the tests' `FakeMailbox`
@@ -117,6 +117,15 @@ class Mailbox(Protocol):
     # ── state kept in the backup ─────────────────────────────────────────────
     def save_state(self, con) -> None:
         """Write what the mailbox keeps in the backup's meta.sqlite (con). No commit."""
+        raise NotImplementedError
+
+    # ── the connection ───────────────────────────────────────────────────────
+    def close(self) -> None:
+        """
+        Let go of the connection, if the mailbox holds one open (an IMAP
+        account's); it isn't used again. Callers open it with
+        contextlib.closing.
+        """
         raise NotImplementedError
 
 

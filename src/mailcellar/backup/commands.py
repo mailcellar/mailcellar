@@ -48,6 +48,7 @@ import hashlib
 import logging
 import sys
 import time
+from contextlib import closing, nullcontext
 from datetime import datetime
 from pathlib import Path
 
@@ -579,40 +580,41 @@ def cmd_backup(args) -> int:
         if getattr(args, "unattended", False):
             record_unattended_failure(args, "no-access")
         raise
-    stats = backup(gmail, account, folder, args.search, args.refresh_labels, args.full)
-    print(
-        f"Downloaded {stats['downloaded']:,} messages"
-        + (f", skipped {stats['chats']:,} chats" if stats["chats"] else "")
-        + (
-            f", updated labels on {stats['labels_changed']:,}"
-            if args.refresh_labels or stats["mode"] == "history"
-            else ""
-        )
-    )
-    if stats["deleted_backed_up"] and not args.prune:
+    with closing(gmail):  # an IMAP account logs out
+        stats = backup(gmail, account, folder, args.search, args.refresh_labels, args.full)
         print(
-            f"{stats['deleted_backed_up']:,} backed-up messages were permanently deleted "
-            f"from {server_name(gmail)}; 'backup --prune' would move them out of the backup."
+            f"Downloaded {stats['downloaded']:,} messages"
+            + (f", skipped {stats['chats']:,} chats" if stats["chats"] else "")
+            + (
+                f", updated labels on {stats['labels_changed']:,}"
+                if args.refresh_labels or stats["mode"] == "history"
+                else ""
+            )
         )
-    if stats["failed"]:
-        logger.warning(
-            f"{len(stats['failed']):,} messages could not be fetched, e.g. "
-            f"{stats['failed'][0]}. Re-run backup to retry them."
-            + (" Prune skipped." if args.prune else "")
-        )
-        return 1
-
-    if args.prune:
-
-        def confirm(prompt):
-            return args.yes or input(f"{prompt} [y/N] ").strip().lower() == "y"
-
-        try:
-            prune(gmail, account, folder, confirm, force=args.force)
-        except PruneAborted as exc:
-            logger.error(f"Prune aborted: {exc}")
+        if stats["deleted_backed_up"] and not args.prune:
+            print(
+                f"{stats['deleted_backed_up']:,} backed-up messages were permanently deleted "
+                f"from {server_name(gmail)}; 'backup --prune' would move them out of the backup."
+            )
+        if stats["failed"]:
+            logger.warning(
+                f"{len(stats['failed']):,} messages could not be fetched, e.g. "
+                f"{stats['failed'][0]}. Re-run backup to retry them."
+                + (" Prune skipped." if args.prune else "")
+            )
             return 1
-    return 0
+
+        if args.prune:
+
+            def confirm(prompt):
+                return args.yes or input(f"{prompt} [y/N] ").strip().lower() == "y"
+
+            try:
+                prune(gmail, account, folder, confirm, force=args.force)
+            except PruneAborted as exc:
+                logger.error(f"Prune aborted: {exc}")
+                return 1
+        return 0
 
 
 # ── meta backfill ────────────────────────────────────────────────────────────
@@ -739,7 +741,8 @@ def cmd_meta(args) -> int:
     gmail = None
     if not args.offline:
         gmail = mailbox.open_mailbox(account, config_folder, "readonly", folder=folder)
-    st = backfill(gmail, account, folder)
+    with closing(gmail) if gmail is not None else nullcontext():
+        st = backfill(gmail, account, folder)
     print(
         f"{account}: {st['backed_up']:,} backed up; {st['current']:,} already in "
         f"meta.sqlite; {st['added']:,} added, {st['reparsed']:,} re-parsed"
@@ -839,10 +842,11 @@ def count(gmail, account: str, folder: Path) -> dict:
 
 def cmd_count(args) -> int:
     account, folder, gmail = connect(args)
-    try:
-        c = count(gmail, account, folder)
-    except PruneAborted as exc:
-        sys.exit(f"error: {exc}")
+    with closing(gmail):
+        try:
+            c = count(gmail, account, folder)
+        except PruneAborted as exc:
+            sys.exit(f"error: {exc}")
     server = server_name(gmail)
     on_server = (
         "In Gmail (excl. spam/trash)" if server == "Gmail" else "On the server (excl. junk/trash)"

@@ -12,6 +12,7 @@ returns new frozen Results rather than changing the ones it was given.
 import csv
 import logging
 import sys
+from contextlib import ExitStack, closing
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -240,66 +241,68 @@ def apply_plan(
     remove_accounts = {r["account"] for r in rows}
     clients = {}
 
-    def client(account):
-        scope = write_scope if account in remove_accounts else "readonly"
-        if account not in clients:
-            clients[account] = gmail_for(account, scope)
-        return clients[account]
+    with ExitStack() as opened:  # each mailbox opened is closed, whatever happens
 
-    live: dict[tuple, set | None] = {}
-    unread: dict[tuple, str] = {}  # (account, gmail_id) → why Gmail couldn't be read
-    wanted: dict[str, set] = {}
-    for r in rows:
-        wanted.setdefault(r["account"], set()).add(r["gmail_id"])
-        if has_keeper(r):
-            wanted.setdefault(r["keeper_account"], set()).add(r["keeper_gmail_id"])
-    for account in sorted(remove_accounts) + sorted(set(wanted) - remove_accounts):
-        ids = sorted(wanted[account])
-        logger.info(f"Reading {len(ids):,} messages from {account} …")
-        failures: list[str] = []
-        with Progress(f"{account}: reading", len(ids)):
-            labels_by_id = client(account).message_labels(ids, failures)
-        for gid, labels in labels_by_id.items():
-            live[(account, gid)] = labels
-        for failure in failures:
-            gid, why = failure.split(": ", 1)
-            unread[(account, gid)] = why
-        if failures:
-            logger.warning(
-                f"{account}: {len(failures):,} messages couldn't be read from Gmail; "
-                "they are skipped, and the next run tries them again"
+        def client(account):
+            scope = write_scope if account in remove_accounts else "readonly"
+            if account not in clients:
+                clients[account] = opened.enter_context(closing(gmail_for(account, scope)))
+            return clients[account]
+
+        live: dict[tuple, set | None] = {}
+        unread: dict[tuple, str] = {}  # (account, gmail_id) → why Gmail couldn't be read
+        wanted: dict[str, set] = {}
+        for r in rows:
+            wanted.setdefault(r["account"], set()).add(r["gmail_id"])
+            if has_keeper(r):
+                wanted.setdefault(r["keeper_account"], set()).add(r["keeper_gmail_id"])
+        for account in sorted(remove_accounts) + sorted(set(wanted) - remove_accounts):
+            ids = sorted(wanted[account])
+            logger.info(f"Reading {len(ids):,} messages from {account} …")
+            failures: list[str] = []
+            with Progress(f"{account}: reading", len(ids)):
+                labels_by_id = client(account).message_labels(ids, failures)
+            for gid, labels in labels_by_id.items():
+                live[(account, gid)] = labels
+            for failure in failures:
+                gid, why = failure.split(": ", 1)
+                unread[(account, gid)] = why
+            if failures:
+                logger.warning(
+                    f"{account}: {len(failures):,} messages couldn't be read from Gmail; "
+                    "they are skipped, and the next run tries them again"
+                )
+
+        results = [
+            unreadable(r, unread)
+            or checked(
+                r,
+                mode,
+                live.get((r["account"], r["gmail_id"])),
+                live.get((r.get("keeper_account"), r.get("keeper_gmail_id"))),
+                dedup_label,
+                local_check,
             )
+            for r in rows
+        ]
 
-    results = [
-        unreadable(r, unread)
-        or checked(
-            r,
-            mode,
-            live.get((r["account"], r["gmail_id"])),
-            live.get((r.get("keeper_account"), r.get("keeper_gmail_id"))),
-            dedup_label,
-            local_check,
-        )
-        for r in rows
-    ]
-
-    passed: dict[str, list[int]] = {}
-    for n, result in enumerate(results):
-        if result.outcome == "ok":
-            passed.setdefault(result.row["account"], []).append(n)
-    for account, positions in sorted(passed.items()):
-        acted = act(
-            mode,
-            account,
-            [results[n] for n in positions],
-            client(account),
-            confirm,
-            dedup_label,
-            on_trashed,
-        )
-        for n, result in zip(positions, acted, strict=True):
-            results[n] = result
-    return results
+        passed: dict[str, list[int]] = {}
+        for n, result in enumerate(results):
+            if result.outcome == "ok":
+                passed.setdefault(result.row["account"], []).append(n)
+        for account, positions in sorted(passed.items()):
+            acted = act(
+                mode,
+                account,
+                [results[n] for n in positions],
+                client(account),
+                confirm,
+                dedup_label,
+                on_trashed,
+            )
+            for n, result in zip(positions, acted, strict=True):
+                results[n] = result
+        return results
 
 
 def write_apply_log(

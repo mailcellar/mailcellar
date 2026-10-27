@@ -352,9 +352,13 @@ def test_search_gmail_signs_in_read_only_and_stops_on_a_failed_search(tmp_path, 
                 raise gmailapi.GmailError("HTTP 400")
             return [f"{query}-1"]
 
+        def close(self):
+            closed.append(True)
+
+    closed = []
     monkeypatch.setattr(gmailapi, "GmailAccount", Searching)
     assert cli.search_gmail(A, tmp_path, ["a", "b"]) == {"a": ["a-1"], "b": ["b-1"]}
-    assert scopes == ["readonly"]
+    assert scopes == ["readonly"] and closed == [True]
     with pytest.raises(SystemExit, match="search for 'bad' failed: HTTP 400"):
         cli.search_gmail(A, tmp_path, ["bad"])
 

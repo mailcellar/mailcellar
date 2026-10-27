@@ -34,6 +34,7 @@ import re
 import shlex
 import sys
 import tomllib
+from contextlib import closing
 from pathlib import Path
 
 from mailcellar import gmailapi
@@ -458,7 +459,8 @@ def run_imap(args, config: Path, text: str, entries) -> int:
 
         print(f"Signing in to {settings.host} as {settings.username} (read-only)...")
         try:
-            info = imap.ImapAccount(address, settings, password).server_info()
+            with closing(imap.ImapAccount(address, settings, password)) as box:
+                info = box.server_info()
         except gmailapi.GmailError as exc:
             raise SetupError(f"{exc}; nothing was written") from None
 

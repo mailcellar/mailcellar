@@ -1235,6 +1235,9 @@ class GmailAccount:
     def save_state(self, con) -> None:
         """Nothing to keep: Gmail's history ID is backup's own state."""
 
+    def close(self) -> None:
+        """Nothing held open: each API call is a request of its own."""
+
     def trash(self, gmail_ids: list[str]) -> list[str]:
         """
         Move messages to Trash (recoverable for 30 days). Returns "<id>: <why>"

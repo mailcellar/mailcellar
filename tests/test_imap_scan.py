@@ -261,6 +261,40 @@ def test_a_dropped_connection_is_retried(server):
     assert len(account(server).list_message_ids()) == 1
 
 
+@pytest.mark.parametrize("fault", ["stalls", "drops"])
+def test_a_login_that_times_out_or_drops_closes_its_socket_and_is_retried(server, fault):
+    setattr(server, fault, 1)
+    account(server).sign_in()
+    assert [c[0] for c in server.commands] == ["LOGIN", "SHUTDOWN", "LOGIN"]
+
+
+@pytest.mark.parametrize("fault", ["stalls", "drops"])
+def test_close_closes_the_socket_and_raises_nothing_when_logout_fails(server, fault):
+    box = account(server)
+    box.sign_in()
+    setattr(server, fault, 1)
+    box.close()  # a backup that is done isn't failed by its goodbye
+    assert [c[0] for c in server.commands][-2:] == ["LOGOUT", "SHUTDOWN"]
+
+
+def test_an_interrupted_command_drops_the_connection_rather_than_logging_out(server):
+    box = account(server)
+    box.sign_in()
+
+    server.breaks = 1  # Ctrl-C halfway through LIST's reply
+    with pytest.raises(KeyboardInterrupt):
+        box.list_message_ids()
+    box.close()
+    assert [c[0] for c in server.commands] == ["LOGIN", "LIST", "SHUTDOWN"]  # no LOGOUT into it
+
+
+def test_a_server_no_keeps_the_session(server):
+    server.refused.add("INBOX")
+    server.add_folder("Projects")
+    account(server).list_message_ids()
+    assert [c[0] for c in server.commands].count("LOGIN") == 1
+
+
 # ── review findings ──────────────────────────────────────────────────────────
 
 
