@@ -12,6 +12,7 @@ stays offline; asked for, they fail without podman or docker, or with
 its engine down, rather than pass having tested nothing.
 """
 
+import csv
 import gc
 import imaplib
 import os
@@ -27,6 +28,7 @@ from pathlib import Path
 import pytest
 
 from mailcellar import cli, gmailapi, imap
+from mailcellar.offload import cli as offload_cli
 from mailcellar.paths import backup_folder
 from mailcellar.setup import cli as setup
 from test_index import make_eml
@@ -143,12 +145,14 @@ def dovecot(tmp_path_factory):
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 
-def set_up(dovecot: Server, monkeypatch, user: str, password: str = PASSWORD, cafile=True):
+def set_up(
+    dovecot: Server, monkeypatch, user: str, password: str = PASSWORD, cafile=True, extra=()
+):
     """mailcellar setup USER --imap localhost …, as account `home`."""
     monkeypatch.setattr(setup.getpass, "getpass", lambda prompt: password)
-    extra = ["--cafile", str(dovecot.cafile)] if cafile else []
+    ca = ["--cafile", str(dovecot.cafile)] if cafile else []
     return setup.main(
-        [user, "--imap", "localhost", "--port", str(dovecot.port), "--name", "home", *extra]
+        [user, "--imap", "localhost", "--port", str(dovecot.port), "--name", "home", *ca, *extra]
     )
 
 
@@ -295,3 +299,121 @@ def test_a_certificate_from_an_unknown_ca_is_refused(dovecot, monkeypatch, tmp_p
     with pytest.raises(SystemExit, match="(?i)certificate verify failed"):
         set_up(dovecot, monkeypatch, "noca@example.org", cafile=False)
     assert not (tmp_path / "config").exists()
+
+
+# ── the write side (#113): offload, then restore, on a real server ───────────
+
+OLD = imaplib.Time2Internaldate(1_420_106_400)  # 2015-01-01 10:00 UTC
+OLD_MS = 1_420_106_400_000
+OFFLOAD = ["offload", "apply", "--plan", "plan.csv", "--log", "log.csv"]
+
+
+@pytest.fixture
+def no_second_copy_check(monkeypatch):
+    """offload's report of other copies of the backup (Time Machine's), not this test's."""
+    monkeypatch.setattr(offload_cli, "second_copy_report", lambda d, ms: ["(report)"])
+
+
+def seeded(dovecot, monkeypatch, tmp_path, user, review="keyword"):
+    """Three old messages in Projects, the account set up and backed up, a plan made of them."""
+    monkeypatch.chdir(tmp_path)
+    with dovecot.session(user) as c:
+        assert c.create("Projects")[0] == "OK"
+        for n in range(3):
+            raw = make_eml(msgid=f"<p{n}-{user}>").replace(b"\n", b"\r\n")
+            assert c.append("Projects", r"(\Seen)", OLD, raw)[0] == "OK"
+    assert set_up(dovecot, monkeypatch, user, extra=["--review", review]) == 0
+    assert cli.main(["backup", "home"]) == 0
+    (tmp_path / "rules.toml").write_text(
+        '[[rule]]\nname = "old"\nlabel = "Projects"\nbefore = "2020-01-01"\n'
+    )
+    cli.main(["offload", "plan", "--rules", "rules.toml", "--plan", "plan.csv"])
+    assert len(log_rows(tmp_path / "plan.csv")) == 3  # all three planned
+
+
+def log_rows(path) -> list[dict]:
+    with open(path, newline="", encoding="utf-8") as fh:
+        return list(csv.DictReader(fh))
+
+
+def outcomes(tmp_path, mode: str) -> list[str]:
+    """offload apply's outcomes for one mode (label, trash), from its log."""
+    rows = log_rows(tmp_path / "log.csv")
+    return sorted(r["outcome"] for r in rows if r["mode"].startswith(mode))
+
+
+def counts(dovecot, user) -> dict[str, int]:
+    """Each folder's message count, in one session."""
+    with dovecot.session(user) as c:
+        _typ, lines = c.list()
+        names = [n for n, _d, flags in imap.list_entries(lines) if not flags & imap.SKIP]
+        return {n: int(c.select(f'"{n}"', readonly=True)[1][0]) for n in names}
+
+
+def projects(dovecot, user) -> list[imap.Fetched]:
+    """Every message in Projects, with its flags and INTERNALDATE."""
+    with dovecot.session(user) as c:
+        c.select('"Projects"', readonly=True)
+        _typ, data = c.uid("FETCH", "1:*", "(FLAGS INTERNALDATE)")
+        return list(imap.parse_fetch(data).values())
+
+
+def test_offload_by_keyword_then_restore_from_trash(
+    dovecot, monkeypatch, tmp_path, no_second_copy_check
+):
+    user = "kw@example.org"
+    seeded(dovecot, monkeypatch, tmp_path, user)
+    cli.main([*OFFLOAD, "--label"])
+    assert outcomes(tmp_path, "label") == ["labelled"] * 3
+    with dovecot.session(user) as c:  # the user keeps one: clears its keyword
+        c.select('"Projects"')
+        _typ, data = c.uid("SEARCH", None, "KEYWORD", "$mailcellar-offload-candidate")
+        assert len(data[0].split()) == 3
+        kept = data[0].split()[0]
+        assert c.uid("STORE", kept, "-FLAGS", "($mailcellar-offload-candidate)")[0] == "OK"
+    assert cli.main(["backup", "home"]) == 0
+    cli.main([*OFFLOAD, "--trash", "--yes"])
+    assert outcomes(tmp_path, "trash") == ["skipped", "trashed", "trashed"]
+    now = counts(dovecot, user)
+    assert now["Trash"] == 2 and now["Projects"] == 1
+    assert cli.main(["restore", "home", "--offloaded", "--yes"]) == 0
+    now = counts(dovecot, user)
+    assert now["Trash"] == 0 and now["Projects"] == 3
+    back = projects(dovecot, user)
+    assert all("\\Seen" in m.flags and m.internal == OLD_MS for m in back)  # as they were
+    assert not any("$mailcellar-offload-candidate" in m.flags for m in back)  # mark taken off
+    restored = [m for m in back if any(f.startswith("$mailcellar-restored.") for f in m.flags)]
+    assert len(restored) == 2  # the keyword, '.' and all, kept by a real server
+
+
+def test_offload_by_folder_then_restore_after_trash_is_emptied(
+    dovecot, monkeypatch, tmp_path, capsys, no_second_copy_check
+):
+    user = "folder@example.org"
+    review = "mailcellar/review/offload-candidate"
+    seeded(dovecot, monkeypatch, tmp_path, user, review="folder")
+    cli.main([*OFFLOAD, "--label"])
+    assert outcomes(tmp_path, "label") == ["labelled"] * 3
+    now = counts(dovecot, user)
+    assert now[review] == 3 and now["Projects"] == 0
+    with dovecot.session(user) as c:  # the user keeps one: moves it back out
+        c.select(f'"{review}"')
+        _typ, data = c.uid("SEARCH", None, "ALL")
+        assert c.uid("MOVE", data[0].split()[0], '"Projects"')[0] == "OK"
+    assert cli.main(["backup", "home"]) == 0
+    cli.main([*OFFLOAD, "--trash", "--yes"])
+    assert outcomes(tmp_path, "trash") == ["skipped", "trashed", "trashed"]
+    now = counts(dovecot, user)
+    assert now["Trash"] == 2 and now[review] == 0
+    with dovecot.session(user) as c:  # the server, or a mail client, empties Trash
+        c.select('"Trash"')
+        c.store("1:*", "+FLAGS", r"(\Deleted)")
+        c.expunge()
+    assert cli.main(["backup", "home"]) == 0
+    assert cli.main(["restore", "home", "--offloaded", "--yes"]) == 0
+    back = projects(dovecot, user)
+    assert len(back) == 3  # appended into the folder they lived in
+    assert all("\\Seen" in m.flags and m.internal == OLD_MS for m in back)  # flags, date
+    capsys.readouterr()
+    assert cli.main(["backup", "home"]) == 0
+    assert "Downloaded 0 messages" in capsys.readouterr().out  # the same IDs on a real server
