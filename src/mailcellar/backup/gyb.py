@@ -191,6 +191,20 @@ def add_copy(
 PRUNE_MANIFEST = "pruned.csv"
 
 
+def earlier_copy(dest: Path, rel: str) -> Path | None:
+    """
+    The file for `rel` in another run's folder beside `dest`, if there is
+    one: an earlier prune or forget moved it out and was stopped (a crash,
+    a power cut) before its index rows were committed. The oldest, if more.
+    """
+    if not dest.parent.is_dir():
+        return None
+    for run in sorted(p for p in dest.parent.iterdir() if p.is_dir() and p != dest):
+        if (run / rel).is_file():
+            return run / rel
+    return None
+
+
 def prune(
     con: sqlite3.Connection,
     folder: Path,
@@ -201,8 +215,12 @@ def prune(
     """
     Remove messages from the backup: move each .eml to the same relative
     path under `dest`, then delete its messages / uids / labels rows. Index
-    entries whose file is already missing just lose their rows. Writes
-    dest/<manifest_name> and commits. Returns the manifest rows.
+    entries whose file is already missing just lose their rows. Commits once,
+    at the end, then writes dest/<manifest_name>: stopped part-way (Ctrl-C, a
+    crash), the index is as it was, so it still agrees with meta.sqlite, and
+    the files already moved are picked up by the next run, which links each
+    into its own folder (earlier_copy) so its manifest lists it as moved and
+    `restore` finds it. Returns the manifest rows.
     """
     manifest = []
     for gmail_id in gmail_ids:
@@ -221,10 +239,17 @@ def prune(
 
         src = folder / rel
         moved = src.is_file()
+        target = dest / rel
         if moved:
-            target = dest / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(src, target)
+        elif (earlier := earlier_copy(dest, rel)) is not None:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.link(earlier, target)
+            except OSError:
+                shutil.copy2(earlier, target)
+            moved = True
         con.execute("DELETE FROM labels WHERE message_num = ?", (num,))
         con.execute("DELETE FROM uids WHERE message_num = ?", (num,))
         con.execute("DELETE FROM messages WHERE message_num = ?", (num,))
@@ -237,8 +262,6 @@ def prune(
                 "file": "moved" if moved else "was missing",
             }
         )
-        if len(manifest) % 100 == 0:
-            con.commit()
     con.commit()
 
     if manifest:

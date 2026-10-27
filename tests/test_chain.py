@@ -308,3 +308,59 @@ def test_a_second_genesis_appends_nothing(backed_up):
     before = chain.read_lines(folder)
     assert chain.append(folder, ACCOUNT, "genesis", [("x", "aa")]) is None
     assert chain.read_lines(folder) == before
+
+
+# ── prune: safe to interrupt, and to run again (review findings) ─────────────
+
+
+def pruned_rows(folder):
+    return [u for (u,) in sqlite3.connect(folder / gyb.DB_NAME).execute("SELECT uid FROM uids")]
+
+
+def test_an_interrupted_prune_leaves_the_index_as_it_was(backed_up, monkeypatch):
+    _gmail, folder = backed_up
+    dest = folder.parent / "_pruned" / "run1"
+    real_move, moves = gyb.shutil.move, []
+
+    def stopping_move(src, target):
+        if moves:
+            raise KeyboardInterrupt
+        moves.append(src)
+        return real_move(src, target)
+
+    monkeypatch.setattr(gyb.shutil, "move", stopping_move)
+    con = gyb.open_backup(folder, ACCOUNT)
+    with pytest.raises(KeyboardInterrupt):
+        gyb.prune(con, folder, ["g1", "g2"], dest)
+    con.close()  # uncommitted: rolled back
+    assert sorted(pruned_rows(folder)) == ["g1", "g2", "g3"]  # still agrees with meta.sqlite
+    assert not (dest / gyb.PRUNE_MANIFEST).exists()
+    monkeypatch.setattr(gyb.shutil, "move", real_move)
+    con = gyb.open_backup(folder, ACCOUNT)  # the next run finds g1's file in run1
+    manifest = gyb.prune(con, folder, ["g1", "g2"], folder.parent / "_pruned" / "run2")
+    con.close()
+    assert [(m["gmail_id"], m["file"]) for m in manifest] == [("g1", "moved"), ("g2", "moved")]
+
+
+def test_a_prune_run_again_after_a_crash_finds_the_file_the_first_moved(backed_up):
+    _gmail, folder = backed_up
+    first, second = folder.parent / "_pruned" / "run1", folder.parent / "_pruned" / "run2"
+    src = eml(folder, "g1")
+    rel = src.relative_to(folder)
+    (first / rel).parent.mkdir(parents=True)
+    src.rename(first / rel)  # moved, then the process died before the rows were committed
+    con = gyb.open_backup(folder, ACCOUNT)
+    manifest = gyb.prune(con, folder, ["g1"], second)
+    con.close()
+    assert [(m["gmail_id"], m["file"]) for m in manifest] == [("g1", "moved")]
+    assert (second / rel).is_file() and (first / rel).is_file()  # restorable from either run
+    assert "g1" not in pruned_rows(folder)
+
+
+def test_a_missing_file_with_no_earlier_copy_is_still_reported_missing(backed_up):
+    _gmail, folder = backed_up
+    eml(folder, "g1").unlink()
+    con = gyb.open_backup(folder, ACCOUNT)
+    (row,) = gyb.prune(con, folder, ["g1"], folder.parent / "_pruned" / "run1")
+    con.close()
+    assert row["file"] == "was missing"
