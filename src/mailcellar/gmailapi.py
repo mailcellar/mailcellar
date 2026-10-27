@@ -1116,7 +1116,8 @@ class GmailAccount:
         self._label_names[created["id"]] = name
         return created["id"]
 
-    def add_label(self, gmail_ids: list[str], label_name: str) -> None:
+    def add_label(self, gmail_ids: list[str], label_name: str) -> list[str]:
+        """Label messages; a failed request raises, so there are no failures to return."""
         label_id = self.ensure_label(label_name)
         for start in range(0, len(gmail_ids), MODIFY_CHUNK):
             self._execute(
@@ -1130,6 +1131,7 @@ class GmailAccount:
                     },
                 )
             )
+        return []
 
     def label_ids(self, names) -> list[str]:
         """

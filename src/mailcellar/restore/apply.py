@@ -639,11 +639,31 @@ def apply(
             if not target:
                 gmail.remove_label(done, OFFLOAD_LABEL)
             gmail.label_ids([label])  # creates restored/ first
-            gmail.add_label(done, label)
+            unlabelled = unmarked(gmail.add_label(done, label))
+            for source_id, r in list(results.items()):
+                if r.new_id in unlabelled:  # restored all the same: only the label is missing
+                    results[source_id] = with_note(
+                        r, f"not labelled {label}: {unlabelled[r.new_id]}"
+                    )
+            if unlabelled:
+                logger.warning(
+                    f"{len(unlabelled):,} restored messages couldn't be labelled {label}; "
+                    "they are restored all the same"
+                )
     finally:
         if mcon is not None:
             mcon.close()
     return [results[d.source_id] for d in decisions]
+
+
+def unmarked(failures) -> dict[str, str]:
+    """add_label's failures ("<id>: <why>") as ID → why. Pure."""
+    return dict(f.split(": ", 1) for f in failures)
+
+
+def with_note(r: Result, note: str) -> Result:
+    """The result with `note` added to its detail. Pure."""
+    return replace(r, detail=f"{r.detail}; {note}" if r.detail else note)
 
 
 def _import(

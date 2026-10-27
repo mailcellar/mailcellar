@@ -84,8 +84,11 @@ class Mailbox(Protocol):
         """IDs for gyb-style label names, creating user labels that don't exist."""
         raise NotImplementedError
 
-    def add_label(self, gmail_ids: list[str], label_name: str) -> None:
-        """Add a user label to messages, creating it if needed."""
+    def add_label(self, gmail_ids: list[str], label_name: str) -> list[str]:
+        """
+        Add a user label to messages, creating it if needed; returns "<id>: <why>"
+        for those it couldn't mark, as trash() does.
+        """
         raise NotImplementedError
 
     def remove_label(self, gmail_ids: list[str], label_name: str) -> None:

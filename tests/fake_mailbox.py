@@ -254,6 +254,7 @@ class FakeMailbox:
         for gid in gmail_ids:
             if label_id not in self.messages[gid]["labelIds"]:
                 self.messages[gid]["labelIds"].append(label_id)
+        return []
 
     def remove_label(self, gmail_ids, label_name):
         self._record(self.calls, ("unlabel", sorted(gmail_ids), label_name))

@@ -5,7 +5,7 @@ UID SEARCH and UID FETCH in imaplib's own shapes: (typ, data), a fetched
 literal as a (prefix, bytes) tuple followed by b")". It fails any command
 that would change the server, SELECT without readonly included, so a test
 that passes shows ImapAccount never writes; unless `writable` is set, when
-it also answers SELECT, keyword UID STORE and UID MOVE (step 3's writes),
+it also answers SELECT, CREATE, keyword UID STORE and UID MOVE (step 3's writes),
 and still fails anything that expunges, sets \\Deleted or deletes.
 """
 
@@ -193,6 +193,16 @@ class FakeImap:
         for u in targets:
             self.move(self.selected, u, name)
         return "OK", [None]
+
+    def create(self, mailbox):
+        self._command("CREATE", mailbox)
+        if not self.writable:
+            raise AssertionError(f"CREATE {mailbox}: changes the server")
+        name = mailbox[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+        if name in self.folders:
+            return "NO", [b"[ALREADYEXISTS] Mailbox already exists"]
+        self.add_folder(name)
+        return "OK", [b"Create completed"]
 
     def logout(self):
         self._command("LOGOUT")
