@@ -103,6 +103,24 @@ def backed_up_ids(con: sqlite3.Connection, folder: Path) -> set[str]:
     }
 
 
+def message_files(folder: Path, gmail_ids) -> dict[str, Path]:
+    """
+    The backed-up .eml of each ID the index has, read-only, where the file is
+    there; an empty answer for a folder with no backup.
+    """
+    path = folder / DB_NAME
+    if not path.is_file():
+        return {}
+    wanted = set(gmail_ids)
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        rows = con.execute("SELECT uid, message_filename FROM uids NATURAL JOIN messages")
+        found = {uid: inside(folder, name) for uid, name in rows if uid in wanted}
+    finally:
+        con.close()
+    return {uid: p for uid, p in found.items() if p is not None and p.is_file()}
+
+
 def is_chat(label_ids) -> bool:
     return bool(CHAT_LABELS & set(label_ids))
 

@@ -195,16 +195,17 @@ def cmd_apply(args) -> None:
                 "is known to be complete."
             )
         print(
-            "Trashed messages leave Gmail for good when its Trash is emptied (after 30 "
-            f"days). The backup in {data_root()} then holds the only copy, unless it is "
-            "copied elsewhere:"
+            "Trashed messages leave the server for good when its Trash is emptied (Gmail: "
+            "after 30 days; an IMAP server: whenever it, or a mail client, empties it). "
+            f"The backup in {data_root()} then holds the only copy, unless it is copied "
+            "elsewhere:"
         )
         for line in second_copy_report(data_root(), last_backup_ms(folders, accounts)):
             print(f"  {line}")
 
     from mailcellar import gmailapi, mailbox
 
-    gmail_for = mailbox.opener(Path(args.config))
+    gmail_for = mailbox.opener(Path(args.config), folders)
 
     def confirm(prompt):
         if args.yes:

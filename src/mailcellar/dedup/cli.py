@@ -128,19 +128,18 @@ def cmd_apply(args) -> None:
         sys.exit(f"error: can't use {dedup_label!r} as the apply label: {problem}.")
 
     from mailcellar import gmailapi, mailbox
+    from mailcellar.hold.holds import HoldCheck
+    from mailcellar.paths import backup_folder
 
-    gmail_for = mailbox.opener(Path(args.config))
+    folders = {a: backup_folder(a) for a in {r["account"] for r in rows}}
+    gmail_for = mailbox.opener(Path(args.config), folders)
 
     def confirm(prompt):
         if args.yes:
             return True
         return input(f"{prompt} [y/N] ").strip().lower() == "y"
 
-    from mailcellar.hold.holds import HoldCheck
-    from mailcellar.paths import backup_folder
-
     # Legal holds keep their mail in Gmail: a held duplicate is skipped, saying which hold.
-    folders = {a: backup_folder(a) for a in {r["account"] for r in rows}}
     held = HoldCheck(folders, int(time.time() * 1000), rows)
     try:
         log = apply_plan(rows, mode, gmail_for, confirm, dedup_label, local_check=held)

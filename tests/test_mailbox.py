@@ -10,6 +10,7 @@ import pytest
 from fake_mailbox import ACCOUNT, FakeMailbox, message_id, raw_response
 from mailcellar import gmailapi, mailbox
 from mailcellar.backup import commands
+from mailcellar.paths import backup_folder
 from test_backup import FakeService, Req, http_error
 from test_index import make_eml
 
@@ -64,12 +65,15 @@ def test_opener_finds_each_accounts_config_folder(monkeypatch, tmp_path):
     monkeypatch.setattr(
         mailbox,
         "open_mailbox",
-        lambda account, folder, scope, interactive=True: opened.append(
-            (account, folder, scope, interactive)
+        lambda account, config, scope, interactive=True, folder=None: opened.append(
+            (account, config, scope, interactive, folder)
         ),
     )
     mailbox.opener(tmp_path)("alex@example.com", "modify")
-    assert opened == [("alex@example.com", tmp_path / "alex@example.com", "modify", True)]
+    backup = backup_folder("alex@example.com")  # for an IMAP account's UID map
+    assert opened == [("alex@example.com", tmp_path / "alex@example.com", "modify", True, backup)]
+    mailbox.opener(tmp_path, {"alex@example.com": tmp_path / "elsewhere"})("alex@example.com", "x")
+    assert opened[-1][-1] == tmp_path / "elsewhere"  # the command's own folder for it
 
 
 @pytest.mark.parametrize("unattended", [False, True])

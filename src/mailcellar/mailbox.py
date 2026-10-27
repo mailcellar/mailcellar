@@ -137,12 +137,6 @@ class Mailbox(Protocol):
         raise NotImplementedError
 
 
-IMAP_BACKUP_ONLY = (
-    "{account} is an IMAP account: it is backed up only; offload, dedup and restore "
-    "come later (#108)"
-)
-
-
 def open_mailbox(
     account: str,
     config_folder: Path,
@@ -160,23 +154,24 @@ def open_mailbox(
     from mailcellar import gmailapi
 
     if gmailapi.is_imap(config_folder):
-        if scope != "readonly":
-            raise gmailapi.GmailError(IMAP_BACKUP_ONLY.format(account=account))
         from mailcellar import imap
 
+        settings = gmailapi.imap_settings(config_folder, account)
         box = imap.ImapAccount(
-            account,
-            gmailapi.imap_settings(config_folder, account),
-            gmailapi.imap_password(config_folder),
-            folder=folder,
+            account, settings, gmailapi.imap_password(config_folder), folder=folder
         )
         box.sign_in()  # as GmailAccount checks its identity: a refusal shows here
+        if scope != "readonly":  # changes only where the server can make them safely
+            refusal = imap.write_refusal(box.server_info())
+            if refusal:
+                box.close()
+                raise gmailapi.GmailError(f"{account}: {refusal}")
         return box
     creds = gmailapi.load_credentials(config_folder, account, scope, interactive=interactive)
     return gmailapi.GmailAccount(account, creds)
 
 
-def opener(config_root: Path) -> Callable[[str, str], Mailbox]:
+def opener(config_root: Path, folders=None) -> Callable[[str, str], Mailbox]:
     """
     open(account, scope) for accounts named in `config_root`'s accounts.toml:
     what dedup and offload pass around to open each account as they reach it.
@@ -184,6 +179,16 @@ def opener(config_root: Path) -> Callable[[str, str], Mailbox]:
     from mailcellar import gmailapi
 
     def open_(account: str, scope: str) -> Mailbox:
-        return open_mailbox(account, gmailapi.find_config_folder(config_root, account), scope)
+        from mailcellar.paths import backup_folder
+
+        # The backup folder lets an IMAP account read its UID map (read-only), so it
+        # reads only new messages' headers, as a backup does: the command's own for the
+        # account (`folders`), else the default one.
+        return open_mailbox(
+            account,
+            gmailapi.find_config_folder(config_root, account),
+            scope,
+            folder=(folders or {}).get(account) or backup_folder(account),
+        )
 
     return open_

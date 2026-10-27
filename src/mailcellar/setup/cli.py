@@ -307,11 +307,11 @@ def server_report(info) -> list[str]:
             else []
         ),
         "  backup: read-only (EXAMINE and BODY.PEEK: not even \\Seen changes)",
-        "  offload, later: "
+        "  offload and dedup: "
         + (
             "possible (MOVE and a special-use Trash)"
             if info.can_offload
-            else "not on this server (it needs MOVE and a special-use Trash)"
+            else "refused on this server (they need MOVE and a special-use Trash)"
         ),
     ]
 

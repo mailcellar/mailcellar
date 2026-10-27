@@ -36,12 +36,12 @@ import re
 import ssl
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
+from types import MappingProxyType
 
 from mailcellar import gmailapi, progress
-from mailcellar.mailbox import IMAP_BACKUP_ONLY
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +110,7 @@ class Message:
     # folder named like a mark gives the label, never the mark, so the trash step's
     # check reads this, not labels.
     marks: frozenset[str] = frozenset()
+    places: tuple[Location, ...] = ()  # every copy, folder and UID: what a write acts on
 
 
 @dataclass(frozen=True)
@@ -135,6 +136,7 @@ class Scan:
     labels: frozenset[str]
     maps: Mapping[str, tuple[int, Mapping[int, str]]]  # folder → (UIDVALIDITY, UID → ID)
     skipped: frozenset[str] = field(default_factory=frozenset)  # folders that couldn't be read
+    folders: tuple[Folder, ...] = ()  # the folders read
 
 
 # ── pure: parsing ────────────────────────────────────────────────────────────
@@ -351,6 +353,25 @@ def content_id(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()[:16]
 
 
+ANGLE_ID = re.compile(r"<[^<>\s]+>")
+
+
+def thread_of(raw: bytes, gid: str) -> str:
+    """
+    A message's thread, which IMAP doesn't give: 16 hex digits of a hash of
+    the conversation's first Message-ID (References' first, else
+    In-Reply-To's, else its own), so replies share it; its own ID when it
+    names none. Never "": the backup and offload read '' as gone. Pure.
+    """
+    head = raw.split(b"\r\n\r\n", 1)[0].split(b"\n\n", 1)[0]
+    for name in (b"references", b"in-reply-to", b"message-id"):
+        m = re.search(rb"^" + name + rb":[ \t]*(.*(?:\r?\n[ \t].*)*)", head, re.I | re.M)
+        ids = ANGLE_ID.findall(m[1].decode("utf-8", "replace")) if m else []
+        if ids:
+            return hashlib.sha256(f"thread\n{ids[0]}".encode()).hexdigest()[:16]
+    return gid
+
+
 def fetch_messages(data) -> tuple[tuple[bytes, bytes | None], ...]:
     """
     A UID FETCH answer split into (text, literal) per message. imaplib gives a
@@ -482,6 +503,7 @@ def merge(reads, ids: Mapping[Location, str]) -> Scan:
             header.internal if header else None,
             header.size if header else None,
             marks,
+            tuple((r.folder.name, u) for r, u in places),
         )
     maps = {
         read.folder.name: (
@@ -497,7 +519,7 @@ def merge(reads, ids: Mapping[Location, str]) -> Scan:
     labels = frozenset({read.folder.label for read in reads} | {"UNREAD", "STARRED"}).union(
         *(m.labels for m in messages.values())  # mailcellar's keywords among them
     )
-    return Scan(messages, labels, maps)
+    return Scan(messages, labels, maps, folders=tuple(read.folder for read in reads))
 
 
 def changes(before: Mapping[str, frozenset[str]], scan: Scan) -> tuple[set[str], set[str]]:
@@ -515,7 +537,7 @@ def response(message: Message, raw: bytes, internal: int | None) -> dict:
     """A Gmail-shaped response, as gyb.write_message and the sidecar take it. Pure."""
     return {
         "id": message.id,
-        "threadId": "",
+        "threadId": thread_of(raw, message.id),
         "internalDate": str(internal if internal is not None else message.internal or 0),
         "labelIds": sorted(message.labels),
         "sizeEstimate": len(raw),
@@ -553,6 +575,116 @@ def log_out(conn) -> None:
         drop(conn)
 
 
+# ── writing: decided here, carried out by ImapAccount ─────────────────────────
+
+
+def write_refusal(info: ServerInfo) -> str:
+    """
+    Why mailcellar won't change this server, or "": it needs MOVE and a Trash
+    the server marks \\Trash, so nothing is ever expunged. Pure.
+    """
+    missing = [
+        what
+        for what, ok in (
+            ("MOVE (RFC 6851)", "MOVE" in info.capabilities),
+            ("a special-use \\Trash folder", "TRASH" in info.marked),
+        )
+        if not ok
+    ]
+    if missing:
+        return (
+            f"the server has no {' and no '.join(missing)}, so mailcellar won't move mail "
+            "on it (without them a move can delete for good); it is backed up only"
+        )
+    return ""
+
+
+def trash_folder(scan: Scan) -> Folder | None:
+    """The folder the server marks \\Trash, if the scan read it. Pure."""
+    return next((f for f in scan.folders if f.label == "TRASH"), None)
+
+
+def by_folder_uids(locations) -> dict[str, list[int]]:
+    """Locations grouped by folder, UIDs sorted. Pure."""
+    out: dict[str, list[int]] = {}
+    for name, uid in locations:
+        out.setdefault(name, []).append(uid)
+    return {name: sorted(uids) for name, uids in out.items()}
+
+
+@dataclass(frozen=True)
+class TrashPlan:
+    """What trash(ids) does: decided from a scan by trash_plan, before anything moves."""
+
+    trash: str | None  # the Trash folder's name
+    moves: Mapping[str, tuple[int, ...]]  # folder → the UIDs to move from it
+    owners: Mapping[str, frozenset[str]]  # folder → the IDs with a copy there
+    failures: tuple[str, ...]  # "<id>: <why>", for IDs nothing is done for
+    confirm: tuple[str, ...]  # the IDs to find in Trash, and only there, afterwards
+
+
+def trash_plan(scan: Scan, ids) -> TrashPlan:
+    """
+    Every copy outside Trash, by folder, for the IDs on the server. Nothing
+    moves while a folder couldn't be read: a copy there would stay behind.
+    Pure.
+    """
+    trash = trash_folder(scan)
+    if trash is None or scan.skipped:
+        why = (
+            "the Trash folder couldn't be read"
+            if trash is None
+            else f"folders couldn't be read ({', '.join(sorted(scan.skipped))})"
+        )
+        empty = MappingProxyType({})
+        return TrashPlan(None, empty, empty, tuple(f"{gid}: {why}" for gid in ids), ())
+    present = [gid for gid in ids if gid in scan.messages]
+    copies = [
+        (gid, loc) for gid in present for loc in scan.messages[gid].places if loc[0] != trash.name
+    ]
+    owners: dict[str, set[str]] = {}
+    for gid, (name, _uid) in copies:
+        owners.setdefault(name, set()).add(gid)
+    return TrashPlan(
+        trash.name,
+        MappingProxyType(
+            {name: tuple(uids) for name, uids in by_folder_uids(loc for _g, loc in copies).items()}
+        ),
+        MappingProxyType({name: frozenset(gids) for name, gids in owners.items()}),
+        tuple(f"{gid}: not on the server" for gid in ids if gid not in scan.messages),
+        tuple(present),
+    )
+
+
+def trash_result(plan: TrashPlan, refused: Mapping[str, str], after: Scan | None) -> list[str]:
+    """
+    trash()'s failures: the plan's own, the IDs with a copy in a folder whose
+    MOVE was refused (`refused`: folder → why), and those a re-read (`after`)
+    doesn't show in Trash and only there. Pure.
+    """
+    stuck = {
+        gid: f"{gid}: moving it out of {name} failed: {why}"
+        for name, why in sorted(refused.items())
+        for gid in sorted(plan.owners.get(name, ()))
+    }
+    unconfirmed = [
+        f"{gid}: not in Trash after the move"
+        for gid in plan.confirm
+        if gid not in stuck
+        and (
+            after is None or gid not in after.messages or "TRASH" not in after.messages[gid].labels
+        )
+    ]
+    return [*plan.failures, *stuck.values(), *unconfirmed]
+
+
+def marking_stores(scan: Scan, ids) -> dict[str, list[int]]:
+    """Every copy of the messages, by folder: where add_label sets a keyword. Pure."""
+    return by_folder_uids(
+        loc for gid in ids if gid in scan.messages for loc in scan.messages[gid].places
+    )
+
+
 class ImapAccount:
     """The read half of mailbox.Mailbox, over IMAP; see the module docstring."""
 
@@ -576,6 +708,7 @@ class ImapAccount:
         self._conn = None
         self._prior_map: dict[str, tuple[int, dict[int, str]]] | None = None
         self._cache: tuple[Mapping[str, frozenset[str]], Scan] | None = None
+        self._entries = None  # LIST's answer, once read
 
     # ── connection ───────────────────────────────────────────────────────────
     def _connect_ssl(self):
@@ -709,11 +842,18 @@ class ImapAccount:
 
     # ── reading ──────────────────────────────────────────────────────────────
     def _read_entries(self):
+        """
+        LIST's folders, read once until a write may have changed them
+        (_changed): server_info and the scan share it.
+        """
+
         def run(conn):
             typ, data = conn.list()
             return list_entries(self._ok(typ, data, f"{self.account}: LIST"))
 
-        return self._retrying("listing folders", run)
+        if self._entries is None:
+            self._entries = self._retrying("listing folders", run)
+        return self._entries
 
     def _read_folders(self) -> tuple[Folder, ...]:
         return folders_from(self._read_entries())
@@ -794,6 +934,11 @@ class ImapAccount:
         if self._cache is not None:
             return self._cache
         before = {name: frozenset(uids.values()) for name, (_v, uids) in self._prior().items()}
+        self._cache = (before, self._read_scan())  # the map is written by save_state
+        return self._cache
+
+    def _read_scan(self) -> Scan:
+        """Every folder read, and the messages decided."""
         folders = self._read_folders()
         reads, skipped = [], []
         with progress.Progress(f"{self.account}: reading folders", len(folders)) as p:
@@ -806,9 +951,7 @@ class ImapAccount:
                 p.advance()
         digests = self._read_digests(needs_content(reads))
         decided = merge(reads, assign_ids(reads, digests))
-        scan = Scan(decided.messages, decided.labels, decided.maps, frozenset(skipped))
-        self._cache = (before, scan)  # the map is written by save_state, through backup's con
-        return self._cache
+        return replace(decided, skipped=frozenset(skipped))
 
     def _messages(self) -> Mapping[str, Message]:
         return self._scan()[1].messages
@@ -882,7 +1025,26 @@ class ImapAccount:
                 raise
             failures += [f"{gid}: {exc}" for gid in unread]
             return {gid: None for gid in gmail_ids if gid not in messages}
-        return {gid: details(messages.get(gid), dates.get(gid)) for gid in gmail_ids}
+        heads = self._backed_up_heads(gmail_ids)
+        return {
+            gid: details(messages.get(gid), dates.get(gid), heads.get(gid)) for gid in gmail_ids
+        }
+
+    def _backed_up_heads(self, gmail_ids) -> dict[str, bytes]:
+        """
+        The headers of each message's backed-up .eml, where the backup has it:
+        what meta's thread backfill needs, which the server's details can't give
+        without fetching every message again.
+        """
+        if self.folder is None:
+            return {}
+        from mailcellar.backup import gyb
+
+        out = {}
+        for gid, path in gyb.message_files(self.folder, gmail_ids).items():
+            with path.open("rb") as fh:
+                out[gid] = fh.read(64 * 1024)  # headers, and the start of the body
+        return out
 
     # ── Mailbox: labels ──────────────────────────────────────────────────────
     def message_labels(self, gmail_ids, failures=None):
@@ -899,20 +1061,101 @@ class ImapAccount:
         return list(label_ids)  # a label's ID is its name
 
     # ── Mailbox: writes, which an IMAP account refuses (step 3) ──────────────
-    def _refuse(self, *_args, **_kwargs):
-        raise gmailapi.GmailError(IMAP_BACKUP_ONLY.format(account=self.account))
+    # ── writing (step 3): only where open_mailbox allowed it ─────────────────
+    def _write(self, folder: str, uids: list[int], what: str, fn, selected=None) -> None:
+        """
+        fn(conn, chunk) for each chunk of `uids`, with `folder` SELECTed for
+        writing (the only place mailcellar SELECTs rather than EXAMINEs);
+        selected(conn), if given, first, to check what SELECT answered.
+        """
 
-    label_ids = add_label = remove_label = trash = untrash = _refuse
+        def run(conn):
+            self._ok(*conn.select(quote(folder), readonly=False), f"SELECT {folder}")
+            if selected is not None:
+                selected(conn)
+            for chunk in chunks(uids):
+                fn(conn, ",".join(map(str, chunk)))
+
+        self._retrying(f"{what} in {folder}", run)
+
+    def add_label(self, gmail_ids, label_name):
+        """Mark messages for review: mailcellar's keyword for the label, on every copy."""
+        if self.settings.review == "folder":
+            raise gmailapi.GmailError(
+                f'{self.account}: review = "folder" is not supported yet; set the account '
+                "up with --review keyword"
+            )
+        keyword = keyword_for(label_name)
+        stores = marking_stores(self._scan()[1], gmail_ids)
+
+        def keeps_keywords(conn):
+            _code, (permanent, *_rest) = conn.response("PERMANENTFLAGS")
+            if b"\\*" not in (permanent or b""):
+                raise gmailapi.GmailError(
+                    f"{self.account}: the server keeps no keywords of mailcellar's in its "
+                    "folders (PERMANENTFLAGS has no \\*); set the account up with --review folder"
+                )
+
+        def store(conn, uids):
+            self._ok(*conn.uid("STORE", uids, "+FLAGS.SILENT", f"({keyword})"), "STORE")
+
+        for folder, uids in stores.items():
+            self._write(folder, uids, f"marking {label_name}", store, keeps_keywords)
+        self._changed()
+
+    def trash(self, gmail_ids):
+        """
+        Move every copy of the messages to the server's Trash with MOVE, folder by
+        folder, then read Trash and those folders again to confirm each is in Trash
+        and nowhere else. Returns failures as "<id>: <why>"; a folder whose MOVE is
+        refused fails its messages and the rest carry on. Nothing is expunged.
+        """
+        plan = trash_plan(self._scan()[1], gmail_ids)
+        refused: dict[str, str] = {}
+        try:
+            for folder, uids in plan.moves.items():
+                try:
+                    self._write(folder, list(uids), "moving to Trash", self._mover(plan.trash))
+                except gmailapi.GmailError as exc:
+                    refused[folder] = str(exc)
+        finally:
+            self._changed()  # whatever got through
+        # A full re-read: IDs are decided over the whole mailbox (two messages sharing
+        # header IDs are told apart by content), so a partial one could rename one. With
+        # the backup's UID map it lists folders and reads only the moved mail's headers.
+        after = self._read_scan() if plan.confirm else None
+        return trash_result(plan, refused, after)
+
+    def _changed(self) -> None:
+        """After a write: the scan, and the folder list, are read again when next needed."""
+        self._cache = None
+        self._entries = None
+
+    def _mover(self, trash: str | None):
+        def move(conn, chunk):
+            self._ok(*conn.uid("MOVE", chunk, quote(trash)), "MOVE")
+
+        return move
+
+    def _refuse(self, *_args, **_kwargs):
+        raise gmailapi.GmailError(
+            f"{self.account} is an IMAP account: restore into it isn't supported yet (#113)"
+        )
+
+    label_ids = remove_label = untrash = _refuse
     find_message_ids = import_messages = _refuse
 
 
-def details(message: Message | None, dates: Fetched | None) -> dict | None:
-    """message_details' answer for one message, dates read now where given. Pure."""
+def details(message: Message | None, dates: Fetched | None, head: bytes | None) -> dict | None:
+    """
+    message_details' answer for one message, dates read now where given; its
+    thread from `head`, the backed-up message's headers, else its own ID. Pure.
+    """
     if message is None:
         return None
     return {
         "id": message.id,
-        "threadId": "",
+        "threadId": thread_of(head, message.id) if head else message.id,
         "labelIds": sorted(message.labels),
         "internalDate": str(dates.internal if dates else message.internal or 0),
         "sizeEstimate": (dates.size if dates else message.size) or 0,
