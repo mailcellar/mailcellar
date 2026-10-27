@@ -109,7 +109,7 @@ def test_dry_run_says_what_it_would_do_and_changes_nothing(env, capsys):
     assert run("--batch", BATCH) == 1  # c1 is skipped
     got = log()
     assert got["t1"][0] == "would untrash"
-    assert got["o1"][0] == "would record (already in Gmail)"
+    assert got["o1"][0] == "would record (already in the mailbox)"
     assert got["g1"][0] == got["g2"][0] == "would import"
     assert got["c1"][0] == "skipped" and "other content (x1)" in got["c1"][1]
     assert "k1" not in got
@@ -508,8 +508,10 @@ def test_all_leaves_mail_still_in_gmail_alone(env, capsys, monkeypatch):
     run("--all")
     assert "in:trash" in env.queries
     got = log()
-    assert got["k1"][0] == "already in Gmail" and "x1" not in got  # x1 was never backed up
-    assert got["t1"][0] == "would untrash" and got["o1"][0] == "would record (already in Gmail)"
+    assert got["k1"][0] == "already in the mailbox" and "x1" not in got  # x1 was never backed up
+    assert (
+        got["t1"][0] == "would untrash" and got["o1"][0] == "would record (already in the mailbox)"
+    )
     assert got["g1"][0] == "would import"
     assert "Would upload 2 messages" in capsys.readouterr().out
     monkeypatch.setattr(env, "message_labels", lookups)  # apply() looks up what it found
@@ -757,7 +759,7 @@ def test_an_id_is_looked_for_in_the_whole_backup_unless_offloaded_only(env):
 
 def test_restoring_an_id_never_offloaded_leaves_it_alone_while_gmail_has_it(env):
     run("--id", "k1")
-    assert log()["k1"][0] == "already in Gmail"
+    assert log()["k1"][0] == "already in the mailbox"
     with pytest.raises(SystemExit, match="Nothing to do"):
         run("--id", "k1", "--offloaded")
 

@@ -95,11 +95,11 @@ UNTRASH, IN_GMAIL, PRESENT, FOUND, IMPORT, SKIPPED = (
 )
 DRY_RUN = {
     UNTRASH: "would untrash",
-    IN_GMAIL: "would record (already in Gmail)",
-    FOUND: "would record (found in Gmail)",
+    IN_GMAIL: "would record (already in the mailbox)",
+    FOUND: "would record (found in the mailbox)",
     IMPORT: "would import",
 }
-ALREADY = "already in Gmail"  # the outcome of PRESENT, dry run or not
+ALREADY = "already in the mailbox"  # the outcome of PRESENT, dry run or not; Gmail or IMAP
 DONE = ("untrashed", "recorded", "imported")  # outcomes that restored a message
 
 
