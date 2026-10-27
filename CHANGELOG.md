@@ -5,7 +5,9 @@ What changed for users in each release. Releases and their dates are on the
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). mailcellar is
 in beta, so commands and options may still change before 1.0.
 
-## Unreleased
+## 0.13.1 (2026-10-27)
+
+**Upgrading from 0.13.0:** nothing to do: no database's schema changes.
 
 ### Fixed
 - `report health` prints each hash chain's head hash in full, so it can be
