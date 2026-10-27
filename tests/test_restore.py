@@ -18,7 +18,7 @@ from mailcellar.dedup.index import index_backup
 from mailcellar.offload.apply import OFFLOAD_LABEL
 from mailcellar.report.db import open_sidecars
 from mailcellar.restore import apply as restore
-from test_backup import ACCOUNT, MS, FakeGmail, FakeService, Req, raw_response
+from test_backup import ACCOUNT, MS, FakeGmail, FakeService, Req, http_error, raw_response
 from test_index import make_eml
 
 A, B = "a@x.com", "b@y.com"
@@ -486,6 +486,96 @@ def test_import_messages_batches_small_and_uploads_large_alone():
     assert "raw" not in big_body and big_media
     assert params["internalDateSource"] == "dateHeader" and params["neverMarkSpam"] is True
     assert service.batches == 1
+
+
+WITH_ID = b"Message-ID: <a@example.com>\r\nSubject: one\r\n\r\nbody\r\n"
+NO_ID = b"Subject: two\r\n\r\nbody\r\n"
+
+
+class FlakyImportService(FakeService):
+    """Each import's first sends fail with the errors given for its subject."""
+
+    def __init__(self, errors):
+        super().__init__({})
+        self.errors = errors  # subject → exceptions, raised by the first sends in turn
+        self.sent = []  # subjects, one per import that reached Gmail
+
+    def import_(self, userId, body, media_body=None, **params):
+        raw = media_body._fd.getvalue() if media_body else base64.urlsafe_b64decode(body["raw"])
+        subject = BytesHeaderParser().parsebytes(raw)["Subject"]
+
+        def run():
+            self.sent.append(subject)
+            if self.errors.get(subject):
+                raise self.errors[subject].pop(0)
+            return {"id": f"new-{subject}"}
+
+        return Req(run)
+
+
+def flaky_import(errors, messages):
+    service = FlakyImportService(errors)
+    gmail = gmailapi.GmailAccount(ACCOUNT, None, service=service, sleep=lambda s: None)
+    got = {}
+    failed = gmail.import_messages(messages, lambda k, n: got.__setitem__(k, n))
+    return service, got, failed
+
+
+def test_import_without_message_id_is_not_resent_after_a_server_error():
+    # Gmail may have stored it before failing; with no Message-ID to match a
+    # second import against, sending it again would store a second copy.
+    service, got, failed = flaky_import(
+        {"one": [http_error(500)], "two": [http_error(500)]},
+        {"k1": (WITH_ID, []), "k2": (NO_ID, [])},
+    )
+    assert got == {"k1": "new-one"}
+    assert service.sent.count("one") == 2 and service.sent.count("two") == 1
+    assert failed == [f"k2: HTTP 500; {gmailapi.MAYBE_IMPORTED}"]
+
+
+def test_import_without_message_id_is_resent_after_a_rate_limit():
+    service, got, failed = flaky_import({"two": [http_error(429)]}, {"k2": (NO_ID, [])})
+    assert got == {"k2": "new-two"} and failed == [] and service.sent == ["two", "two"]
+
+
+def test_large_import_without_message_id_is_not_resent_after_a_timeout():
+    big = NO_ID + b"x" * gmailapi.IMPORT_INLINE_LIMIT
+    service, got, failed = flaky_import({"two": [TimeoutError("timed out")]}, {"k2": (big, [])})
+    assert got == {} and service.sent == ["two"]
+    assert failed == [f"k2: a timeout; {gmailapi.MAYBE_IMPORTED}"]
+
+
+def test_failed_import_batch_resends_only_messages_with_a_message_id():
+    service = FlakyImportService({})
+    make_batch = service.new_batch_http_request
+
+    def stalling_batch(callback):
+        batch = make_batch(callback)
+        if service.batches == 1:  # the first batch request stalls
+
+            def stall():
+                for _rid, req in batch.items:  # after Gmail ran the imports
+                    req.execute()
+                raise TimeoutError("timed out")
+
+            batch.execute = stall
+        return batch
+
+    service.new_batch_http_request = stalling_batch
+    gmail = gmailapi.GmailAccount(ACCOUNT, None, service=service, sleep=lambda s: None)
+    got = {}
+    failed = gmail.import_messages(
+        {"k1": (WITH_ID, []), "k2": (NO_ID, [])}, lambda k, n: got.__setitem__(k, n)
+    )
+    assert got == {"k1": "new-one"} and service.batches == 2
+    assert service.sent == ["one", "two", "one"]
+    assert failed == [f"k2: a timeout; {gmailapi.MAYBE_IMPORTED}"]
+
+
+def test_has_message_id():
+    assert gmailapi.has_message_id(WITH_ID)
+    assert not gmailapi.has_message_id(NO_ID)
+    assert not gmailapi.has_message_id(b"Message-ID: \r\n\r\nbody")
 
 
 # ── whole backups, other accounts, labels ────────────────────────────────────
