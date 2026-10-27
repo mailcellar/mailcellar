@@ -1,0 +1,329 @@
+"""imap.ImapAccount over FakeImap: what it lists, labels and fetches, without writing."""
+
+import base64
+
+import pytest
+
+from fake_imap import FakeImap
+from mailcellar import gmailapi, imap
+from mailcellar.backup import sidecar
+from test_index import make_eml
+
+ADDRESS = "alex@example.org"
+SETTINGS = gmailapi.ImapSettings("imap.example.org", 993, ADDRESS)
+
+
+def account(server, folder=None):
+    return imap.ImapAccount(
+        ADDRESS, SETTINGS, "secret", folder=folder, connect=lambda: server, sleep=lambda s: None
+    )
+
+
+@pytest.fixture
+def server():
+    s = FakeImap()
+    s.add_folder("Sent", special=["\\Sent"])
+    s.add_folder("Trash", special=["\\Trash"])
+    s.add_folder("Junk", special=["\\Junk"])
+    s.add_folder("Projects/2026")
+    s.add_folder("[Virtual]", special=["\\All"])
+    s.add_folder("Parent", selectable=False)
+    return s
+
+
+def ids_by_msgid(box, server):
+    """{Message-ID: backup ID}, from what the account reports."""
+    out = {}
+    for gid in box.list_message_ids(include_spam_trash=True):
+        got = []
+        box.get_raw([gid], got.append)
+        raw = base64.urlsafe_b64decode(got[0]["raw"])
+        out[raw.split(b"Message-ID: ")[1].split(b"\n")[0].decode().strip()] = gid
+    return out
+
+
+# ── pure helpers ─────────────────────────────────────────────────────────────
+
+
+def test_folder_names_decode_from_modified_utf7():
+    assert imap.decode_utf7("Entw&APw-rfe") == "Entwürfe"
+    assert imap.decode_utf7("&ZeVnLIqe-") == "日本語"
+    assert imap.decode_utf7("Tom &- Jerry") == "Tom & Jerry"
+
+
+def test_folders_become_labels():
+    lines = [
+        b'(\\HasNoChildren) "/" "INBOX"',
+        b'(\\HasNoChildren \\Sent) "/" "Sent Messages"',
+        b'(\\HasNoChildren) "." "Archive.2026"',
+        b'(\\Noselect \\HasChildren) "/" "Parent"',
+        b'(\\All) "/" "All Mail"',
+        b'(\\HasNoChildren) "/" "Trash"',
+        b'(\\HasNoChildren) "/" Plain',
+    ]
+    got = {f.name: f.label for f in imap.folders_from(imap.list_entries(lines))}
+    assert got == {
+        "INBOX": "INBOX",
+        "Sent Messages": "SENT",
+        "Archive.2026": "Archive/2026",
+        "Trash": "Trash",  # this server marks Sent: names don't stand for special folders
+        "Plain": "Plain",
+    }
+    plain = [b'(\\HasNoChildren) "/" "INBOX"', b'(\\HasNoChildren) "/" "Trash"']
+    assert [f.label for f in imap.folders_from(imap.list_entries(plain))] == ["INBOX", "TRASH"]
+    assert imap.decode_utf7("Broken &AAA") == "Broken &AAA"  # malformed: kept as given
+    assert imap.decode_utf7("Bad &!!!-") == "Bad &!!!-"
+
+
+def test_fetch_answers_parse_with_and_without_literals():
+    data = [
+        (b'1 (UID 7 INTERNALDATE "17-Jul-2026 02:44:25 +0000" RFC822.SIZE 9 BODY[] {3}', b"abc"),
+        b" FLAGS (\\Seen))",
+        b"2 (UID 9 FLAGS (\\Flagged))",
+    ]
+    got = imap.parse_fetch(data)
+    assert got[7].literal == b"abc" and got[7].size == 9 and got[7].flags == {"\\Seen"}
+    assert got[7].internal == 1_784_256_265_000
+    assert got[9] == imap.Fetched(9, flags=frozenset({"\\Flagged"}))
+    assert imap.message_id_of(b"Message-ID:\r\n <a@b>\r\n\r\n") == "<a@b>"
+    assert imap.message_id_of(b"\r\n") == ""
+
+
+# ── listing and labels ───────────────────────────────────────────────────────
+
+
+def test_messages_are_labelled_by_folder_and_flags(server):
+    server.add("INBOX", msgid="<i@x>", flags={"\\Seen", "\\Flagged"})
+    server.add("Projects/2026", msgid="<p@x>")
+    server.add("Sent", msgid="<s@x>", flags={"\\Seen"})
+    server.add("Trash", msgid="<t@x>", flags={"\\Seen"})
+    server.add("Junk", msgid="<j@x>")
+    box = account(server)
+    ids = ids_by_msgid(box, server)
+    labels = box.message_labels(list(ids.values()))
+    assert labels[ids["<i@x>"]] == {"INBOX", "STARRED"}
+    assert labels[ids["<p@x>"]] == {"Projects/2026", "UNREAD"}
+    assert labels[ids["<s@x>"]] == {"SENT"}
+    assert labels[ids["<t@x>"]] == {"TRASH"} and labels[ids["<j@x>"]] == {"SPAM", "UNREAD"}
+    assert sorted(box.list_message_ids()) == sorted(ids[m] for m in ("<i@x>", "<p@x>", "<s@x>"))
+    assert box.list_message_ids(label_id="SENT") == [ids["<s@x>"]]
+    catalogue = {c["name"]: c["type"] for c in box.label_catalogue()}
+    assert catalogue["INBOX"] == "system" and catalogue["Projects/2026"] == "user"
+    assert all(len(gid) == 16 for gid in ids.values())
+
+
+def test_a_message_in_two_folders_is_one_message_with_both_labels(server):
+    raw = make_eml(msgid="<both@x>")
+    server.add("INBOX", raw=raw, flags={"\\Seen"})
+    server.add("Projects/2026", raw=raw, flags={"\\Seen"})
+    box = account(server)
+    (gid,) = box.list_message_ids()
+    assert box.message_labels([gid]) == {gid: {"INBOX", "Projects/2026"}}
+
+
+def test_a_moved_message_keeps_its_id(server, tmp_path):
+    uid = server.add("INBOX", msgid="<mv@x>", flags={"\\Seen"})
+    (before,) = account(server, tmp_path).list_message_ids()
+    server.move("INBOX", uid, "Projects/2026")
+    box = account(server, tmp_path)
+    assert box.list_message_ids() == [before]
+    assert box.message_labels([before]) == {before: {"Projects/2026"}}
+
+
+def test_messages_without_a_message_id_are_told_apart_by_content(server):
+    one = make_eml(msgid=None, body="one!")
+    two = make_eml(msgid=None, body="two!")  # same length and date
+    server.add("INBOX", raw=one)
+    server.add("INBOX", raw=two)
+    box = account(server)
+    ids = box.list_message_ids()
+    assert len(set(ids)) == 2
+    fetched_before = len([c for c in server.commands if "(BODY.PEEK[])" in c])
+    got = []
+    assert box.get_raw(ids, got.append) == []
+    assert sorted(base64.urlsafe_b64decode(r["raw"]) for r in got) == sorted([one, two])
+    assert len([c for c in server.commands if "(BODY.PEEK[])" in c]) == fetched_before  # kept
+
+
+def test_gmail_search_is_refused(server):
+    with pytest.raises(gmailapi.GmailError, match="Gmail's search"):
+        account(server).list_message_ids("older_than:1y")
+
+
+# ── the map ──────────────────────────────────────────────────────────────────
+
+
+def test_a_second_run_reads_no_headers_of_mail_it_knows(server, tmp_path):
+    server.add("INBOX", msgid="<a@x>")
+    server.add("INBOX", msgid="<b@x>")
+    first = account(server, tmp_path).list_message_ids()
+    server.commands.clear()
+    server.add("INBOX", msgid="<c@x>")
+    again = account(server, tmp_path).list_message_ids()
+    assert set(first) < set(again) and len(again) == 3
+    header_reads = [
+        c for c in server.commands if c[:2] == ("UID", "FETCH") and "MESSAGE-ID" in c[3]
+    ]
+    assert [c[2] for c in header_reads] == ["3"]  # only the new message
+
+
+def test_a_uidvalidity_reset_rebuilds_the_folder_with_the_same_ids(server, tmp_path):
+    for n in range(3):
+        server.add("INBOX", msgid=f"<r{n}@x>")
+    before = sorted(account(server, tmp_path).list_message_ids())
+    server.reset_uidvalidity("INBOX")
+    assert sorted(account(server, tmp_path).list_message_ids()) == before
+    con = sidecar.open_meta(tmp_path)
+    assert {v for (v,) in con.execute("SELECT DISTINCT uidvalidity FROM imap_map")} == {2}
+    con.close()
+
+
+def test_history_reports_what_is_gone(server, tmp_path):
+    keep = server.add("INBOX", msgid="<k@x>")
+    gone = server.add("INBOX", msgid="<g@x>")
+    box = account(server, tmp_path)
+    ids = ids_by_msgid(box, server)
+    point = box.current_history_id()
+    del server.folders["INBOX"]["uids"][gone]
+    touched, deleted, _latest = account(server, tmp_path).history_changes(point)
+    assert deleted == {ids["<g@x>"]} and ids["<k@x>"] in touched
+    assert keep in server.folders["INBOX"]["uids"]
+    with pytest.raises(gmailapi.HistoryExpired):
+        box.history_changes("12345")  # a Gmail history ID
+
+
+# ── content ──────────────────────────────────────────────────────────────────
+
+
+def test_get_raw_returns_gmail_shaped_responses_and_skips_gone_mail(server):
+    raw = make_eml(msgid="<c@x>")
+    server.add("INBOX", raw=raw, flags={"\\Seen"})
+    box = account(server)
+    (gid,) = box.list_message_ids()
+    got = []
+    assert box.get_raw([gid, "0123456789abcdef"], got.append) == []
+    (response,) = got
+    assert base64.urlsafe_b64decode(response["raw"]) == raw
+    assert response["labelIds"] == ["INBOX"] and response["internalDate"] == "1784256265000"
+    assert response["threadId"] == "" and response["sizeEstimate"] == len(raw)
+
+
+def test_details_of_known_mail_read_its_date(server, tmp_path):
+    server.add("INBOX", msgid="<d@x>", flags={"\\Seen"})
+    (gid,) = account(server, tmp_path).list_message_ids()
+    details = account(server, tmp_path).message_details([gid, "0123456789abcdef"])
+    assert details[gid]["internalDate"] == "1784256265000" and details[gid]["sizeEstimate"] > 0
+    assert details["0123456789abcdef"] is None
+
+
+# ── never writing; failures ──────────────────────────────────────────────────
+
+
+def test_nothing_on_the_server_changes(server):
+    server.add("INBOX", msgid="<n@x>")
+    box = account(server)
+    (gid,) = box.list_message_ids()
+    box.get_raw([gid], lambda r: None)
+    assert server.folders["INBOX"]["uids"][1]["flags"] == set()  # still unread
+    for write in (
+        lambda: box.trash([gid]),
+        lambda: box.add_label([gid], "x"),
+        lambda: box.import_messages({}, None),
+    ):
+        with pytest.raises(gmailapi.GmailError, match="backed up only"):
+            write()
+    assert all(c[0] in ("LOGIN", "LIST", "EXAMINE", "UID") for c in server.commands)
+
+
+def test_a_refused_login_is_access_refused(server):
+    box = imap.ImapAccount(ADDRESS, SETTINGS, "wrong", connect=lambda: server)
+    with pytest.raises(gmailapi.AccessRefused, match="refused the login"):
+        box.list_message_ids()
+
+
+def test_a_dropped_connection_is_retried(server):
+    server.add("INBOX", msgid="<x@x>")
+    server.drops = 1
+    assert len(account(server).list_message_ids()) == 1
+
+
+# ── review findings ──────────────────────────────────────────────────────────
+
+
+def test_deletions_reach_a_backup_that_reads_labels_first(server, tmp_path):
+    # backup asks for the label catalogue before history_changes, on one account
+    server.add("INBOX", msgid="<k@x>")
+    gone = server.add("INBOX", msgid="<g@x>")
+    ids = ids_by_msgid(account(server, tmp_path), server)
+    del server.folders["INBOX"]["uids"][gone]
+    box = account(server, tmp_path)
+    box.label_catalogue()
+    touched, deleted, _latest = box.history_changes(box.current_history_id())
+    assert deleted == {ids["<g@x>"]} and ids["<k@x>"] in touched
+    lists = [c for c in server.commands if c == ("LIST",)]
+    assert len(lists) == 2  # one scan per account object: labels and history share it
+
+
+def test_a_copy_in_trash_doesnt_hide_mail_that_lives_in_the_inbox(server):
+    raw = make_eml(msgid="<kept@x>")
+    server.add("INBOX", raw=raw, flags={"\\Seen"})
+    server.add("Trash", raw=raw, flags={"\\Seen"})
+    server.add("Junk", msgid="<junk@x>", flags={"\\Seen"})
+    box = account(server)
+    (inbox,) = box.list_message_ids()
+    assert box.message_labels([inbox]) == {inbox: {"INBOX"}}
+    hidden = set(box.list_message_ids(include_spam_trash=True)) - {inbox}
+    assert [box.message_labels([g])[g] for g in hidden] == [{"SPAM"}]
+
+
+def test_a_users_own_junk_folder_is_backed_up_on_a_special_use_server(server):
+    server.add_folder("Junk Mail")  # the user's own folder; the server marks Junk itself
+    server.folders["Spam"] = server.folders.pop("Junk Mail")
+    server.add("Spam", msgid="<mine@x>", flags={"\\Seen"})
+    box = account(server)
+    (gid,) = box.list_message_ids()
+    assert box.message_labels([gid]) == {gid: {"Spam"}}
+
+
+def test_different_messages_sharing_a_header_id_are_told_apart(server):
+    one = make_eml(msgid="<same@x>", body="one!")
+    two = make_eml(msgid="<same@x>", body="two!")  # same Message-ID, date and size
+    server.add("INBOX", raw=one, flags={"\\Seen"})
+    server.add("Projects/2026", raw=two, flags={"\\Seen"})
+    box = account(server)
+    assert len(box.list_message_ids()) == 2
+
+
+def test_identical_copies_keep_the_header_id_so_a_later_move_keeps_it(server, tmp_path):
+    raw = make_eml(msgid="<copy@x>")
+    server.add("INBOX", raw=raw, flags={"\\Seen"})
+    uid = server.add("Projects/2026", raw=raw, flags={"\\Seen"})
+    (gid,) = account(server, tmp_path).list_message_ids()
+    server.folders["Projects/2026"]["uids"].pop(uid)
+    del server.folders["INBOX"]["uids"][1]
+    server.add("Sent", raw=raw, flags={"\\Seen"})  # moved by hand, header ID alone this time
+    assert account(server, tmp_path).list_message_ids() == [gid]
+
+
+def test_a_folder_that_cant_be_read_is_skipped_and_its_mail_not_taken_for_gone(
+    server, tmp_path, caplog
+):
+    server.add("INBOX", msgid="<i@x>")
+    server.add("Projects/2026", msgid="<p@x>")
+    ids = ids_by_msgid(account(server, tmp_path), server)
+    server.refused.add("Projects/2026")
+    box = account(server, tmp_path)
+    assert box.list_message_ids() == [ids["<i@x>"]]
+    assert "skipped Projects/2026" in caplog.text
+    _touched, deleted, _ = box.history_changes(box.current_history_id())
+    assert deleted == set()
+
+
+def test_a_fetch_without_a_body_is_a_failure(server):
+    uid = server.add("INBOX", msgid="<nb@x>")
+    box = account(server)
+    (gid,) = box.list_message_ids()
+    server.bodiless.add(uid)
+    got = []
+    assert box.get_raw([gid], got.append) == [f"{gid}: INBOX returned no body for UID {uid}"]
+    assert got == []
