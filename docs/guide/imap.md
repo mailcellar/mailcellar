@@ -5,11 +5,12 @@ own, over IMAP: Fastmail, iCloud, a self-hosted Dovecot. The backup sits
 next to your Gmail backups, so `search`, `export`, the reports, `verify`
 and legal holds cover it too.
 
-It is **backup only**, and **read-only**. Folders are opened with IMAP's
-`EXAMINE` and messages fetched with `BODY.PEEK[]`, so nothing on the
-server changes, not even a message's read state. Offloading, removing
-duplicates and restoring work on Gmail accounts only, for now
-([#108](https://github.com/mailcellar/mailcellar/issues/108)).
+**Backing up is read-only.** Folders are opened with IMAP's `EXAMINE` and
+messages fetched with `BODY.PEEK[]`, so nothing on the server changes,
+not even a message's read state. **Offloading and removing duplicates**
+also work, on servers that can move mail to Trash safely (step 3 below);
+restoring into an IMAP account comes later
+([#113](https://github.com/mailcellar/mailcellar/issues/113)).
 
 ## 1. Add the account
 
@@ -35,7 +36,7 @@ If the login is refused, nothing is written. Options:
 | `--port PORT` | The server doesn't use 993 (IMAP over TLS) |
 | `--username NAME` | You log in with something other than the address |
 | `--cafile FILE` | Your own server has a certificate from a private CA |
-| `--review folder` | For offload and dedup, once they come to IMAP: your mail client doesn't show keywords, so mark mail for review by moving it to a `mailcellar/review/` folder instead |
+| `--review folder` | For offload and dedup: your mail client doesn't show keywords, so mark mail for review by moving it to a `mailcellar/review/` folder instead (not yet supported) |
 | `--name NAME` | You want another config name than the one from the address |
 | `--no-auth` | Write the account without signing in now |
 
@@ -74,15 +75,33 @@ What the backup keeps, in gyb's layout, as for Gmail:
 `count` compares the server with the backup; `verify` and
 `verify --chain` check the backup itself, as for Gmail.
 
+## 3. Offload and remove duplicates
+
+`offload apply` and `dedup apply` work on an IMAP account as on Gmail,
+with two steps, on a server that has **MOVE** and a **special-use Trash**
+(setup's report says "offload and dedup: possible"). On any other server
+they're refused, saying what's missing: without MOVE, moving mail can
+delete it for good.
+
+1. `--label` marks each candidate with a keyword, `$mailcellar-` and the
+   label (`$mailcellar-offload-candidate`), on every copy. Most mail
+   clients show keywords as tags; **clear it on a message to keep it.**
+   A server that keeps no custom keywords is refused here.
+2. `--trash` checks what is still marked against the backup, moves every
+   copy to the server's Trash with MOVE, and reads the mailbox again to
+   confirm. Nothing is ever expunged or deleted.
+
+The server, or a mail client, may empty its Trash at any time, not after
+30 days as Gmail does: the check against the backup before each move is
+what keeps offloading safe, not the Trash. Restore into an IMAP account
+isn't supported yet.
+
 ## What it doesn't do
 
-- Change anything on the server.
-- Offload, remove duplicates or restore: those rely on Gmail's labels and
-  30-day Trash, and come to IMAP later, on servers that can do them
-  safely.
+- Restore into an IMAP account (coming, #113), or review by folder.
 - Gmail searches (`query` in offload rules): an IMAP account has none.
-- Keep IMAP keywords other than read and flagged (`$Forwarded` and the
-  like).
+- Keep IMAP keywords other than read, flagged and mailcellar's own
+  (`$Forwarded` and the like).
 
 ## Problems
 

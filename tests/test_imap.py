@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from mailcellar import cli, gmailapi, mailbox
+from mailcellar import cli, gmailapi
 from mailcellar.backup import schedule
 
 ADDRESS = "alex@example.org"
@@ -76,12 +76,6 @@ def test_an_imap_account_needs_no_oauth_client(imap_account):
 
 
 # ── what may be done with it ─────────────────────────────────────────────────
-
-
-def test_an_imap_account_is_never_opened_to_change_it(imap_account):
-    _root, folder = imap_account
-    with pytest.raises(gmailapi.GmailError, match="backed up only; offload, dedup and restore"):
-        mailbox.open_mailbox(ADDRESS, folder, "modify")
 
 
 def test_config_and_schedule_status_show_the_imap_server(imap_account, capsys):

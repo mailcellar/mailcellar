@@ -14,11 +14,16 @@ in beta, so commands and options may still change before 1.0.
   `meta`, `verify`, `schedule`, `search`, `export`, holds and the reports
   work on it as on Gmail. Read-only: nothing on the server changes, not
   even a message's read state. Folders and flags become labels; Junk and
-  Trash are left out, as Spam and Trash are for Gmail. Offload, dedup and
-  restore don't apply to IMAP accounts yet. A new guide covers it.
+  Trash are left out, as Spam and Trash are for Gmail. Restore into IMAP
+  accounts doesn't work yet. A new guide covers it.
+- `offload apply` and `dedup apply` work on IMAP accounts whose server has
+  MOVE and a special-use Trash: `--label` marks each candidate with a
+  `$mailcellar-` keyword (clear it in a mail client to keep the message),
+  `--trash` moves what is still marked to Trash and confirms it there.
+  Nothing is expunged; other servers are refused, saying what's missing.
 - `setup --imap --review keyword|folder` chooses how offload and dedup
-  will mark an IMAP account's mail for review (a `$mailcellar-` keyword,
-  or a `mailcellar/review/` folder). Setting an IMAP account up again
+  mark an IMAP account's mail for review (a `$mailcellar-` keyword, or,
+  still to come, a `mailcellar/review/` folder). Setting an IMAP account up again
   keeps its port, username, CA file and review mode unless given.
 
 **Upgrading:** `meta.sqlite` schema 11 → 12 (a new table for IMAP

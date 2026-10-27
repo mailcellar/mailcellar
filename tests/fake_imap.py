@@ -4,7 +4,9 @@ tests. It answers LOGIN, CAPABILITY, LIST, EXAMINE (select with readonly=True),
 UID SEARCH and UID FETCH in imaplib's own shapes: (typ, data), a fetched
 literal as a (prefix, bytes) tuple followed by b")". It fails any command
 that would change the server, SELECT without readonly included, so a test
-that passes shows ImapAccount never writes.
+that passes shows ImapAccount never writes; unless `writable` is set, when
+it also answers SELECT, keyword UID STORE and UID MOVE (step 3's writes),
+and still fails anything that expunges, sets \\Deleted or deletes.
 """
 
 import imaplib
@@ -33,6 +35,9 @@ class FakeImap:
         self.breaks = 0  # how many of the next commands stop halfway (Ctrl-C, say)
         self.message_limit: int | None = None  # MESSAGELIMIT (RFC 9738): highest N only
         self.no_exists = False  # EXAMINE answers without a message count
+        self.writable = False  # SELECT, STORE of keywords and MOVE allowed (step 3)
+        self.permanentflags = b"(\\Answered \\Flagged \\Deleted \\Seen \\Draft \\*)"
+        self.read_write = False  # the selected folder was SELECTed, not EXAMINEd
         self.refused: set[str] = set()  # folders EXAMINE answers NO for
         self.bodiless: set[int] = set()  # UIDs whose BODY.PEEK[] comes back without a body
         self.capabilities = ("IMAP4REV1", "LITERAL+", "AUTH=PLAIN")  # the greeting's, as imaplib
@@ -102,8 +107,9 @@ class FakeImap:
 
     def select(self, mailbox="INBOX", readonly=False):
         self._command("SELECT" if not readonly else "EXAMINE", mailbox)
-        if not readonly:
+        if not readonly and not self.writable:
             raise AssertionError(f"SELECT {mailbox}: opens the folder for writing")
+        self.read_write = not readonly
         name = mailbox[1:-1].replace('\\"', '"').replace("\\\\", "\\")
         if name not in self.folders or name in self.refused:
             return "NO", [b"Mailbox doesn't exist"]
@@ -111,6 +117,8 @@ class FakeImap:
         return "OK", [None if self.no_exists else str(len(self.folders[name]["uids"])).encode()]
 
     def response(self, code):
+        if code == "PERMANENTFLAGS":
+            return code, [self.permanentflags]
         assert code == "UIDVALIDITY"
         return code, [str(self.folders[self.selected]["uidvalidity"]).encode()]
 
@@ -126,6 +134,8 @@ class FakeImap:
             # Over the limit: the highest UIDs only, and an OK that doesn't say so to imaplib.
             wanted = wanted[-self.message_limit :] if self.message_limit else wanted
             return "OK", [b" ".join(str(u).encode() for u in wanted)]
+        if command in ("STORE", "MOVE"):
+            return self._write(command, uids, *args)
         if command != "FETCH":
             raise AssertionError(f"UID {command}: changes the server")
         wanted, items = args
@@ -162,6 +172,27 @@ class FakeImap:
 
     def shutdown(self):
         self._command("SHUTDOWN")  # the socket closed: not an IMAP command
+
+    def _write(self, command, uids, wanted, *rest):
+        if not (self.writable and self.read_write):
+            raise AssertionError(f"UID {command}: changes the server")
+        targets = [u for u in map(int, wanted.split(",")) if u in uids]
+        if command == "STORE":
+            how, flags = rest
+            if "\\Deleted" in flags or not how.startswith(("+FLAGS", "-FLAGS")):
+                raise AssertionError(f"UID STORE {how} {flags}: deletes, or replaces flags")
+            names = set(flags.strip("()").split())
+            for u in targets:
+                f = uids[u]["flags"]
+                uids[u]["flags"] = f | names if how.startswith("+") else f - names
+            return "OK", [None]
+        (dest,) = rest
+        name = dest[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+        if name not in self.folders:
+            return "NO", [b"[TRYCREATE] no such mailbox"]
+        for u in targets:
+            self.move(self.selected, u, name)
+        return "OK", [None]
 
     def logout(self):
         self._command("LOGOUT")

@@ -219,7 +219,17 @@ def test_get_raw_returns_gmail_shaped_responses_and_skips_gone_mail(server):
     (response,) = got
     assert base64.urlsafe_b64decode(response["raw"]) == raw
     assert response["labelIds"] == ["INBOX"] and response["internalDate"] == "1784256265000"
-    assert response["threadId"] == "" and response["sizeEstimate"] == len(raw)
+    assert response["threadId"] == imap.thread_of(raw, gid) != ""  # '' would read as gone
+    assert response["sizeEstimate"] == len(raw)
+
+
+def test_replies_share_the_thread_of_the_conversations_first_message():
+    first = make_eml(msgid="<root@x>")
+    reply = make_eml(msgid="<r2@x>", headers=[("In-Reply-To", "<root@x>")])
+    later = make_eml(msgid="<r3@x>", headers=[("References", "<root@x> <r2@x>")])
+    threads = {imap.thread_of(raw, "g") for raw in (first, reply, later)}
+    assert len(threads) == 1 and threads != {"g"}
+    assert imap.thread_of(make_eml(msgid=None), "0123456789abcdef") == "0123456789abcdef"
 
 
 def test_details_of_known_mail_read_its_date(server, tmp_path):
@@ -239,12 +249,11 @@ def test_nothing_on_the_server_changes(server):
     (gid,) = box.list_message_ids()
     box.get_raw([gid], lambda r: None)
     assert server.folders["INBOX"]["uids"][1]["flags"] == set()  # still unread
-    for write in (
-        lambda: box.trash([gid]),
-        lambda: box.add_label([gid], "x"),
+    for write in (  # restore's writes come later (#113)
+        lambda: box.untrash([gid]),
         lambda: box.import_messages({}, None),
     ):
-        with pytest.raises(gmailapi.GmailError, match="backed up only"):
+        with pytest.raises(gmailapi.GmailError, match="restore into it isn't supported yet"):
             write()
     assert all(c[0] in ("LOGIN", "LIST", "EXAMINE", "UID") for c in server.commands)
 
