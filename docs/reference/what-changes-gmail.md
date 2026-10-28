@@ -6,31 +6,32 @@ or stages its changes:
 | Command | What it changes | Access |
 |---|---|---|
 | `dedup apply --label` / `offload apply --label` | adds a review label to the planned messages | modify |
-| `dedup apply --trash` / `offload apply --trash` | moves labelled messages to Gmail's Trash | modify |
+| `dedup apply --trash` / `offload apply --trash` | moves labelled messages to the mailbox's Trash | modify |
 | `auth ACCOUNT --scope modify` | with `keep_modify_token = true`, grants and stores modify access (changes nothing in the mailbox); otherwise only says that the commands above sign in when they run | modify |
-| `restore ACCOUNT … --yes` | moves offloaded mail out of Trash, or uploads backed-up mail Gmail no longer has (into this account or, with `--to`, another), or mail from a pruned batch, an mbox file or another gyb folder; adds a `restored/<date>` label | modify |
-| `backup --prune` | the *backup*: moves mail permanently deleted from Gmail into `<data root>/_pruned/` | read-only |
+| `restore ACCOUNT … --yes` | moves offloaded mail out of Trash, or uploads backed-up mail the mailbox no longer has (into this account or, with `--to`, another), or mail from a pruned batch, an mbox file or another gyb folder; adds a `restored/<date>` label | modify |
+| `backup --prune` | the *backup*: moves mail permanently deleted from the mailbox into `<data root>/_pruned/` | read-only |
 
-- **Nothing is ever permanently deleted from Gmail.** Removals go to Trash,
-  after a review label. Removing the label from a message vetoes it.
-  Gmail empties its Trash after 30 days; until then, a message can be moved
-  back from Trash in Gmail.
+- **Nothing is ever permanently deleted from the mailbox.** Removals go to
+  Trash, after a review label. Removing the label from a message vetoes it.
+  Gmail empties its Trash after 30 days (an IMAP server when it or a mail
+  client chooses); until then, a message can be moved back from Trash.
 - **Backups only add.** `backup`, `count` and `meta` never delete anything.
   Two commands take mail out of the backup, and only when you ask:
-  `backup --prune` moves mail Gmail has deleted to `_pruned/`, behind a
-  confirmation and a 10% guard; `offload forget` deletes offloaded mail
-  Gmail has deleted too, after you type the count, holding it 30 days in
+  `backup --prune` moves mail the mailbox has deleted to `_pruned/`, behind
+  a confirmation and a 10% guard; `offload forget` deletes offloaded mail
+  the mailbox has deleted too, after you type the count, holding it 30 days in
   `_forgotten/` before `--empty` deletes it for good.
-- **Offloaded mail stays in the backup**, unless you forget it. Once Gmail
-  empties its Trash, the backup is the only copy, and `restore` uploads it
+- **Offloaded mail stays in the backup**, unless you forget it. Once the
+  mailbox empties its Trash, the backup is the only copy, and `restore` uploads it
   from there.
   `offload apply --trash` reports first whether Time Machine covers the
   data root. Keep a second copy of the data root.
-- **Restore only adds.** It deletes nothing, in Gmail or in the backup,
-  and skips what Gmail already has.
+- **Restore only adds.** It deletes nothing, in the mailbox or in the
+  backup, and skips what the mailbox already has.
 
-Backups need only read access. `dedup apply`, `offload apply` and
-`restore --yes` ask for modify access to the account they change.
+On Gmail, backups need only read access; `dedup apply`, `offload apply`
+and `restore --yes` ask for modify access to the account they change (the
+Access column).
 
 ## On an IMAP account
 

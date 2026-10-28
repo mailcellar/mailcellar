@@ -1,9 +1,10 @@
 # Searching mail: search
 
-Gmail's search no longer finds mail once it has been offloaded. `search`
-finds mail in the backups, offloaded or not, by words in the sender,
-recipients, subject and body (not attachments). It is read-only towards
-Gmail and the backups, and needs no Gmail access.
+A mailbox's own search no longer finds mail once it has been offloaded.
+`search` finds mail in the backups, offloaded or not, by words in the
+sender, recipients, subject and body (not attachments). It is read-only
+towards the mailboxes and the backups, and needs no access to the
+mailboxes.
 
 ```bash
 mailcellar search "invoice 2024"                     # every backup

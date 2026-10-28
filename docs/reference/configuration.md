@@ -15,7 +15,7 @@ dotfile manager or sync:
 ```
 
 ```toml
-# accounts.toml: config name = the account's Gmail or Google Workspace address.
+# accounts.toml: config name = the account's address (Gmail, Google Workspace or IMAP).
 # The name is the folder in the config folder holding that account's OAuth
 # files, and what you type on the command line (`mailcellar backup work`).
 personal = "alex@example.com"
@@ -45,8 +45,8 @@ token_warn_days = 5     # warn when a token is this many days past consent; 0 = 
 keep_modify_token = false   # true stores the modify token too, as earlier versions did
 ```
 
-**The modify token isn't stored.** `dedup apply`, `offload apply` and
-`restore --yes` need `gmail.modify`, which can label and trash mail. Each
+**The modify token isn't stored.** On a Gmail account, `dedup apply`,
+`offload apply` and `restore --yes` need `gmail.modify`, which can label and trash mail. Each
 signs in when it runs and holds the token in memory until it ends, so no
 file in the config folder can change your mailbox; the read-only token,
 which unattended backups need, is stored as before. A `token-modify.json`
@@ -68,7 +68,7 @@ seen by every tool.
 
 Adds an account from a downloaded OAuth client: copies the client into the
 config folder, lists the account in `accounts.toml`, and signs in read-only.
-It asks for what it isn't given and changes nothing in Gmail. Running it
+It asks for what it isn't given and changes nothing in the mailbox. Running it
 again for the same account is harmless.
 
 A Workspace address can be read through a service account instead
@@ -90,7 +90,7 @@ file and review mode its `imap.toml` holds, unless an option changes them.
 
 | Option | What it does |
 | --- | --- |
-| `ADDRESS` | The Gmail or Workspace address to back up |
+| `ADDRESS` | The address to back up: Gmail or Workspace, or with `--imap` an IMAP account |
 | `--client FILE` | The OAuth client JSON downloaded from Google (a Desktop app client) |
 | `--service-account KEY` | A Workspace address: read it through this service-account key, granted domain-wide delegation for `gmail.readonly` (no sign-in) |
 | `--imap HOST` | An IMAP account on this server (port 993, TLS): backed up read-only; offload, dedup and restore where the server can move mail safely |
@@ -148,12 +148,12 @@ nothing and prints no credentials. It takes no options.
 
 ### Options every command takes
 
-`-v` shows Gmail's retries and rate-limit waits, `-q` only warnings and
+`-v` shows the mailbox's retries and Gmail's rate-limit waits, `-q` only warnings and
 errors, and `--help` the command's options. `-v` and `-q` can go anywhere on
 the line.
 
 **Progress.** A step that takes more than a couple of seconds (downloading,
-reading Gmail's state before an apply, trashing, verifying, indexing for
+reading the mailbox's state before an apply, trashing, verifying, indexing for
 `search`, exporting, restoring) shows how far it has got on stderr:
 
 ```
@@ -163,6 +163,6 @@ work@example.org: checking: 1,610 of 56,136 (2%), 201/s, 0:08 so far, about 4:31
 On a terminal the line is rewritten in place and ends with how long the
 step took. When stderr isn't a terminal (a scheduled run, or output sent to
 a file) the line is logged about once a minute instead. The rate and the
-time left go by the last half minute of work, since Gmail's pace changes;
+time left go by the last half minute of work, since a mailbox's pace changes;
 they appear after ten seconds, and time spent waiting for Gmail's rate
 limit doesn't count as slowness. `-q` turns progress off.

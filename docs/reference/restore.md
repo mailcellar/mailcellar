@@ -48,26 +48,26 @@ itself: name `--all`, `--offloaded`, `--batch`, `--rule` or `--id` too.
 - **restored before, and the mailbox still has that copy:** left alone
   ("restored before" in the log); restored before and gone again since, it
   comes back by the ways below, like any other;
-- **still in Gmail's Trash** (within 30 days of the offload): moved out,
-  keeping its ID, labels and thread;
+- **still in the mailbox's Trash** (on Gmail, within 30 days of the
+  offload): moved out, keeping its ID, labels and thread;
 - **offloaded, but already out of Trash** (moved by hand): recorded and
   relabelled;
-- **never offloaded and still in Gmail** (with `--all` or `--id`): left
+- **never offloaded and still in the mailbox** (with `--all` or `--id`): left
   alone;
-- **gone, but Gmail has the same Message-ID and content** under another
+- **gone, but the mailbox has the same Message-ID and content** under another
   ID: recorded as that message;
 - **gone:** uploaded from the backup with its labels, apart from those
-  Gmail won't take (Trash, Spam, chat, superstars) and the offload and
-  dedup labels. The upload keeps the original date; Gmail threads it by
-  its headers.
+  the mailbox won't take (on Gmail: Trash, Spam, chat, superstars) and the
+  offload and dedup labels. The upload keeps the original date; Gmail
+  threads it by its headers.
 
 Mail deleted from the backup by `offload forget` can't be restored; a
 selection that includes some says so.
 
 Restored messages lose the offload label and gain `restored/<date>`
 (`--label NAME` to choose another), so a restore can be found and undone.
-A user label whose name Gmail reserves (such as `Muted`, `Archive` or
-`Bin`) is created as `_Muted` and so on, as gyb does; a label the account
+On Gmail, a user label whose name Gmail reserves (such as `Muted`,
+`Archive` or `Bin`) is created as `_Muted` and so on, as gyb does; a label the account
 already has is used as it is. A message with no Date header, or one Gmail
 can't read, is given one from the date the backup recorded, since Gmail
 would otherwise date it at the moment of the restore; the backup's file is
@@ -76,9 +76,9 @@ no date). Before uploading, each backup copy is checked against the SHA-256 its
 hash chain recorded (for pruned mail, the one the prune recorded), so a
 copy changed or damaged since it was backed up, headers and links
 included, is skipped and logged; a backup from before the chain is checked
-by its content hash only. The backup indexes each new Gmail ID, sharing the existing `.eml`, so the
-next backup doesn't download it again. A message whose Message-ID Gmail
-already holds with *other* content is skipped: Gmail would match the
+by its content hash only. The backup indexes each new ID, sharing the existing `.eml`, so the
+next backup doesn't download it again. On Gmail, a message whose Message-ID
+Gmail already holds with *other* content is skipped: Gmail would match the
 upload to that message instead of storing this one. A message with no
 Message-ID is uploaded again after an error only if Gmail refused it for
 its rate limit: after a server error or a timeout Gmail may have stored
@@ -89,13 +89,13 @@ before running the restore again, which would upload it again.
 **Into another account** (`--to`): every message is looked up by
 Message-ID there, and new IDs go into that account's backup. It needs
 modify access to that account (`mailcellar auth ACCOUNT --scope
-modify`). `--label-prefix P` nests the backed-up user labels under `P/`;
+modify` for a Gmail account). `--label-prefix P` nests the backed-up user labels under `P/`;
 `--strip-labels` restores none, so the messages arrive archived with only
 the `restored/` label.
 
 **How long it takes:** the dry run checks every `.eml` file and looks each
-message up in Gmail, so on a large backup it takes minutes. Messages still
-in Trash come out a thousand per Gmail call, then each is read back to
+message up in the mailbox, so on a large backup it takes minutes. On Gmail,
+messages still in Trash come out a thousand per call, then each is read back to
 confirm it left Trash, so thousands take about a minute. Uploads run at
 about 6 a second, so the dry run's estimate for 4,500 messages is about 13
 minutes and for 50,000 over two hours. Progress lines go to stderr (`-q` turns them off); run
@@ -132,9 +132,9 @@ mailcellar restore personal --from-folder /Volumes/old/GYB-GMail-Backup-old@exam
 - `--from-folder DIR`: a gyb backup folder from elsewhere (another
   machine, an old account), into ACCOUNT. It is only read.
 
-None of these has Gmail IDs that mean anything in the account restored
+None of these has IDs that mean anything in the account restored
 into, so each message is looked up there by Message-ID and content, as
-with `--to`: recorded if Gmail has it, uploaded otherwise. Nothing is
+with `--to`: recorded if the mailbox has it, uploaded otherwise. Nothing is
 recorded in a backup or indexed: a run again finds what was restored by
 its Message-ID, and the next `backup` downloads it.
 
