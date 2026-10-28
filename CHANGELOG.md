@@ -7,6 +7,16 @@ in beta, so commands and options may still change before 1.0.
 
 ## Unreleased
 
+## 0.17.0 (2026-10-28)
+
+**Upgrading from 0.16.0:** each `meta.sqlite` moves from schema 11 to 13
+on first use, adding two tables that only IMAP accounts use, with a copy
+kept beside it as `meta.sqlite.pre-v13`; no message is parsed again.
+Scripts that read `search --format json`, an `export` zip's `index.csv`
+or `report --csv` need the new names under Changed (`gmail_id` is now
+`id`). Offload rules with `waive`, `protect` or `except` keep working:
+`offload plan` warns and shows each in the new keys.
+
 ### Added
 - Offload rules say what they keep: `keep = ["mine", "starred",
   "conversations", "labelled"]` (the default; `"correspondents"` adds mail
@@ -106,9 +116,6 @@ in beta, so commands and options may still change before 1.0.
   mailbox", and restore's outcome "already in the mailbox" (they were
   "… Gmail"). Commands' help, the reports' notes and the
   docs cover IMAP accounts.
-
-**Upgrading:** `meta.sqlite` schema 11 → 13 (two new tables for IMAP
-accounts), on the first run, after copying the file aside.
 
 ## 0.16.0 (2026-10-27)
 
