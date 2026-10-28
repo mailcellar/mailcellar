@@ -13,8 +13,9 @@ from the backup's index.
 import sqlite3
 import time
 from collections import Counter, defaultdict
-from collections.abc import Collection, Mapping
+from collections.abc import Container, Mapping
 from dataclasses import dataclass
+from functools import cached_property
 from types import MappingProxyType
 
 from mailcellar.offload.rules import (
@@ -65,9 +66,9 @@ class Message:
     sender: str
     subject: str
     path: str  # '' when not in gyb's index
-    labels: list[str]  # names, sorted
-    user_labels: set[str]  # lower case
-    flags: dict[str, bool]  # protection and exclusion name → applies
+    labels: tuple[str, ...]  # names, sorted
+    user_labels: frozenset[str]  # lower case
+    flags: Mapping[str, bool]  # protection and exclusion name → applies
     thread_id: str = ""  # '' when unknown (gone from its mailbox)
 
 
@@ -290,9 +291,9 @@ def in_scope(con, rule: Rule, accounts: list[str], folders: dict[str, str]) -> l
                 sender,
                 subject,
                 f"{folders[account]}/{filename}" if filename else "",
-                sorted(n for n, _k in names),
-                user,
-                values,
+                tuple(sorted(n for n, _k in names)),
+                frozenset(user),
+                MappingProxyType(values),
                 thread_id or "",
             )
         )
@@ -310,10 +311,12 @@ class Verdict:
     keeps: tuple[str, ...] = ()  # the keep names (or "keep_if") that keep it; () if none
 
 
-def classify(rule: Rule, m: Message, taken: Collection[tuple[str, str]]) -> Verdict:
+def classify(rule: Rule, m: Message, taken: Container[tuple[str, str]]) -> Verdict:
     """
     Whether `rule` leaves `m` out, keeps it, or takes it, given the
-    (account, ID)s earlier rules took. Pure.
+    (account, ID)s already taken: by earlier rules, and by this one when its
+    scope holds the same message twice, which is then left out as "earlier"
+    too. Pure.
     """
     exclusion = next((e for e in EXCLUSIONS if e != "earlier" and m.flags[e]), "")
     if not exclusion and (m.account, m.gmail_id) in taken:
@@ -342,28 +345,42 @@ class RuleResult:
     # one message may be under several
     kept_messages: Mapping[str, tuple[Message, ...]] = MappingProxyType({})
 
-    @property
-    def kept(self) -> dict[str, int]:
+    @cached_property
+    def kept(self) -> Mapping[str, int]:
         """keep name → messages it applies to."""
-        return {p: len(ms) for p, ms in self.kept_messages.items()}
+        return MappingProxyType({p: len(ms) for p, ms in self.kept_messages.items()})
 
-    @property
-    def kept_size(self) -> dict[str, int]:
+    @cached_property
+    def kept_size(self) -> Mapping[str, int]:
         """keep name → the size of the messages it applies to."""
-        return {p: sum(m.size for m in ms) for p, ms in self.kept_messages.items()}
+        return MappingProxyType(
+            {p: sum(m.size for m in ms) for p, ms in self.kept_messages.items()}
+        )
+
+
+@dataclass(frozen=True)
+class _Either:
+    """Membership in any of several collections, without copying them into one."""
+
+    parts: tuple[Container, ...]
+
+    def __contains__(self, item) -> bool:
+        return any(item in p for p in self.parts)
 
 
 def rule_result(
-    rule: Rule, messages: list[Message], taken: Collection[tuple[str, str]]
+    rule: Rule, messages: list[Message], taken: Container[tuple[str, str]]
 ) -> tuple[RuleResult, frozenset[tuple[str, str]]]:
     """
     One rule's result over the messages in its scope (in_scope), oldest
-    first, and the (account, ID)s taken so far, `taken` and its own. Pure.
+    first, given the (account, ID)s earlier rules took, and the ones it
+    takes itself. Pure.
     """
-    taken = set(taken)
+    own: set[tuple[str, str]] = set()  # local: what this rule has taken so far
+    seen = _Either((taken, own))
     selected, kept_messages, excluded, kept_total = [], {}, Counter(), 0
     for m in messages:
-        verdict = classify(rule, m, taken)
+        verdict = classify(rule, m, seen)
         if verdict.exclusion:
             excluded[verdict.exclusion] += 1
         elif verdict.keeps:
@@ -371,7 +388,7 @@ def rule_result(
             for p in verdict.keeps:
                 kept_messages.setdefault(p, []).append(m)
         else:
-            taken.add((m.account, m.gmail_id))
+            own.add((m.account, m.gmail_id))
             selected.append(m)
     result = RuleResult(
         rule,
@@ -381,7 +398,7 @@ def rule_result(
         len(messages),
         MappingProxyType({p: tuple(ms) for p, ms in kept_messages.items()}),
     )
-    return result, frozenset(taken)
+    return result, frozenset(own)
 
 
 def build_plan(
@@ -396,10 +413,11 @@ def build_plan(
     paths); hits: what each rule's Gmail searches found (see searches()).
     """
     prepare(con, accounts, hits or {})
-    taken: frozenset[tuple[str, str]] = frozenset()
+    taken: set[tuple[str, str]] = set()  # grows by each rule's own takes, not copied
     results = []
     for rule in rules:
-        r, taken = rule_result(rule, in_scope(con, rule, accounts, folders), taken)
+        r, own = rule_result(rule, in_scope(con, rule, accounts, folders), taken)
+        taken |= own
         results.append(r)
     return results
 
@@ -474,10 +492,9 @@ def summary(results: list[RuleResult], top: int) -> list[Table]:
         )
         names = ["keep_if"] * bool(rule.exceptions)
         names += [k for k, ps in KEEP.items() if any(p in rule.protect for p in ps)]
+        counts, sizes = r.kept, r.kept_size
         for k in names:
-            kept.append(
-                (rule.name, f"kept: {KEPT_WHY[k]}", r.kept.get(k, 0), r.kept_size.get(k, 0))
-            )
+            kept.append((rule.name, f"kept: {KEPT_WHY[k]}", counts.get(k, 0), sizes.get(k, 0)))
         for e, text in EXCLUSIONS.items():
             if r.excluded.get(e):
                 kept.append((rule.name, f"left out: {text}", r.excluded[e], None))
