@@ -1,6 +1,6 @@
 """
 Command line for mailcellar offload: argparse and one cmd_* per
-subcommand (plan, apply, forget).
+subcommand (plan, suggest, apply, forget).
 """
 
 import argparse
@@ -19,7 +19,7 @@ from mailcellar.dedup.report import report_apply
 from mailcellar.hold import holds
 from mailcellar.hold.holds import HoldCheck
 from mailcellar.mailbox import mailbox_name
-from mailcellar.offload import forget
+from mailcellar.offload import forget, suggest
 from mailcellar.offload.apply import (
     APPLY_LOG_COLUMNS,
     OFFLOAD_LABEL,
@@ -210,6 +210,68 @@ def cmd_plan(args) -> None:
             f"The --try rule would offload {len(rows):,} messages, {human_size(size)}. No plan "
             "written (--plan FILE writes one); nothing in the mailboxes or the backup was changed."
         )
+
+
+def cmd_suggest(args) -> None:
+    """
+    Draft rules from the bulk report's candidates and the account's large
+    mail, plan them after the rules file's, and print them as TOML; with
+    --append, add them to the rules file, commented out.
+    """
+    folders = resolve_folders(args.accounts)
+    if not folders:
+        raise AnalyticsError(f"no backups found in {data_root()}")
+    before_ms = parse_before(args.before)
+    path = Path(args.rules)
+    rules = load_rules(path, parse_before, resolve_account) if path.is_file() else []
+    if not rules:
+        logger.info(f"No rules file at {path}: the suggestions count all the mail.")
+    con, accounts = open_sidecars(folders)
+    with closing(con):
+        for warning in completeness(con, accounts):
+            logger.warning(warning)
+        sources = suggest.read_sources(con, accounts, args.min_messages)
+        large = suggest.read_large(con, accounts, args.larger_than_mb, before_ms)
+        drafts = suggest.decide(
+            sources, large, args.before, args.larger_than_mb, {r.name for r in rules}
+        )
+        tried = [parse_rule(d.raw, parse_before, resolve_account) for d in drafts]
+        hits = {
+            (account, q): ids
+            for account, queries in searches(rules, accounts).items()
+            for q, ids in search_gmail(account, Path(args.config), queries).items()
+        }
+        results = build_plan(
+            con, [*rules, *tried], accounts, {backup_account(f): str(f) for f in folders}, hits
+        )[len(rules) :]
+    blocks = []
+    for draft, r in zip(drafts, results, strict=True):
+        if not r.selected:
+            logger.info(f"Not suggested: {draft.name!r} would take nothing the rules don't.")
+            continue
+        takes = (
+            f"{len(r.selected):,} messages, {human_size(sum(m.size for m in r.selected))}, "
+            "after the protections and the rules above it"
+        )
+        blocks.append(suggest.render(draft, takes))
+    if not blocks:
+        print("Nothing to suggest: the rules file already takes what these would.")
+        return
+    text = (
+        f"# Suggested by 'mailcellar offload suggest' on {datetime.now():%Y-%m-%d}. Plan "
+        "with --review before you label anything:\n# every rule still goes through label, "
+        "review in Gmail and trash.\n\n" + "\n".join(blocks)
+    )
+    print(text, end="")
+    if args.append:
+        commented = "".join(f"# {line}\n" if line else "#\n" for line in text.splitlines())
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(
+                f"\n# ── offload suggest, {datetime.now():%Y-%m-%d}: uncomment a rule "
+                "to use it ──\n" + commented
+            )
+        logger.info(f"Appended {len(blocks)} suggestions to {path}, commented out.")
 
 
 def cmd_apply(args) -> None:
@@ -616,6 +678,52 @@ def main(argv=None, prog: str | None = None) -> None:
         f"(default: {config_root()})",
     )
     pl.set_defaults(func=cmd_plan)
+
+    sg = sub.add_parser(
+        "suggest",
+        help="Draft rules from the bulk report and the large mail, planned and printed as TOML "
+        "(read-only unless --append)",
+    )
+    sg.add_argument(
+        "accounts",
+        nargs="*",
+        help="Accounts (address, config folder name or unique part of an "
+        "address); default: every backup in the data root",
+    )
+    sg.add_argument(
+        "--rules",
+        default=str(rules),
+        help=f"Rules file: suggestions count what its rules leave (default: {rules})",
+    )
+    sg.add_argument(
+        "--before",
+        default="1",
+        help="Each suggestion's before: a date or a number of years ago (default: 1)",
+    )
+    sg.add_argument(
+        "--min-messages",
+        type=int,
+        default=10,
+        help="Suggest a source only with at least this many messages (default: 10)",
+    )
+    sg.add_argument(
+        "--larger-than-mb",
+        type=float,
+        default=5,
+        help="The large-mail rule's larger_than_mb (default: 5)",
+    )
+    sg.add_argument(
+        "--append",
+        action="store_true",
+        help="Also add the suggestions to the rules file, commented out under a dated header",
+    )
+    sg.add_argument(
+        "--config",
+        default=str(config_root()),
+        help="Config folder, for rules with a query: Gmail is searched, read-only "
+        f"(default: {config_root()})",
+    )
+    sg.set_defaults(func=cmd_suggest)
 
     ap = sub.add_parser(
         "apply", help="Check the plan against the mailbox and the backup; label, then trash"

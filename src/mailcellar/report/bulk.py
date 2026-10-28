@@ -130,7 +130,11 @@ def prepare_engagement(con: sqlite3.Connection) -> None:
     """)
 
 
-def _prepare(con: sqlite3.Connection, accounts: list[str], opts: Options, now: int) -> None:
+def prepare_sources(con: sqlite3.Connection, accounts: list[str], opts: Options, now: int) -> None:
+    """
+    TEMP src_msg (bm with each message's source, bulk signal and engagement)
+    and sources (one row per account and source). Shared with offload suggest.
+    """
     prepare_messages(con, accounts)
     prepare_engagement(con)
     con.executescript(f"""
@@ -354,5 +358,5 @@ def by_year(con) -> Table:
 
 def build(con: sqlite3.Connection, accounts: list[str], opts: Options) -> list[Table]:
     now = opts.now_ms if opts.now_ms is not None else int(time.time() * 1000)
-    _prepare(con, accounts, opts, now)
+    prepare_sources(con, accounts, opts, now)
     return [summary(con, opts, now), *top_sources(con), candidates(con, opts, now), by_year(con)]
