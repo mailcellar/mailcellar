@@ -45,7 +45,15 @@ from mailcellar.offload.plan import (
     summary,
 )
 from mailcellar.offload.review import write_reviews
-from mailcellar.offload.rules import RuleError, load_rules, short_retention, years_text
+from mailcellar.offload.rules import (
+    RuleError,
+    load_rules,
+    parse_rule,
+    read_try,
+    rule_toml,
+    short_retention,
+    years_text,
+)
 from mailcellar.paths import backup_folder, config_root, data_root
 from mailcellar.report.cli import parse_before, resolve_folders
 from mailcellar.report.db import AnalyticsError, completeness, open_sidecars
@@ -57,6 +65,11 @@ logger = logging.getLogger(__name__)
 def offload_dir() -> Path:
     """offload/ in the data root (paths.data_root())."""
     return data_root() / "offload"
+
+
+def rules_file() -> Path:
+    """The rules file plan reads unless told another."""
+    return offload_dir() / "rules.toml"
 
 
 def review_dir() -> Path:
@@ -95,6 +108,33 @@ def search_gmail(account: str, config: Path, queries: list[str]) -> dict[str, li
     return found
 
 
+NO_RULES = "none"  # --rules none: no rules file, only the --try rule
+
+
+def plan_rules(args) -> tuple[list, dict | None]:
+    """
+    (the rules to plan, the --try rule as written or None): the rules file's,
+    unless --rules none, then the --try rule after them, so its numbers count
+    only what the file's rules don't already take.
+    """
+    if args.rules == NO_RULES and not args.try_rule:
+        raise RuleError("--rules none plans nothing without --try")
+    rules = (
+        []
+        if args.rules == NO_RULES
+        else load_rules(Path(args.rules), parse_before, resolve_account)
+    )
+    if not args.try_rule:
+        return rules, None
+    raw = read_try(args.try_rule)
+    tried = parse_rule(raw, parse_before, resolve_account)
+    if tried.name in {r.name for r in rules}:
+        raise RuleError(
+            f"--try: {args.rules} has a rule named {tried.name!r} already; give it another name"
+        )
+    return [*rules, tried], raw
+
+
 def cmd_plan(args) -> None:
     folders = resolve_folders(args.accounts)
     if not folders:
@@ -103,7 +143,7 @@ def cmd_plan(args) -> None:
     with closing(con):
         for warning in completeness(con, accounts):
             logger.warning(warning)
-        rules = load_rules(Path(args.rules), parse_before, resolve_account)
+        rules, tried = plan_rules(args)
         for rule in rules:
             if rule.accounts and not set(rule.accounts) & set(accounts):
                 logger.warning(f"rule {rule.name!r}: none of its accounts is chosen")
@@ -124,34 +164,52 @@ def cmd_plan(args) -> None:
                 f"{account}: {n:,} messages Gmail finds for {q!r} aren't in the backup, so no "
                 "rule can offload them; run a backup, then plan again."
             )
-        reviews = write_reviews(con, results, accounts, review_dir()) if args.review else []
+        # A tried rule is all that is shown, reviewed and planned: the file's are as before.
+        shown = results[-1:] if tried else results
+        reviews = write_reviews(con, shown, accounts, review_dir()) if args.review else []
     planned = int(time.time() * 1000)
-    rows = plan_rows(results, planned)
-    write_plan(rows, Path(args.plan))
-    # Every plan is kept: apply logs name the plan they used by its planned time.
-    kept = (
-        offload_dir()
-        / "plans"
-        / f"{time.strftime('%Y-%m-%d-%H%M%S', time.gmtime(planned / 1000))}.csv"
-    )
-    write_plan(rows, kept)
+    rows = plan_rows(shown, planned)
+    plan = args.plan or (None if tried else str(offload_dir() / "offload-plan.csv"))
+    if plan:
+        write_plan(rows, Path(plan))
+        # Every plan is kept: apply logs name the plan they used by its planned time.
+        kept = (
+            offload_dir()
+            / "plans"
+            / f"{time.strftime('%Y-%m-%d-%H%M%S', time.gmtime(planned / 1000))}.csv"
+        )
+        write_plan(rows, kept)
 
-    tables = summary(results, args.top)
+    tables = summary(shown, args.top)
+    source = "" if args.rules == NO_RULES else f" after the rules in {args.rules}"
     sys.stdout.write(
         f"Offload plan — {', '.join(accounts)}\n"
-        f"Generated {datetime.now():%Y-%m-%d %H:%M} from {args.rules}\n"
+        + (
+            f"Generated {datetime.now():%Y-%m-%d %H:%M}: the --try rule{source}\n"
+            if tried
+            else f"Generated {datetime.now():%Y-%m-%d %H:%M} from {args.rules}\n"
+        )
     )
     render(tables, args.top, sys.stdout)
+    if tried:
+        target = rules_file() if args.rules == NO_RULES else args.rules
+        sys.stdout.write(f"\nTo keep it, paste this into {target}:\n\n{rule_toml(tried)}")
     if args.csv:
         paths = write_csv(tables, Path(args.csv), "offload")
         logger.info(f"CSV → {args.csv}/ ({len(paths)} files)")
     for path in reviews:
         logger.info(f"Review → {path}")
     size = sum(r["size"] for r in rows)
-    logger.info(
-        f"Plan → {args.plan}: {len(rows):,} messages, {human_size(size)} (kept as {kept}). "
-        "Nothing in the mailboxes or the backup was changed."
-    )
+    if plan:
+        logger.info(
+            f"Plan → {plan}: {len(rows):,} messages, {human_size(size)} (kept as {kept}). "
+            "Nothing in the mailboxes or the backup was changed."
+        )
+    else:
+        logger.info(
+            f"The --try rule would offload {len(rows):,} messages, {human_size(size)}. No plan "
+            "written (--plan FILE writes one); nothing in the mailboxes or the backup was changed."
+        )
 
 
 def cmd_apply(args) -> None:
@@ -502,7 +560,7 @@ def forget_undo(folders: list[Path], run: str) -> None:
 def main(argv=None, prog: str | None = None) -> None:
     here = offload_dir()
     rules, plan, log = (
-        here / "rules.toml",
+        rules_file(),
         here / "offload-plan.csv",
         here / "offload-apply-log.csv",
     )
@@ -519,8 +577,25 @@ def main(argv=None, prog: str | None = None) -> None:
         help="Accounts (address, config folder name or unique part of an "
         "address); default: every backup in the data root",
     )
-    pl.add_argument("--rules", default=str(rules), help=f"Rules file (default: {rules})")
-    pl.add_argument("--plan", default=str(plan), help=f"Plan CSV to write (default: {plan})")
+    pl.add_argument(
+        "--rules",
+        default=str(rules),
+        help=f"Rules file, or 'none' with --try (default: {rules})",
+    )
+    pl.add_argument(
+        "--plan",
+        default=None,
+        help=f"Plan CSV to write (default: {plan}; with --try, none unless given)",
+    )
+    pl.add_argument(
+        "--try",
+        dest="try_rule",
+        metavar="RULE",
+        help="Plan one more rule, written as the inside of a TOML inline table "
+        "('bulk = true, before = \"2017-01-01\"'), after the file's rules: shows only "
+        "what it would take, writes no plan unless --plan is given, and ends with the "
+        "rule as a [[rule]] table to paste into the rules file",
+    )
     pl.add_argument(
         "--top", type=int, default=15, help="Senders per rule in the summary (default: 15)"
     )
