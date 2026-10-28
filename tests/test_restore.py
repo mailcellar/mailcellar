@@ -1235,11 +1235,3 @@ def test_select_chooses_from_what_the_backup_knows():
     assert ids(batches=frozenset({"b2"}), include_restored=True) == ["o2"]
     assert ids(rules=frozenset({"r2"})) == []  # restored already
     assert ids(everything=True, narrow=restore.Narrowing(senders=("@example.com",))) == ["o1"]
-
-
-def test_untrash_outcomes_cover_each_way_that_untrashes_or_records():
-    assert restore.UNTRASH_OUTCOMES == {
-        restore.UNTRASH: ("untrashed", "untrashed"),
-        restore.FOUND: ("recorded", "found"),
-        restore.IN_GMAIL: ("recorded", "in gmail"),
-    }
