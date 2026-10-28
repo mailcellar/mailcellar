@@ -24,6 +24,10 @@ CI runs the same three checks on every push and pull request
 
 ## Rules for changes
 
+- **Keep what [What stays stable](docs/reference/stability.md) lists.** A
+  change that breaks it waits for a major version; a rename keeps the old
+  name working, with a warning, for at least one minor version. A new
+  column in a file scripts read goes at the end.
 - **Coverage is a guide, not a target.** Use `--cov` to find branches no
   test reaches, especially in code that changes Gmail; there is no
   minimum percentage.
