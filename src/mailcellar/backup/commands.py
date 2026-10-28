@@ -1,32 +1,33 @@
 """
-backup, count and meta: incremental Gmail backups in gyb's format (see
-gyb.py), one folder per account, <data root>/<email>/. A gyb folder moved
-there is continued as it is.
+backup, count and meta: incremental backups of a Gmail or IMAP mailbox in
+gyb's format (see gyb.py), one folder per account, <data root>/<email>/. A
+gyb folder moved there is continued as it is.
 
   backup  Download every message not yet in the backup. After the first
-          run it reads Gmail's history since the last run (kept about 4
-          weeks) instead of listing every message: new mail is downloaded
-          and the labels of changed messages are updated. It lists
+          run it reads only what changed since the last one: new mail is
+          downloaded and the labels of changed messages are updated. Gmail
+          gives its history (kept about 4 weeks); an IMAP account reads
+          every folder and compares it with the last run's. Gmail lists
           everything when there is no history to start from, the history
           has expired, or with --full, --search or --refresh-labels
           (which re-syncs the labels of every backed-up message).
-          With --prune, it then moves messages permanently gone from Gmail
-          (not even in Trash or Spam) out of the backup, into
+          With --prune, it then moves messages permanently gone from the
+          mailbox (not even in Trash or Spam) out of the backup, into
           <data root>/_pruned/<email>/<timestamp>/ with a pruned.csv
           manifest. It asks first unless --yes, and stops if more than 10%
           would go, unless --force. Offloaded messages always stay.
-  count   Compare Gmail with the backup: what is missing locally, and what
-          the backup holds that Gmail no longer has, offloaded mail apart.
-          Changes nothing.
+  count   Compare the mailbox with the backup: what is missing locally, and
+          what the backup holds that the mailbox no longer has, offloaded
+          mail apart. Changes nothing.
   meta    Fill meta.sqlite for messages backed up before it existed or
-          parsed by an older parser: parse their .eml files, then ask Gmail
-          for thread IDs, label IDs and sizes (not with --offline). Also
-          migrates the sidecar to the current schema. backup keeps it
+          parsed by an older parser: parse their .eml files, then ask the
+          mailbox for thread IDs, label IDs and sizes (not with --offline).
+          Also migrates the sidecar to the current schema. backup keeps it
           current for new mail.
 
 Each takes every account in <config>/accounts.toml, or the ones named: a
 full address, a config folder name or a unique part of an address. Only
-read access to Gmail is needed.
+read access to the mailbox is needed.
 
 Usage
   mailcellar backup
