@@ -8,6 +8,7 @@ import csv
 import logging
 import sys
 import time
+from collections.abc import Collection, Mapping, Sequence
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
@@ -275,17 +276,17 @@ def cmd_suggest(args) -> None:
 
 
 def select_rows(
-    rows: list[dict], rules: set[str], accounts: set[str], limit: int | None
-) -> list[dict]:
+    rows: Sequence[Mapping], rules: Collection[str], accounts: Collection[str], limit: int | None
+) -> tuple[Mapping, ...]:
     """
     The plan rows of the given rules and accounts (any of each; none means
     all), the first `limit` of them if given. Pure.
     """
-    chosen = [
+    chosen = tuple(
         r
         for r in rows
         if (not rules or r["rule"] in rules) and (not accounts or r["account"] in accounts)
-    ]
+    )
     return chosen if limit is None else chosen[:limit]
 
 

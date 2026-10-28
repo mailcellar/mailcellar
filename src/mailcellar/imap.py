@@ -947,15 +947,15 @@ def put_back_failures(
     return copied | stuck
 
 
-def further_homes(plan: PutBack, stuck: frozenset[str]) -> dict[str, tuple[str, ...]]:
+def further_homes(plan: PutBack, stuck: frozenset[str]) -> Mapping[str, tuple[str, ...]]:
     """
     ID → the homes after its first, which COPY fills once MOVE has put it
     there: for each message with more than one, unless it is `stuck`
     (stuck_ids), still where it was. Pure.
     """
-    return {
-        gid: homes[1:] for gid, homes in plan.homes.items() if len(homes) > 1 and gid not in stuck
-    }
+    return MappingProxyType(
+        {gid: homes[1:] for gid, homes in plan.homes.items() if len(homes) > 1 and gid not in stuck}
+    )
 
 
 def further_copies(
