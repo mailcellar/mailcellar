@@ -1491,7 +1491,8 @@ class ImapAccount:
         read_at = int(time.time() * 1000)
         folders = self._read_folders()
         reads, skipped = [], []
-        with progress.Progress(f"{self.account}: reading folders", len(folders)) as p:
+        # Inside restore's uploads, their line stays instead: see progress.part.
+        with progress.part(f"{self.account}: reading folders", len(folders)) as p:
             for folder in folders:
                 read = self._read_folder(folder)
                 if read is None:
@@ -2061,6 +2062,7 @@ class ImapAccount:
                     if folder == plan.folders[0]:
                         break  # not on the server: no copies to add
             failure, missed = append_outcome(key, plan.folders, refused)
+            progress.advance()  # restore's "Importing" line: one more message tried
             if failure:
                 failures.append(failure)
                 continue
