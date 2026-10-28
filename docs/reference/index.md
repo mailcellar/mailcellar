@@ -20,3 +20,4 @@ Every command and option. For a task from start to finish, see the
 | [Searching mail](search.md) | `search` |
 | [Legal holds](hold.md) | `hold` |
 | [Reports](report.md) | `report` |
+| [What stays stable](stability.md) | what 1.0 promises not to break, and how old names are retired |

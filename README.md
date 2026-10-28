@@ -222,6 +222,8 @@ The [documentation site](https://mailcellar.github.io/mailcellar/) has the guide
 - [Exporting mail](https://mailcellar.github.io/mailcellar/reference/export/): `export`
 - [Searching mail](https://mailcellar.github.io/mailcellar/reference/search/): `search`
 - [Reports](https://mailcellar.github.io/mailcellar/reference/report/): `report`
+- [What stays stable](https://mailcellar.github.io/mailcellar/reference/stability/): what 1.0
+  promises not to break, and how old names are retired
 
 ## Development
 

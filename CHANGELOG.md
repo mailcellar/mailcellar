@@ -3,7 +3,8 @@
 What changed for users in each release. Releases and their dates are on the
 [releases page](https://github.com/mailcellar/mailcellar/releases); the format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). mailcellar is
-in beta, so commands and options may still change before 1.0.
+in beta, so commands and options may still change before 1.0; what 1.0 will
+keep stable is in [What stays stable](docs/reference/stability.md).
 
 ## Unreleased
 
