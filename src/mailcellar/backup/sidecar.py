@@ -827,14 +827,19 @@ def superseded_ids(folder: Path) -> set[str]:
         row = con.execute("SELECT value FROM meta WHERE name = 'schema_version'").fetchone()
         if row is None or row[0] != SCHEMA_VERSION:
             return set()
-        return {
-            gid
-            for (gid,) in con.execute(
-                "SELECT source_id FROM restored WHERE target = '' AND new_id != source_id"
-            )
-        }
+        return superseded(con)
     finally:
         con.close()
+
+
+def superseded(con: sqlite3.Connection) -> set[str]:
+    """superseded_ids(), from a meta.sqlite already open."""
+    return {
+        gid
+        for (gid,) in con.execute(
+            "SELECT source_id FROM restored WHERE target = '' AND new_id != source_id"
+        )
+    }
 
 
 def forgotten_ids(con: sqlite3.Connection) -> set[str]:
