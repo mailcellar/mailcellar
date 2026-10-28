@@ -29,6 +29,12 @@ in beta, so commands and options may still change before 1.0.
   before = "2017-01-01"'`. It runs after the file's rules (`--rules none`:
   alone), shows only its own results, writes no plan unless `--plan FILE`
   is given, and ends with the rule as a `[[rule]]` table to paste in.
+- `offload suggest` drafts rules from the backup, per account: mailing
+  lists and bulk senders the bulk report calls candidates, automated
+  senders (`noreply@` and the like) never engaged with, and large mail.
+  Each is printed as a `[[rule]]` table, planned after the rules file's
+  rules, with what it would take and one line per source; `--append` adds
+  them to the rules file, commented out. It never sets `forget_after`.
 - IMAP accounts can be backed up: `mailcellar setup ADDRESS --imap HOST`
   asks for the password, signs in, and keeps the server in the account's
   `imap.toml` and the password owner-only beside it. `backup`, `count`,

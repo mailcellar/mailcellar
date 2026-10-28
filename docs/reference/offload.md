@@ -84,6 +84,37 @@ written unless `--plan FILE` is given, and `--review` writes only its
 page. The output ends with the rule as a `[[rule]]` table, ready to paste
 into the rules file.
 
+`suggest` drafts rules from what `report bulk` finds, and prints them as
+TOML, planned:
+
+```bash
+mailcellar offload suggest                     # every account; read-only
+mailcellar offload suggest personal --before 2 --min-messages 20
+mailcellar offload suggest --append            # also add them to rules.toml, commented out
+```
+
+Per account, it suggests at most four rules, each listing what it selects
+one per line, with its figures, so you can cut the list down:
+
+- **bulk lists**: mailing lists the bulk report calls candidates: mostly
+  bulk mail, at least `--min-messages` messages (default 10), never engaged
+  with (no thread you wrote in, no reply, no one you wrote to), no user
+  label;
+- **bulk senders**: senders of the same kind, their bulk mail only;
+- **notifications**: senders with as many messages whose address looks
+  automated (`noreply@`, `alerts@`, `billing@` and the like), not sent as
+  bulk, never engaged with, no user label;
+- **large mail**: messages over `--larger-than-mb` (default 5).
+
+Each rule's `before` is `--before` (default 1, a year ago). Each keeps
+`keep`'s default and sets no `forget_after`; the bulk rules carry a
+commented `# forget_after = 2` as a hint. Each is planned after the rules
+file's rules and the suggestions above it, and says how much it would
+take after the protections; one that would take nothing isn't printed.
+`--append` adds the suggestions to the rules file commented out, under a
+dated header: uncomment a rule to use it. Nothing else is written, and an
+uncommented rule still goes through plan, label, review and trash.
+
 For a rule that selects thousands of messages, `--review` also writes one
 HTML page per rule to `<data root>/offload/review/` (open it in a browser):
 what the rule selects, in one line, the summary tables, a random sample of what the rule would offload and of

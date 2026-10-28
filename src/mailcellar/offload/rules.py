@@ -397,16 +397,16 @@ def _old_keys(name: str, raw: dict) -> tuple[tuple[str, ...], tuple[dict[str, li
     return protect, exceptions
 
 
-def _toml(value) -> str:
+def toml_value(value) -> str:
     """A TOML value as a rule would write it."""
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, int | float):
         return str(value)
     if isinstance(value, list):
-        return "[" + ", ".join(map(_toml, value)) + "]"
+        return "[" + ", ".join(map(toml_value, value)) + "]"
     if isinstance(value, dict):
-        return "{ " + ", ".join(f"{k} = {_toml(v)}" for k, v in value.items()) + " }"
+        return "{ " + ", ".join(f"{k} = {toml_value(v)}" for k, v in value.items()) + " }"
     return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
@@ -417,9 +417,9 @@ def _translation(name: str, raw: dict, protect: tuple[str, ...]) -> str:
     if "waive" in raw or "protect" in raw:
         names = [k for k, ps in KEEP.items() if all(p in protect for p in ps)]
         if names != list(DEFAULT_KEEP):
-            lines.append("keep = " + _toml(names))
+            lines.append("keep = " + toml_value(names))
     if "except" in raw and isinstance(raw["except"], dict):
-        lines.append("keep_if = " + _toml([{k: v} for k, v in raw["except"].items()]))
+        lines.append("keep_if = " + toml_value([{k: v} for k, v in raw["except"].items()]))
     text = f"rule {name!r}: {used} will be removed in 1.0; "
     if ("thread" in protect) != ("replied" in protect):
         return text + (
@@ -492,7 +492,7 @@ def read_try(text: str) -> dict:
 
 def rule_toml(raw: dict) -> str:
     """A [[rule]] table, ready to paste into rules.toml. Pure."""
-    return "[[rule]]\n" + "".join(f"{key} = {_toml(value)}\n" for key, value in raw.items())
+    return "[[rule]]\n" + "".join(f"{key} = {toml_value(value)}\n" for key, value in raw.items())
 
 
 def load_rules(path: Path, parse_before, resolve_account) -> list[Rule]:

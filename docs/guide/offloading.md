@@ -33,6 +33,13 @@ what you offloaded.
 
 ## 1. Write a rule
 
+If you don't know where to start, `mailcellar offload suggest` drafts
+rules from your backup: mailing lists and bulk senders you never engaged
+with, automated notifications, and large mail. It prints each as a
+`[[rule]]` table with what it would take, its sources listed one per
+line so you can remove any you want to keep; `--append` adds them to the
+rules file, commented out. Read them as a starting point, not a verdict.
+
 Rules live in `<data root>/offload/rules.toml` (`mailcellar config` shows the
 data root), one `[[rule]]` table each. Suppose a work account has years of
 automated notifications from a build system, and you want those out of
