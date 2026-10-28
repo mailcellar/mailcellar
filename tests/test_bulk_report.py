@@ -160,3 +160,123 @@ def test_cli_bulk(report, capsys, tmp_path):
 def test_own_domains():
     # A shared provider (gmail.com) is never "your own" domain.
     assert bulk.own_domains(["alex@example.org", "someone@gmail.com"]) == ["example.org"]
+
+
+# ── --unsubscribe ────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("headers", "targets"),
+    [
+        (
+            {"List-Unsubscribe": "<mailto:u@a.example>, <https://a.example/u>"},
+            ("https://a.example/u", "mailto:u@a.example", False),
+        ),
+        (
+            {
+                "List-Unsubscribe": "<https://a.example/u?id=1>",
+                "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+            },
+            ("https://a.example/u?id=1", "", True),
+        ),
+        (  # one-click needs an https: link
+            {
+                "List-Unsubscribe": "<mailto:u@a.example>",
+                "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+            },
+            ("", "mailto:u@a.example", False),
+        ),
+        ({"List-Unsubscribe": "<http://a.example/u>, <javascript:x>"}, ("", "", False)),
+        (
+            {"List-Unsubscribe": "<https://a.example/\r\n first>, <https://b.example/second>"},
+            ("https://a.example/first", "", False),
+        ),  # folded: the first, unbroken
+        ({"List-Unsubscribe": "https://a.example/u"}, ("", "", False)),  # not in <>
+        ({}, ("", "", False)),
+    ],
+)
+def test_unsubscribe_targets(headers, targets):
+    from email.message import Message
+
+    from mailcellar.message import unsubscribe_targets
+
+    msg = Message()
+    for k, v in headers.items():
+        msg[k] = v
+    assert unsubscribe_targets(msg) == targets
+
+
+@pytest.mark.parametrize(
+    ("host", "base"),
+    [
+        ("shop.example", "shop.example"),
+        ("mail.news.shop.example", "shop.example"),
+        ("mail.shop.example.co.uk", "example.co.uk"),
+        ("news.example.de", "example.de"),
+        ("Mail.Example.COM.", "example.com"),
+    ],
+)
+def test_base_domain(host, base):
+    assert bulk.base_domain(host) == base
+
+
+@pytest.fixture
+def unsubscribe(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        FakeMailbox, "LABELS", {**FakeMailbox.LABELS, "CATEGORY_PROMOTIONS": "CATEGORY_PROMOTIONS"}
+    )
+    a = Mailbox()
+    a.series("news", "Shop <news@shop.com>", labels=PROMO, headers=LIST)  # 400 days ago
+    newest = [
+        ("List-Id", "Shop news <news.shop.com>"),
+        ("List-Unsubscribe", "<https://u.mailer.example/x?id=7>, <mailto:u@shop.com?subject=u>"),
+        ("List-Unsubscribe-Post", "List-Unsubscribe=One-Click"),
+    ]
+    a.add("news-new", "Shop <news@shop.com>", labels=PROMO, headers=newest, days_ago=5)
+    a.series("plain", "offers@plain.example", headers=[("Precedence", "bulk")])
+    a.series(
+        "via",
+        "'Shop' via Catchall <catchall@club.org>",
+        labels=PROMO,
+        headers=[*RELAY, ("Reply-To", "shop@real.com")],
+    )
+    commands.backup(FakeMailbox(a.messages), ME, tmp_path / "data" / ME)
+    monkeypatch.chdir(tmp_path)
+    cli.main(["bulk", "--unsubscribe", "--csv", "csv"])
+    import csv
+
+    with open(tmp_path / "csv" / "bulk-unsubscribe.csv", newline="", encoding="utf-8") as fh:
+        return {r["Source"]: r for r in csv.DictReader(fh)}
+
+
+def test_unsubscribe_reads_the_newest_message(unsubscribe):
+    news = unsubscribe["news.shop.com"]
+    assert news["Link"] == "https://u.mailer.example/x?id=7"  # not the older messages' link
+    assert news["Link host"] == "u.mailer.example" and news["Mail to"] == "u@shop.com?subject=u"
+    assert news["One-click"] == "yes" and news["Still sending"] == "yes"
+    assert news["Note"] == "not the sender's domain: mailer.example"
+
+
+def test_unsubscribe_notes_what_it_cant_show(unsubscribe):
+    assert unsubscribe["offers@plain.example"]["Note"] == "no https: or mailto: unsubscribe"
+    assert unsubscribe["offers@plain.example"]["Still sending"] == "no"
+    relayed = unsubscribe["shop@real.com"]
+    assert relayed["Note"].startswith("relayed") and relayed["Link"] == ""
+
+
+def test_unsubscribe_section_only_when_asked(report, tmp_path, capsys):
+    cli.main(["bulk"])
+    assert "Where to unsubscribe" not in capsys.readouterr().out
+    cli.main(["bulk", "--unsubscribe"])
+    assert "Where to unsubscribe" in capsys.readouterr().out
+
+
+def test_unsubscribe_table_without_a_file_or_with_a_bad_link():
+    def newest(kind="list", targets=None):
+        return bulk.Newest(ME, "news.shop.com", kind, "news@shop.com", NOW, targets)
+
+    gone, odd = bulk.unsubscribe_table(
+        [newest(), newest(targets=("https://[::1/u", "", False))], NOW - DAY
+    ).rows
+    assert gone[3:] == ("yes", "", "", "", "no .eml", "")
+    assert odd[5] == "" and odd[-1] == "https://[::1/u"  # no host to show; the link as written

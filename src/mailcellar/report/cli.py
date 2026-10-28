@@ -4,10 +4,12 @@ import argparse
 import logging
 import re
 import sys
+import time
 from contextlib import closing, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+from mailcellar.backup.gyb import backup_account
 from mailcellar.paths import config_root, data_root, find_backups
 from mailcellar.report import bulk, correspondents, health, labels, storage, threads, volume
 from mailcellar.report.db import AnalyticsError, completeness, open_sidecars
@@ -120,7 +122,13 @@ def cmd_bulk(args) -> None:
         min_bulk_share=args.min_bulk_share / 100,
     )
     with open_report(args) as (con, accounts):
-        emit(args, "Bulk mail report", "bulk", accounts, bulk.build(con, accounts, opts))
+        tables = bulk.build(con, accounts, opts)
+        if args.unsubscribe:
+            folders = {backup_account(f): f for f in resolve_folders(args.accounts)}
+            newest = bulk.read_newest(bulk.newest_messages(con, opts), folders)
+            active = int(time.time() * 1000) - opts.active_days * bulk.DAY_MS
+            tables.append(bulk.unsubscribe_table(newest, active))
+        emit(args, "Bulk mail report", "bulk", accounts, tables)
 
 
 def cmd_volume(args) -> None:
@@ -261,6 +269,12 @@ def main(argv=None, prog: str | None = None) -> None:
         metavar="PERCENT",
         help="A source is bulk when at least this share of its messages has bulk "
         "signals (default: 50)",
+    )
+    b.add_argument(
+        "--unsubscribe",
+        action="store_true",
+        help="Also list where to unsubscribe from each candidate: its most recent message's "
+        "List-Unsubscribe link and address, and whether it offers one-click (opens nothing)",
     )
     b.set_defaults(func=cmd_bulk)
 
