@@ -86,8 +86,9 @@ after the same backup checks, and the rest of the plan carries on. It says
 `--label`, can simply be repeated.
 
 **`restore --yes`.** Run it again. Each message is recorded in the backup's
-`meta.sqlite` as it succeeds, and the next run skips what is already back,
-looking each message up in Gmail again. Gmail matches an upload to the
+`meta.sqlite` as it succeeds, and the next run leaves alone what is already
+back, looking each message up in Gmail again; one restored but deleted
+since goes back again. Gmail matches an upload to the
 message that already holds its Message-ID, so a retried upload returns the
 same message, not a second copy. The one exception is a message with no
 Message-ID header; the dry run flags those, because a crash during their

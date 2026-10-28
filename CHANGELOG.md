@@ -7,6 +7,15 @@ in beta, so commands and options may still change before 1.0.
 
 ## Unreleased
 
+### Fixed
+- `restore` skipped a message it had restored before even when the mailbox
+  had lost it since, so `restore --all` after the mailbox was emptied left
+  some of the backup out. A restored message now counts as done only while
+  the mailbox still has the copy it went back as; one gone since comes back
+  like any other, and one still there shows as "already in the mailbox"
+  (restored before). `count` reports such mail under "Only in backup", as
+  "restored, then deleted", where it hid it before.
+
 ## 0.17.0 (2026-10-28)
 
 **Upgrading from 0.16.0:** each `meta.sqlite` moves from schema 11 to 13

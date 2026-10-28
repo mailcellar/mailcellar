@@ -316,6 +316,7 @@ def test_count(tmp_path):
         "missing": ["g2", "g3"],
         "chats": 1,
         "only_in_backup": 2,
+        "restored_gone": 0,
         "gone_from_server": 1,
         "offloaded": 0,
         "offloaded_in_gmail": 0,

@@ -202,8 +202,25 @@ def test_untrashed_message_counts_as_restored_and_is_done(env):
     c = commands.count(env, A, env.folder)
     assert c["offloaded"] == 4 and c["restored"] == 1
     assert c["offloaded_in_gmail"] == 1  # o1 (out of Trash by hand, still offloaded)
-    with pytest.raises(SystemExit, match="Nothing to do"):
-        run("--id", "t1", "--yes")
+    calls = len(env.calls)
+    run("--id", "t1", "--yes")  # done: Gmail still has it
+    assert log()["t1"] == ("already in the mailbox", "restored before")
+    assert [c for c in env.calls[calls:] if c[0] != "search"] == []  # read, nothing changed
+
+
+def test_a_restored_message_deleted_since_goes_back_again(env):
+    run("--id", "t1", "--yes")  # untrashed: back under its own ID
+    before = commands.count(env, A, env.folder)
+    assert before["restored_gone"] == 0
+    del env.messages["t1"]  # then deleted for good
+    after = commands.count(env, A, env.folder)
+    assert after["restored_gone"] == 1  # count says so, rather than calling it kept
+    assert after["only_in_backup"] == before["only_in_backup"] + 1
+    run("--id", "t1", "--yes")
+    assert log()["t1"][0] == "imported"  # not skipped as restored before
+    assert env.imported == 1
+    new_id, how = restored_rows(env.folder)["t1"]
+    assert how == "imported" and new_id in env.messages
 
 
 def test_crash_after_import_is_found_next_time_not_uploaded_twice(env):
@@ -545,8 +562,22 @@ def test_restore_into_another_account(env):
     before = len(other.fetched)  # restore read b1 to compare its content
     commands.backup(other, B, b_folder)
     assert other.fetched[before:] == ["b1"]
-    with pytest.raises(SystemExit, match="Nothing to do"):
-        run("--offloaded", "--to", "b")
+    run("--offloaded", "--to", "b", "--yes")  # all still in B: nothing to do
+    assert {g: o for g, (o, _d) in log().items()} == dict.fromkeys(
+        {"t1", "g1", "g2", "o1", "c1"}, "already in the mailbox"
+    )
+    assert log()["g1"] == ("already in the mailbox", "restored before, as b1")
+    assert [c for c in other.calls if c[0] == "import"] == list(imports.values())
+
+
+def test_a_message_restored_into_another_account_and_deleted_there_goes_back(env):
+    other = env.other
+    run("--id", "g2", "--to", "b", "--yes")
+    (first,) = [c for c in other.calls if c[0] == "import"]
+    del other.messages[restored_rows(env.folder)["g2"][0]]  # B deletes it for good
+    run("--id", "g2", "--to", "b", "--yes")
+    assert log()["g2"][0] == "imported"
+    assert len([c for c in other.calls if c[0] == "import"]) == 2
 
 
 def test_strip_labels_restores_only_the_restored_label(env):

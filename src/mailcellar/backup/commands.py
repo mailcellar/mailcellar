@@ -821,11 +821,14 @@ def count(gmail, account: str, folder: Path) -> dict:
         raise gyb.FormatError(f"{folder} has no {gyb.DB_NAME}")
     has_meta = sidecar.meta_path(folder).is_file()
     offloaded, kept, restored, forgotten = set(), set(), 0, 0
+    back: set[str] = set()  # restored under their own IDs: the mailbox's again
     if has_meta:
         mcon = sidecar.open_meta(folder)
         offloaded = sidecar.offloaded_ids(mcon)  # offloaded now
         kept = sidecar.kept_ids(mcon)  # also those restored since
-        restored = mcon.execute("SELECT count(*) FROM restored WHERE target = ''").fetchone()[0]
+        restored_as = sidecar.restored_as(mcon)
+        restored = len(restored_as)
+        back = {s for s, n in restored_as.items() if s == n} - offloaded
         forgotten = len(sidecar.forgotten_ids(mcon))
         mcon.close()
     con = gyb.open_backup(folder, account)
@@ -851,7 +854,10 @@ def count(gmail, account: str, folder: Path) -> dict:
         "backed_up": len(backed_up),
         "missing": [g for g in missing if g not in chats],
         "chats": len(chats),
-        "only_in_backup": len(backed_up - in_gmail - kept),
+        # A message restored under its own ID that the mailbox lost again is only in
+        # the backup, like any other; --prune still keeps it, as it keeps all kept_ids.
+        "only_in_backup": len(backed_up - in_gmail - (kept - back)),
+        "restored_gone": len(set(gone_kept) & back),
         "gone_from_server": len(gone),
         "offloaded": len(offloaded & indexed),
         "offloaded_in_gmail": len(offloaded & indexed) - len(offloaded & set(gone_kept)),
@@ -900,6 +906,7 @@ def cmd_count(args) -> int:
         ("Chats (never backed up)", c["chats"]),
         ("Only in backup (not in mailbox)", c["only_in_backup"]),
         ("  of which permanently deleted", c["gone_from_server"]),
+        ("  of which restored, then deleted", c["restored_gone"]),
         ("Offloaded (kept in backup)", c["offloaded"]),
         (f"  of which still {in_server} (Trash)", c["offloaded_in_gmail"]),
         (f"Restored to {server}", c["restored"]),
@@ -914,6 +921,11 @@ def cmd_count(args) -> int:
         print(
             f"\n'backup --prune' would move {c['gone_from_server']:,} permanently "
             "deleted messages out of the backup."
+        )
+    if c["restored_gone"]:
+        print(
+            f"\n{c['restored_gone']:,} messages restored before have gone from {server} again; "
+            f"'restore {account} --all' would put them back."
         )
     if c["missing"]:
         print(f"\nRun 'backup' to fetch the missing messages, e.g. {c['missing'][0]}.")

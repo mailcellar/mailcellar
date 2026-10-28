@@ -31,6 +31,7 @@ from mailcellar.restore.apply import (
     forgotten_in,
     matches,
     plan,
+    restored_into,
     restored_label,
 )
 
@@ -263,7 +264,9 @@ def main(argv=None, prog: str | None = None) -> int:
             target=target if other else "",
             narrow=narrowing,
             offloaded_only=args.offloaded,
+            include_restored=True,  # plan() leaves those the mailbox still has
         )
+        restored = restored_into(folder, target if other else "")
     except sidecar.MetaError as exc:
         sys.exit(f"error: {exc}")
     gone_for_good = forgotten_in(folder, set(args.batch), set(args.rule), set(args.id))
@@ -296,7 +299,9 @@ def main(argv=None, prog: str | None = None) -> int:
                 folder=backup_folder(target),  # an IMAP account's map, and where mail lived
             )
         ) as gmail:
-            decisions = plan(gmail, cands, same_account=not other, progress=progress)
+            decisions = plan(
+                gmail, cands, same_account=not other, progress=progress, restored=restored
+            )
             with RestoreLog(Path(args.log), mode, account, target if other else "") as log:
                 if args.yes:
                     run = datetime.now().strftime("%Y-%m-%d-%H%M%S")

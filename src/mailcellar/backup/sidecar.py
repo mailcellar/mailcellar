@@ -803,6 +803,11 @@ def record_restored(
         )
 
 
+def restored_as(con: sqlite3.Connection, target: str = "") -> dict[str, str]:
+    """Source ID → the ID it was restored under, in `target` ('' = this backup's own account)."""
+    return dict(con.execute("SELECT source_id, new_id FROM restored WHERE target = ?", (target,)))
+
+
 def restored_ids(con: sqlite3.Connection, target: str = "") -> set[str]:
     """Source IDs already restored into `target` ('' = this backup's own account)."""
     return {g for (g,) in con.execute("SELECT source_id FROM restored WHERE target = ?", (target,))}

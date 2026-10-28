@@ -7,7 +7,8 @@ Each message takes the first way back that applies:
              the offload): move it out; it keeps its ID, labels and thread
   in gmail   an offloaded message already out of Trash: just record it
   present    a message that was never offloaded and is still in Gmail (or
-             its Trash): nothing to do (whole-backup and --id restores)
+             its Trash), or one restored before whose copy the mailbox still
+             has: nothing to do
   found      gone, but Gmail has a message with the same Message-ID and
              content: record that one (and untrash it if it is in Trash)
   import     gone: upload the backed-up .eml with users.messages.import,
@@ -275,9 +276,10 @@ def candidates(
     `everything` the whole backup (old IDs superseded by a restore apart).
     Gmail IDs are looked for in the whole backup too, unless `offloaded_only`.
     `narrow` then keeps only those that meet its dates, labels and senders.
-    include_restored (for an export, which is not a restore) keeps messages
-    already restored, but always leaves out the old IDs of messages restored
-    under new ones, so none is listed twice.
+    include_restored keeps messages already restored, for an export (which is
+    not a restore) and for a restore, whose plan() counts one as done only
+    while the mailbox still has it; the old IDs of messages restored under
+    new ones are always left out, so none is listed twice.
     Messages deleted from the backup by offload forget are never candidates
     (see forgotten_in).
     """
@@ -333,6 +335,18 @@ def candidates(
     if narrow:
         chosen = (c for c in chosen if matches(c, narrow))
     return sorted(chosen, key=lambda c: (c.internal_date, c.source_id))
+
+
+def restored_into(folder: Path, target: str = "") -> dict[str, str]:
+    """
+    Source ID → the ID it went back under, for what the backup in `folder`
+    has restored into `target` ('' = its own account). Read-only.
+    """
+    con = _open_current(folder)
+    try:
+        return sidecar.restored_as(con, target)
+    finally:
+        con.close()
 
 
 def forgotten_in(folder: Path, batches=(), rules=(), ids=()) -> int:
@@ -422,18 +436,23 @@ def decide(
     hits: list[str],
     hashes: dict[str, str],
     provider: str,
+    restored_as: str = "",
 ) -> Decision:
     """
     A candidate's way back, from what was read: the backup check (`problem`,
-    `copy`); in its own account, the mailbox's labels for its ID (None if it
-    no longer has it); and the other messages with its Message-ID (`hits`)
-    with their content hashes. Details name the mailbox by `provider`
-    (mailbox_name). Pure: no I/O.
+    `copy`); the ID an earlier restore put it back under, if the mailbox
+    still has that copy (`restored_as`); in its own account, the mailbox's
+    labels for its ID (None if it no longer has it); and the other messages
+    with its Message-ID (`hits`) with their content hashes. Details name the
+    mailbox by `provider` (mailbox_name). Pure: no I/O.
     """
     where, start = mailbox_name(provider), mailbox_name(provider, start=True)
     if problem or copy is None:
         return Decision(c, SKIPPED, problem)
     decision = Decision(c, SKIPPED, size=copy.size)
+    if restored_as:  # put back before and still there; gone since, it takes a way back again
+        as_ = "" if restored_as == c.source_id else f", as {restored_as}"
+        return replace(decision, way=PRESENT, detail=f"restored before{as_}")
     if same_account and labels is not None:
         if not c.offloaded:
             return replace(
@@ -467,13 +486,19 @@ def _quiet(message: str) -> None:
 
 
 def plan(
-    gmail, cands: list[Candidate], same_account: bool = True, progress=_quiet
+    gmail,
+    cands: list[Candidate],
+    same_account: bool = True,
+    progress=_quiet,
+    restored: Mapping[str, str] | None = None,
 ) -> list[Decision]:
     """
     Read what deciding needs — each backup copy, Gmail's state, matching
     Message-IDs — and decide() each candidate's way back. Reads only.
-    `gmail` is the account restored into. progress(message) is told each
-    stage; the long ones also show a Progress.
+    `gmail` is the account restored into; `restored` maps the source IDs an
+    earlier restore put into it to the IDs they went back under, which count
+    as done only while the mailbox still has them. progress(message) is told
+    each stage; the long ones also show a Progress.
     """
     checks = []
     with Progress("Checking backup copies", len(cands)) as checking:
@@ -484,13 +509,21 @@ def plan(
     progress(f"Checked {len(cands):,} backup copies; {len(cands) - len(usable):,} unusable")
 
     where = mailbox_name(gmail.provider)
+    again = {c.source_id: restored[c.source_id] for c in usable if c.source_id in (restored or {})}
+    read = [c.source_id for c in usable] if same_account else []
+    read = sorted(set(read) | set(again.values()))
     state: dict[str, set[str] | None] = {}
-    if same_account:
-        how = "listing its message IDs" if len(usable) > LISTING_THRESHOLD else "one by one"
-        progress(f"Reading {where}'s state for {len(usable):,} messages, {how}")
-        state = gmail_state(gmail, [c.source_id for c in usable])
+    if read:
+        how = "listing its message IDs" if len(read) > LISTING_THRESHOLD else "one by one"
+        progress(f"Reading {where}'s state for {len(read):,} messages, {how}")
+        state = gmail_state(gmail, read)
+    still = {sid: new for sid, new in again.items() if state.get(new) is not None}
     copies = {c.source_id: copy for c, (_p, copy) in zip(cands, checks, strict=True)}
-    gone = [c for c in usable if not same_account or state.get(c.source_id) is None]
+    gone = [
+        c
+        for c in usable
+        if c.source_id not in still and (not same_account or state.get(c.source_id) is None)
+    ]
 
     # Gone: does the mailbox have the Message-ID under another ID?
     if gone:
@@ -527,6 +560,7 @@ def plan(
             hits=hits.get(c.source_id, []),
             hashes=hashes,
             provider=gmail.provider,
+            restored_as=still.get(c.source_id, ""),
         )
         for c, (problem, copy) in zip(cands, checks, strict=True)
     ]
