@@ -269,7 +269,7 @@ class Snapshot:
     stored: Mapping[str, tuple[int | None, str | None, str | None, str | None]]
     index: Mapping[str, gyb.BackupMessage]  # what gyb's index has, with its .eml
     recorded: Mapping[str, str]  # ID → the .eml's SHA-256, as the hash chain recorded it
-    restored: frozenset[str]  # source IDs restored into the target already
+    restored: frozenset[str]  # source IDs restored into the target already; empty if not read
     forgotten: frozenset[str]  # deleted from the backup by offload forget
     superseded: frozenset[str]  # old IDs of messages restored under new ones
     marks: frozenset[str]  # an IMAP backup's review marks: never put back
@@ -288,8 +288,11 @@ class Selection:
     offloaded_only: bool = False
 
 
-def read_snapshot(folder: Path, target: str = "") -> Snapshot:
-    """What the backup in `folder` knows, with what it restored into `target`. Read-only."""
+def read_snapshot(folder: Path, target: str | None = "") -> Snapshot:
+    """
+    What the backup in `folder` knows, with what it restored into `target`
+    (None: not read, for a selection that keeps restored messages). Read-only.
+    """
     con = _open_current(folder)
     try:
         offload = {
@@ -303,7 +306,7 @@ def read_snapshot(folder: Path, target: str = "") -> Snapshot:
                    FROM messages"""
             )
         }
-        restored = frozenset(sidecar.restored_ids(con, target))
+        restored = frozenset() if target is None else frozenset(sidecar.restored_ids(con, target))
         forgotten = frozenset(sidecar.forgotten_ids(con))
         superseded = frozenset(sidecar.superseded(con))
         marks = sidecar.mark_labels(con)
@@ -318,6 +321,19 @@ def read_snapshot(folder: Path, target: str = "") -> Snapshot:
         forgotten,
         superseded,
         marks,
+    )
+
+
+def selected_by(sel: Selection, gid: str, batch: str, rule: str) -> bool:
+    """
+    Whether a message's ID, batch and rule meet the selection's (any of
+    each; none means all). forgotten_in() uses it too, so its count matches
+    what select() would take. Pure.
+    """
+    return (
+        (not sel.ids or gid in sel.ids)
+        and (not sel.batches or batch in sel.batches)
+        and (not sel.rules or rule in sel.rules)
     )
 
 
@@ -350,9 +366,7 @@ def select(snap: Snapshot, sel: Selection) -> list[Candidate]:
     chosen = (
         candidate(gid)
         for gid in pool - left_out
-        if (not sel.ids or gid in sel.ids)
-        and (not sel.batches or snap.offload.get(gid, ("", ""))[0] in sel.batches)
-        and (not sel.rules or snap.offload.get(gid, ("", ""))[1] in sel.rules)
+        if selected_by(sel, gid, *snap.offload.get(gid, ("", "")))
     )
     if sel.narrow:
         chosen = (c for c in chosen if matches(c, sel.narrow))
@@ -393,7 +407,7 @@ def candidates(
         include_restored=include_restored,
         offloaded_only=offloaded_only,
     )
-    return select(read_snapshot(folder, target), selection)
+    return select(read_snapshot(folder, None if include_restored else target), selection)
 
 
 def restored_into(folder: Path, target: str = "") -> dict[str, str]:
@@ -415,12 +429,8 @@ def forgotten_in(folder: Path, batches=(), rules=(), ids=()) -> int:
         rows = con.execute("SELECT gmail_id, batch, rule FROM forgotten").fetchall()
     finally:
         con.close()
-    return sum(
-        (not ids or gid in ids)
-        and (not batches or batch in batches)
-        and (not rules or rule in rules)
-        for gid, batch, rule in rows
-    )
+    sel = Selection(batches=frozenset(batches), rules=frozenset(rules), ids=frozenset(ids))
+    return sum(selected_by(sel, gid, batch, rule) for gid, batch, rule in rows)
 
 
 CHANGED_SINCE_RECORDED = "backup copy differs from what its hash chain recorded"
