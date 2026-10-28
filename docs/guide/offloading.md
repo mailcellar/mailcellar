@@ -121,6 +121,17 @@ Read it against what you expected. If the numbers are far larger than you
 had in mind, or a sender you recognise is in the list, adjust the rule and
 plan again; each run replaces the plan file.
 
+To try a rule out before it goes in the file, give it to `--try`, written
+the way the file would have it but on one line:
+
+```bash
+mailcellar offload plan work --try 'sender = "@ci.example.com", before = "2023-01-01", keep_if = { subject = "release" }'
+```
+
+It runs after the file's rules and shows only what it would add, writes no
+plan, and ends with the rule as a `[[rule]]` table to paste in once it
+looks right.
+
 Two typical adjustments:
 
 - **Too much.** Tighten `before`, add a scope key, or add a `keep_if`.

@@ -24,6 +24,11 @@ in beta, so commands and options may still change before 1.0.
   `archive`. `after` sets the oldest date a rule takes, as `before` sets
   the newest; the plan's Rules table shows it. The first three work in
   `keep_if` too.
+- `offload plan --try RULE` plans one more rule without editing the rules
+  file, written as the inside of a TOML inline table: `--try 'bulk = true,
+  before = "2017-01-01"'`. It runs after the file's rules (`--rules none`:
+  alone), shows only its own results, writes no plan unless `--plan FILE`
+  is given, and ends with the rule as a `[[rule]]` table to paste in.
 - IMAP accounts can be backed up: `mailcellar setup ADDRESS --imap HOST`
   asks for the password, signs in, and keeps the server in the account's
   `imap.toml` and the password owner-only beside it. `backup`, `count`,

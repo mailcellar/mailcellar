@@ -59,6 +59,7 @@ written in the new keys.
 mailcellar offload plan                    # all accounts → <data root>/offload/offload-plan.csv
 mailcellar offload plan personal --top 30 --csv ~/reports/offload
 mailcellar offload plan --review           # also a review page per rule
+mailcellar offload plan --try 'bulk = true, before = "2017-01-01"'   # one rule, no file edited
 ```
 
 `plan` changes nothing. It prints what each rule would offload (by year and
@@ -73,6 +74,15 @@ has; it says how many it found that the backup lacks (run a backup, then
 plan again). `before`, `keep` and `keep_if` still apply, so a
 search that finds labelled mail keeps it unless the rule names the label
 or leaves `labelled` out of `keep`. A rule without `query` doesn't contact Gmail.
+
+`--try RULE` plans one more rule without editing the rules file. `RULE` is
+written as the inside of a TOML inline table, so the keys and checks are
+the rules file's own; `name` defaults to `"try"`. The rule runs after the
+file's rules, so its numbers count only what they don't already take
+(`--rules none` runs it alone). Only its results are shown, no plan is
+written unless `--plan FILE` is given, and `--review` writes only its
+page. The output ends with the rule as a `[[rule]]` table, ready to paste
+into the rules file.
 
 For a rule that selects thousands of messages, `--review` also writes one
 HTML page per rule to `<data root>/offload/review/` (open it in a browser):

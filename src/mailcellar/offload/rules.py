@@ -405,6 +405,8 @@ def _toml(value) -> str:
         return str(value)
     if isinstance(value, list):
         return "[" + ", ".join(map(_toml, value)) + "]"
+    if isinstance(value, dict):
+        return "{ " + ", ".join(f"{k} = {_toml(v)}" for k, v in value.items()) + " }"
     return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
@@ -417,8 +419,7 @@ def _translation(name: str, raw: dict, protect: tuple[str, ...]) -> str:
         if names != list(DEFAULT_KEEP):
             lines.append("keep = " + _toml(names))
     if "except" in raw and isinstance(raw["except"], dict):
-        tables = [f"{{ {key} = {_toml(value)} }}" for key, value in raw["except"].items()]
-        lines.append("keep_if = [" + ", ".join(tables) + "]")
+        lines.append("keep_if = " + _toml([{k: v} for k, v in raw["except"].items()]))
     text = f"rule {name!r}: {used} will be removed in 1.0; "
     if ("thread" in protect) != ("replied" in protect):
         return text + (
@@ -468,6 +469,30 @@ def _parse_scope(name: str, raw: dict, where: str) -> dict[str, list]:
             raise RuleError(f"rule {name!r}: {where}{key} must not be empty")
         scope[key] = values
     return scope
+
+
+TRY_NAME = "try"  # a --try rule's name when it gives none
+
+
+def read_try(text: str) -> dict:
+    """
+    offload plan --try's RULE, the inside of a TOML inline table
+    ('bulk = true, before = "2017-01-01"'), as a [[rule]] table: name
+    defaults to "try". Pure; raises RuleError.
+    """
+    try:
+        raw = tomllib.loads(f"r = {{ {text} }}")["r"]
+    except tomllib.TOMLDecodeError as exc:
+        raise RuleError(
+            f"--try: {exc}; write the rule as in a [[rule]] table, keys "
+            "separated by commas: 'bulk = true, before = \"5\"'"
+        ) from None
+    return {"name": TRY_NAME, **raw}
+
+
+def rule_toml(raw: dict) -> str:
+    """A [[rule]] table, ready to paste into rules.toml. Pure."""
+    return "[[rule]]\n" + "".join(f"{key} = {_toml(value)}\n" for key, value in raw.items())
 
 
 def load_rules(path: Path, parse_before, resolve_account) -> list[Rule]:

@@ -674,3 +674,76 @@ def test_attachment_kinds(mime_type, filename, kinds):
     from mailcellar.offload.rules import ATTACHMENT_KINDS, attachment_is
 
     assert {k for k in ATTACHMENT_KINDS if attachment_is(mime_type, filename, k)} == kinds
+
+
+# ── plan --try ───────────────────────────────────────────────────────────────
+
+WORK = 'label = "work", before = "2020-01-01"'
+
+
+def plan_try(tmp_path, rule, *args, rules=RULES):
+    (tmp_path / "rules.toml").write_text(rules)
+    cli.main(["plan", "--rules", "rules.toml", "--try", rule, *args])
+
+
+def test_try_writes_no_plan_and_ends_with_the_rule_to_paste(data, capsys):
+    plan_try(data, WORK, "--rules", "none")
+    offload = data / "data" / "offload"
+    assert not (offload / "offload-plan.csv").exists() and not (offload / "plans").exists()
+    out = capsys.readouterr().out
+    assert "the --try rule\n" in out and "  try " in out  # the rule alone; no file to follow
+    pasted = out.split("paste this into ")[1].split(":\n\n", 1)[1]
+    assert pasted == '[[rule]]\nname = "try"\nlabel = "work"\nbefore = "2020-01-01"\n'
+    (data / "pasted.toml").write_text(pasted)
+    assert [r.name for r in load_rules(data / "pasted.toml", parse_before, lambda a: a)] == ["try"]
+
+
+def test_try_runs_after_the_files_rules(data, capsys):
+    plan_try(data, 'name = "again", ' + WORK, "--plan", "tried.csv")
+    out = capsys.readouterr().out
+    assert "after the rules in rules.toml" in out and "taken by an earlier rule" in out
+    assert "  shop " not in out  # the file's rules aren't shown again
+    with open(data / "tried.csv", newline="", encoding="utf-8") as fh:
+        assert list(csv.DictReader(fh)) == []  # work took all of it first
+    assert len(list((data / "data" / "offload" / "plans").iterdir())) == 1  # --plan: kept too
+    plan_try(data, WORK, "--rules", "none", "--plan", "tried.csv")
+    with open(data / "tried.csv", newline="", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    assert {r["gmail_id"] for r in rows} == {"w1", "w8", "p2", "t1", "b1"}  # as the file's work
+    assert {r["rule"] for r in rows} == {"try"}
+
+
+def test_try_reviews_only_its_rule(data, capsys):
+    plan_try(data, WORK, "--review")
+    assert [p.name for p in (data / "data" / "offload" / "review").iterdir()] == ["try.html"]
+
+
+@pytest.mark.parametrize(
+    ("rule", "args", "error"),
+    [
+        ('lable = "a", before = "5"', (), "rule 'try': unknown keys ['lable']"),  # as in the file
+        ('label = "a" before = "5"', (), "--try: "),  # not TOML
+        ('name = "work", ' + WORK, (), "rules.toml has a rule named 'work' already"),
+        ('keep = ["sent"], ' + WORK, (), "'sent' is called 'mine' in keep"),
+    ],
+)
+def test_try_refuses_a_bad_rule_as_the_file_would(data, rule, args, error):
+    with pytest.raises(SystemExit, match=re.escape(error)):
+        plan_try(data, rule, *args)
+
+
+def test_rules_none_needs_try(data):
+    with pytest.raises(SystemExit, match="--rules none plans nothing without --try"):
+        cli.main(["plan", "--rules", "none"])
+
+
+def test_rule_toml_round_trips():
+    import tomllib
+
+    from mailcellar.offload.rules import read_try, rule_toml
+
+    raw = read_try(
+        'name = "a \\"b\\"", bulk = true, larger_than_mb = 1.5, keep = [], '
+        'keep_if = [{ sender = ["@a.example", "b@c.example"] }, { attachment = "pdf" }]'
+    )
+    assert tomllib.loads(rule_toml(raw))["rule"] == [raw]
