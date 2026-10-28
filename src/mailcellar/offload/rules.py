@@ -320,18 +320,18 @@ def parse_rule(raw: dict, parse_before, resolve_account) -> Rule:
     if "account" in raw:
         accounts = [resolve_account(a) for a in _strings(name, "account", raw["account"])]
     return Rule(
-        name.strip(),
-        before,
-        before_ms,
-        accounts,
-        scope,
-        protect,
-        exceptions,
-        forget_after,
-        forget_ms,
-        deprecated,
-        after,
-        after_ms,
+        name=name.strip(),
+        before=before,
+        before_ms=before_ms,
+        accounts=accounts,
+        scope=scope,
+        protect=protect,
+        exceptions=exceptions,
+        forget_after=forget_after,
+        forget_ms=forget_ms,
+        deprecated=deprecated,
+        after=after,
+        after_ms=after_ms,
     )
 
 
