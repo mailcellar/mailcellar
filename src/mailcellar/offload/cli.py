@@ -109,6 +109,8 @@ def cmd_plan(args) -> None:
                 logger.warning(f"rule {rule.name!r}: none of its accounts is chosen")
             if why := short_retention(rule):
                 logger.warning(why)
+            if rule.deprecated:
+                logger.warning(rule.deprecated)
         hits = {
             (account, q): ids
             for account, queries in searches(rules, accounts).items()

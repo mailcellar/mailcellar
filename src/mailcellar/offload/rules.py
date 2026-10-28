@@ -7,9 +7,9 @@ mail to take out of Gmail.
     before = "2022-01-01"              # required: a date, or a number of years ago ("5")
     account = "work"                   # optional: address, config name or unique part
     label = "projects"                 # scope: at least one of the keys below
-    except = { subject = "contract" }  # optional: keep what matches any of these
-    waive = ["thread"]                 # optional: default protections to drop
-    protect = ["correspondents"]       # optional: protections to add
+    keep = ["mine", "starred"]         # optional: the protections that apply (see below)
+    keep_if = [{ subject = "contract" }, { sender = "@a.example", larger_than_mb = 1 }]
+                                       # optional: keep what matches any one table
     forget_after = 7                   # optional: years from a message's date after which
                                        # offload forget --due deletes what this rule
                                        # offloaded from the backup, once Gmail has deleted it
@@ -29,16 +29,26 @@ must all match:
     query           a Gmail search, as typed in Gmail ("has:attachment filename:pdf");
                     offload plan asks Gmail, read-only, which messages it finds
 
-`except` takes the same keys; a message matching any one of them is kept.
+`keep_if` takes a table of the same keys, or a list of them: a message
+matching every key of any one table is kept.
 
-Protections keep a message in Gmail although the rule selects it:
+`keep` names the protections that keep a message in Gmail although the
+rule selects it; left out, all but correspondents apply. keep = [] keeps
+nothing the rule selects:
 
-    sent            your mail: sent, drafts, or from one of your addresses
+    mine            your mail: sent, drafts, or from one of your addresses
     starred
-    thread          in a thread you wrote in (same account)
-    replied         a message you replied to (from either account)
-    labels          has a user label the rule doesn't name
-    correspondents  from an address you have written to (off by default)
+    conversations   in a thread you wrote in (same account), or a message you
+                    replied to (from either account)
+    labelled        has a user label the rule doesn't name
+    correspondents  from an address you have written to
+
+Until 1.0 a rule may instead say waive (default protections to drop) and
+protect (protections to add), with the internal names below, and except
+(a table whose keys each keep on their own). offload plan warns, with the
+rule in the new keys. Internally a rule's protections are these flags:
+
+    sent, starred, thread, replied, labels, correspondents
 """
 
 import html
@@ -47,15 +57,29 @@ import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 
-PROTECTIONS = {
-    "sent": "your mail (sent, drafts, from your addresses)",
+# Internal flags, one per protection; KEEP groups them under the names rules use
+PROTECTIONS = ("sent", "starred", "thread", "replied", "labels", "correspondents")
+DEFAULT_PROTECT = ("sent", "starred", "thread", "replied", "labels")
+# keep name → the protections it stands for
+KEEP = {
+    "mine": ("sent",),
+    "starred": ("starred",),
+    "conversations": ("thread", "replied"),
+    "labelled": ("labels",),
+    "correspondents": ("correspondents",),
+}
+# why a message was kept, as the plan and review pages say it: its keep_if, or a keep name
+KEPT_WHY = {
+    "keep_if": "keep_if",
+    "mine": "yours",
     "starred": "starred",
-    "thread": "in a thread you wrote in",
-    "replied": "you replied to it",
-    "labels": "another user label",
+    "conversations": "a conversation you were in",
+    "labelled": "labelled",
     "correspondents": "from someone you wrote to",
 }
-DEFAULT_PROTECT = ("sent", "starred", "thread", "replied", "labels")
+DEFAULT_KEEP = ("mine", "starred", "conversations", "labelled")
+KEEP_OF = {p: k for k, ps in KEEP.items() for p in ps}  # protection → its keep name
+OLD_KEYS = ("waive", "protect", "except")  # until 1.0
 SCOPES = (
     "label",
     "sender",
@@ -68,7 +92,7 @@ SCOPES = (
     "query",
 )
 CATEGORIES = ("promotions", "updates", "forums", "social", "personal")
-KEYS = {"name", "before", "account", "except", "waive", "protect", "forget_after", *SCOPES}
+KEYS = {"name", "before", "account", "keep", "keep_if", "forget_after", *OLD_KEYS, *SCOPES}
 
 
 class RuleError(Exception):
@@ -83,18 +107,35 @@ class Rule:
     accounts: list[str] = field(default_factory=list)  # [] means every account
     scope: dict[str, list] = field(default_factory=dict)  # scope key → values
     protect: tuple[str, ...] = DEFAULT_PROTECT
-    exceptions: dict[str, list] = field(default_factory=dict)  # same keys; any one keeps
+    # keep_if: scope tables; a message matching every key of any one is kept
+    exceptions: tuple[dict[str, list], ...] = ()
     forget_after: int | None = None  # years, as written; None: kept for ever
     forget_ms: int | None = None  # its mail is due for forgetting when older than this
+    deprecated: str = ""  # a warning: the rule uses waive, protect or except
 
     @property
     def waived(self) -> list[str]:
         return [p for p in DEFAULT_PROTECT if p not in self.protect]
 
     @property
+    def keep(self) -> list[str]:
+        """The keep names that apply, in KEEP order, a partial one marked as such."""
+        out = []
+        for name, ps in KEEP.items():
+            have = [p for p in ps if p in self.protect]
+            if have == list(ps):
+                out.append(name)
+            elif have:
+                out.append(f"{name} ({have[0]} only)")
+        return out
+
+    @property
     def queries(self) -> list[str]:
-        """The Gmail searches the rule's scope and exception name."""
-        return [*self.scope.get("query", []), *self.exceptions.get("query", [])]
+        """The Gmail searches the rule's scope and keep_if name."""
+        return [
+            *self.scope.get("query", []),
+            *(q for table in self.exceptions for q in table.get("query", [])),
+        ]
 
     @property
     def labels(self) -> set[str]:
@@ -171,27 +212,19 @@ def parse_rule(raw: dict, parse_before, resolve_account) -> Rule:
     scope = _parse_scope(name, raw, "")
     if not scope:
         raise RuleError(f"rule {name!r}: needs at least one of {', '.join(SCOPES)}")
-    exceptions = {}
-    if "except" in raw:
-        if not isinstance(raw["except"], dict) or not raw["except"]:
-            raise RuleError(f"rule {name!r}: except must be a table of scope keys")
-        unknown = set(raw["except"]) - set(SCOPES)
-        if unknown:
-            raise RuleError(f"rule {name!r}: except: unknown keys {sorted(unknown)}")
-        exceptions = _parse_scope(name, raw["except"], "except: ")
-
-    waive = _strings(name, "waive", raw["waive"]) if "waive" in raw else []
-    extra = _strings(name, "protect", raw["protect"]) if "protect" in raw else []
-    for key, values in (("waive", waive), ("protect", extra)):
-        bad = sorted(set(values) - set(PROTECTIONS))
-        if bad:
-            raise RuleError(f"rule {name!r}: {key}: unknown protections {bad}")
-    clash = sorted(set(waive) & set(extra))
-    if clash:
-        raise RuleError(f"rule {name!r}: {clash} both waived and protected")
-    protect = tuple(
-        p for p in PROTECTIONS if (p in DEFAULT_PROTECT and p not in waive) or p in extra
-    )
+    old = [k for k in OLD_KEYS if k in raw]
+    if old and ("keep" in raw or "keep_if" in raw):
+        raise RuleError(
+            f"rule {name!r}: {' and '.join(old)} can't be mixed with keep and keep_if; "
+            "write the rule with keep and keep_if only"
+        )
+    if old:
+        protect, exceptions = _old_keys(name, raw)
+        deprecated = _translation(name, raw, protect)
+    else:
+        protect = _parse_keep(name, raw["keep"]) if "keep" in raw else DEFAULT_PROTECT
+        exceptions = _parse_keep_if(name, raw["keep_if"]) if "keep_if" in raw else ()
+        deprecated = ""
 
     forget_after = forget_ms = None
     if "forget_after" in raw:
@@ -215,7 +248,102 @@ def parse_rule(raw: dict, parse_before, resolve_account) -> Rule:
         exceptions,
         forget_after,
         forget_ms,
+        deprecated,
     )
+
+
+def _parse_keep(name: str, value) -> tuple[str, ...]:
+    """keep = [...] → the protections it applies, in PROTECTIONS order. [] keeps nothing."""
+    values = [value] if isinstance(value, str) else value
+    if not isinstance(values, list) or not all(isinstance(v, str) for v in values):
+        raise RuleError(f"rule {name!r}: keep must be a list of {', '.join(KEEP)}")
+    for v in values:
+        if v.strip() in KEEP_OF and v.strip() not in KEEP:
+            raise RuleError(
+                f"rule {name!r}: keep: {v.strip()!r} is called {KEEP_OF[v.strip()]!r} in keep"
+            )
+    bad = sorted({v.strip() for v in values} - set(KEEP))
+    if bad:
+        raise RuleError(f"rule {name!r}: keep: unknown names {bad}; use {', '.join(KEEP)}")
+    chosen = {p for v in values for p in KEEP[v.strip()]}
+    return tuple(p for p in PROTECTIONS if p in chosen)
+
+
+def _parse_keep_if(name: str, value) -> tuple[dict[str, list], ...]:
+    """keep_if = a table or a list of tables of scope keys, each validated as a scope."""
+    tables = [value] if isinstance(value, dict) else value
+    if not isinstance(tables, list) or not tables or not all(isinstance(t, dict) for t in tables):
+        raise RuleError(f"rule {name!r}: keep_if must be a table or a list of tables")
+    out = []
+    for table in tables:
+        unknown = set(table) - set(SCOPES)
+        if not table or unknown:
+            raise RuleError(
+                f"rule {name!r}: keep_if: each table needs scope keys"
+                + (f"; unknown keys {sorted(unknown)}" if unknown else "")
+            )
+        out.append(_parse_scope(name, table, "keep_if: "))
+    return tuple(out)
+
+
+def _old_keys(name: str, raw: dict) -> tuple[tuple[str, ...], tuple[dict[str, list], ...]]:
+    """waive, protect and except (until 1.0) → (protections, keep_if tables)."""
+    exceptions: tuple[dict[str, list], ...] = ()
+    if "except" in raw:
+        if not isinstance(raw["except"], dict) or not raw["except"]:
+            raise RuleError(f"rule {name!r}: except must be a table of scope keys")
+        unknown = set(raw["except"]) - set(SCOPES)
+        if unknown:
+            raise RuleError(f"rule {name!r}: except: unknown keys {sorted(unknown)}")
+        # except's keys each keep on their own: one keep_if table per key
+        parsed = _parse_scope(name, raw["except"], "except: ")
+        exceptions = tuple({key: values} for key, values in parsed.items())
+
+    waive = _strings(name, "waive", raw["waive"]) if "waive" in raw else []
+    extra = _strings(name, "protect", raw["protect"]) if "protect" in raw else []
+    for key, values in (("waive", waive), ("protect", extra)):
+        bad = sorted(set(values) - set(PROTECTIONS))
+        if bad:
+            raise RuleError(f"rule {name!r}: {key}: unknown protections {bad}")
+    clash = sorted(set(waive) & set(extra))
+    if clash:
+        raise RuleError(f"rule {name!r}: {clash} both waived and protected")
+    protect = tuple(
+        p for p in PROTECTIONS if (p in DEFAULT_PROTECT and p not in waive) or p in extra
+    )
+    return protect, exceptions
+
+
+def _toml(value) -> str:
+    """A TOML value as a rule would write it."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int | float):
+        return str(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(map(_toml, value)) + "]"
+    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _translation(name: str, raw: dict, protect: tuple[str, ...]) -> str:
+    """The deprecation warning for a rule with waive, protect or except: its new keys. Pure."""
+    used = " and ".join(k for k in OLD_KEYS if k in raw)
+    lines = []
+    if "waive" in raw or "protect" in raw:
+        names = [k for k, ps in KEEP.items() if all(p in protect for p in ps)]
+        if names != list(DEFAULT_KEEP):
+            lines.append("keep = " + _toml(names))
+    if "except" in raw and isinstance(raw["except"], dict):
+        tables = [f"{{ {key} = {_toml(value)} }}" for key, value in raw["except"].items()]
+        lines.append("keep_if = [" + ", ".join(tables) + "]")
+    text = f"rule {name!r}: {used} will be removed in 1.0; "
+    if ("thread" in protect) != ("replied" in protect):
+        return text + (
+            "keep can't say this rule's protections, as it keeps one of thread and replied "
+            "without the other ('conversations' is both)"
+            + (f"; its except is: {lines[-1]}" if "except" in raw else "")
+        )
+    return text + "write it as: " + ("; ".join(lines) or "nothing; keep's default is the same")
 
 
 def _parse_scope(name: str, raw: dict, where: str) -> dict[str, list]:

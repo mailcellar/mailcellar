@@ -11,7 +11,7 @@ from mailcellar.backup import sidecar
 from mailcellar.backup.gyb import backup_account
 from mailcellar.offload import cli, review
 from mailcellar.offload.plan import Message, build_plan
-from mailcellar.offload.rules import PROTECTIONS, load_rules
+from mailcellar.offload.rules import load_rules
 from mailcellar.report import storage
 from mailcellar.report.cli import main as report_main
 from mailcellar.report.cli import parse_before, resolve_folders
@@ -73,14 +73,14 @@ def test_rule_text_says_what_a_rule_selects():
             "query": ["has:attachment", "larger:10M"],
             "to_me": False,
             "larger_than_mb": 5,
-            "except": {"subject": "Contract", "sender": "@example.org"},
+            "keep_if": [{"subject": "Contract", "sender": "@example.org"}, {"label": "x"}],
         },
         parse_before,
         lambda a: a,
     )
     assert review.rule_text(rule) == (
         'to_me false · larger_than_mb 5 · query "has:attachment" or "larger:10M" · '
-        'before 2016-10-26 · except sender "@example.org" · subject "contract"'
+        'before 2016-10-26 · keep if (sender "@example.org" · subject "contract") or (label "x")'
     )
 
 
@@ -115,8 +115,9 @@ def test_review_writes_a_page_per_rule(data, capsys):  # noqa: F811
     assert 'Selects: label "work" · before 2020-01-01' in work
     for gid in ("w1", "w8", "p2", "t1", "b1"):  # its offload: all five, in the sample
         assert f"s-{gid}" in work
-    assert f"Kept: {PROTECTIONS['starred']}" in work and f"Kept: {PROTECTIONS['sent']}" in work
-    assert "s-w4" in work  # starred, kept: shown under its protection
+    assert "Kept: starred" in work and "Kept: yours" in work
+    assert "Kept: a conversation you were in" in work and "Kept: labelled" in work
+    assert "s-w4" in work  # starred, kept: shown under its keep reason
     assert "body w1" not in work  # never bodies
     assert "Threads with the most messages" in work and "Attachments in the offload" in work
     assert "Largest senders in the offload" in work  # the summary tables

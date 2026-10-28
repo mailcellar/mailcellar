@@ -3,7 +3,7 @@ review: one local HTML page per rule, for deciding whether to label what
 `offload plan` selected, when its CSV is too long to read.
 
 Each page has what the rule selects, its summary tables, a random sample of the messages it
-would offload and of those each protection keeps, the largest messages, the
+would offload and of those each keep reason keeps, the largest messages, the
 threads with the most messages in the offload, and attachment types by
 size. Senders and subjects only, never bodies; the pages are written to
 <data root>/offload/review/ and are meant for no one else.
@@ -22,11 +22,11 @@ from collections import defaultdict
 from pathlib import Path
 
 from mailcellar.offload.plan import Message, RuleResult, summary
-from mailcellar.offload.rules import PROTECTIONS, Rule, years_text
+from mailcellar.offload.rules import KEPT_WHY, Rule, years_text
 from mailcellar.report.output import Table, day, human_size
 
 SAMPLE = 50  # messages of the offload shown at random
-KEPT_SAMPLE = 20  # per protection
+KEPT_SAMPLE = 20  # per keep reason
 TOP = 20  # largest messages, busiest threads
 
 MESSAGE_COLUMNS = [
@@ -97,16 +97,13 @@ def _keys(scope: dict[str, list]) -> str:
 
 
 def rule_text(rule: Rule) -> str:
-    """What the rule selects, in one line: its scope, cut-off, exception and retention."""
+    """What the rule selects, in one line: its scope, cut-off, keep_if and retention."""
     text = f"{_keys(rule.scope)} · before {day(rule.before_ms)}"
-    text += f" · except {_keys(rule.exceptions)}" if rule.exceptions else ""
+    if rule.exceptions:
+        text += " · keep if " + " or ".join(f"({_keys(t)})" for t in rule.exceptions)
     if rule.forget_after:
         text += f" · forgotten from the backup {years_text(rule.forget_after)} after its date"
     return text
-
-
-def kept_reason(protection: str) -> str:
-    return "the rule's exception" if protection == "except" else PROTECTIONS[protection]
 
 
 def review_tables(r: RuleResult, attachments: list[tuple], top: int = TOP) -> list[Table]:
@@ -126,7 +123,7 @@ def review_tables(r: RuleResult, attachments: list[tuple], top: int = TOP) -> li
         tables.append(
             Table(
                 f"kept-{p}",
-                f"Kept: {kept_reason(p)} ({len(some):,} of {len(kept):,} at random)",
+                f"Kept: {KEPT_WHY[p]} ({len(some):,} of {len(kept):,} at random)",
                 MESSAGE_COLUMNS,
                 message_rows(some),
             )

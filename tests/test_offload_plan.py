@@ -9,7 +9,14 @@ from mailcellar.backup import commands, sidecar
 from mailcellar.backup.gyb import backup_account
 from mailcellar.offload import cli
 from mailcellar.offload.plan import PLAN_COLUMNS, build_plan
-from mailcellar.offload.rules import DEFAULT_PROTECT, RuleError, fold, load_rules
+from mailcellar.offload.rules import (
+    DEFAULT_KEEP,
+    DEFAULT_PROTECT,
+    KEEP,
+    RuleError,
+    fold,
+    load_rules,
+)
 from mailcellar.report.cli import parse_before, resolve_folders
 from mailcellar.report.db import open_sidecars
 
@@ -138,8 +145,9 @@ def test_kept_counts(data):
     work, shop, forwards = build_plan(
         con, rules, accounts, {backup_account(f): str(f) for f in folders}
     )
-    # w3 and w11 are yours; w3 (sent) is also its own thread you wrote in
-    assert dict(work.kept) == {"sent": 2, "starred": 1, "thread": 2, "replied": 1, "labels": 1}
+    # w3 and w11 are yours; w3 (sent) is also its own thread you wrote in; w5 is in a
+    # thread you wrote in, w6 you replied to: three conversations, each counted once
+    assert dict(work.kept) == {"mine": 2, "starred": 1, "conversations": 3, "labelled": 1}
     assert work.kept_total == 6 and dict(work.excluded) == {"offloaded": 1, "trash": 1}
     assert work.scope_total == 6 + 2 + 5  # kept, left out, offloaded (w7 is after the cut-off)
     assert dict(shop.excluded) == {"earlier": 1} and len(shop.selected) == 1
@@ -172,6 +180,60 @@ protect = ["correspondents"]
     # you wrote in; b1 is in another account
     assert {r["gmail_id"] for r in rows} == {"w11", "p2"}
     assert {r["waived"] for r in rows} == {"sent;starred"}
+
+
+def test_keep_says_what_stays(data):
+    rules = """
+[[rule]]
+name = "work"
+label = "Work"
+account = ["a@x.com"]
+before = "2020-01-01"
+keep = ["conversations", "labelled", "correspondents"]
+"""
+    rows = run(data, rules)  # the same as waive = ["sent", "starred"], protect = [...]
+    assert {r["gmail_id"] for r in rows} == {"w11", "p2"}
+    assert {r["waived"] for r in rows} == {"sent;starred"}
+    nothing = rules.replace('["conversations", "labelled", "correspondents"]', "[]")
+    assert {r["gmail_id"] for r in run(data, nothing)} == {
+        "w1",
+        "w2",
+        "w3",
+        "w4",
+        "w5",
+        "w6",
+        "w8",
+        "w11",
+        "p2",
+        "t1",
+    }  # all it selects but what is left out: offloaded, in Trash, after the cut-off
+
+
+def test_keep_if_ands_within_a_table_and_ors_across_them(data, capsys):
+    base = '[[rule]]\nname = "work"\nlabel = "work"\nbefore = "2020-01-01"\n'
+    one = 'keep_if = { subject = "s-w", sender = "@work.com" }\n'
+    # every key of the table: s-w1 from work.com; s-w8 is from p.com
+    assert {r["gmail_id"] for r in run(data, base + one)} == {"w8", "p2", "t1", "b1"}
+    either = 'keep_if = [{ subject = "s-w1" }, { sender = "@shop.com" }]\n'
+    assert {r["gmail_id"] for r in run(data, base + either)} == {"w8", "t1", "b1"}
+    out = capsys.readouterr().out
+    assert "kept: keep_if" in out and "keep_if, default" in out
+
+
+def test_the_rules_table_says_what_each_rule_keeps():
+    from mailcellar.offload.plan import keeps_text
+    from mailcellar.offload.rules import parse_rule
+
+    def keeps(**keys):
+        raw = {"name": "x", "before": "5", "label": "a", **keys}
+        return keeps_text(parse_rule(raw, parse_before, lambda a: a))
+
+    assert keeps() == "default"
+    assert keeps(keep_if={"sender": "@a.example"}) == "keep_if, default"
+    assert keeps(keep=[*DEFAULT_KEEP, "correspondents"]) == "default, correspondents"
+    assert keeps(keep=["starred", "mine"]) == "mine, starred"
+    assert keeps(keep=[]) == "nothing"
+    assert keeps(waive="thread") == "mine, starred, conversations (replied only), labelled"
 
 
 def test_account_argument_limits_the_plan(data):
@@ -227,11 +289,85 @@ def test_rule_errors(tmp_path, rules, error):
         load_rules(path, parse_before, lambda a: a)
 
 
+@pytest.mark.parametrize(
+    ("rules", "error"),
+    [
+        ('keep = ["sent"]', "'sent' is called 'mine' in keep"),
+        ('keep = ["mine", "replied"]', "'replied' is called 'conversations' in keep"),
+        ('keep = ["labels"]', "'labels' is called 'labelled' in keep"),
+        ('keep = ["mine", "friends"]', "keep: unknown names ['friends']"),
+        ("keep = true", "keep must be a list"),
+        ('keep = ["mine"]\nwaive = ["starred"]', "waive can't be mixed with keep"),
+        ('keep_if = { sender = "a" }\nexcept = { label = "b" }', "except can't be mixed"),
+        ('keep_if = "b"', "keep_if must be a table or a list of tables"),
+        ("keep_if = []", "keep_if must be a table or a list of tables"),
+        ("keep_if = [{}]", "each table needs scope keys"),
+        ('keep_if = { before = "1" }', "unknown keys ['before']"),
+        ('keep_if = [{ label = "a" }, { category = "x" }]', "keep_if: unknown categories"),
+    ],
+)
+def test_keep_errors(tmp_path, rules, error):
+    path = tmp_path / "rules.toml"
+    path.write_text(f'[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\n{rules}\n')
+    with pytest.raises(RuleError, match=error.replace("[", r"\[").replace("]", r"\]")):
+        load_rules(path, parse_before, lambda a: a)
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ('waive = ["thread", "replied"]', 'keep = ["mine", "starred", "labelled"]'),
+        ('protect = "correspondents"', f"keep = {list(KEEP)}".replace("'", '"')),
+        ('waive = ["sent", "starred", "thread", "replied", "labels"]', "keep = []"),
+        ('waive = "correspondents"', ""),  # off by default already
+        (
+            'except = { subject = "Invoice", larger_than_mb = 1 }',
+            'keep_if = [{ subject = "Invoice" }, { larger_than_mb = 1 }]',
+        ),
+        (
+            'waive = ["labels"]\nexcept = { sender = ["@a.example", "b@c.example"] }',
+            'keep = ["mine", "starred", "conversations"]\n'
+            'keep_if = [{ sender = ["@a.example", "b@c.example"] }]',
+        ),
+    ],
+)
+def test_old_keys_read_as_their_new_form_says(tmp_path, old, new):
+    path = tmp_path / "rules.toml"
+    base = '[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\n'
+    path.write_text(base + old + "\n")
+    (was,) = load_rules(path, parse_before, lambda a: a)
+    path.write_text(base + new + "\n")
+    (now,) = load_rules(path, parse_before, lambda a: a)
+    assert (was.protect, was.exceptions) == (now.protect, now.exceptions)
+    assert now.deprecated == ""
+    assert was.deprecated.startswith("rule 'x': ") and "will be removed in 1.0" in was.deprecated
+    said = new.replace("\n", "; ") or "nothing; keep's default is the same"
+    assert was.deprecated.endswith("write it as: " + said)
+
+
+def test_waiving_one_of_thread_and_replied_still_works_and_says_keep_cant(tmp_path):
+    path = tmp_path / "rules.toml"
+    path.write_text('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nwaive = "replied"\n')
+    (rule,) = load_rules(path, parse_before, lambda a: a)
+    assert rule.protect == ("sent", "starred", "thread", "labels")
+    assert rule.keep == ["mine", "starred", "conversations (thread only)", "labelled"]
+    assert "keep can't say this rule's protections" in rule.deprecated
+
+
+def test_plan_warns_about_the_old_keys(data, caplog):
+    run(data, '[[rule]]\nname = "w"\nlabel = "work"\nbefore = "2020"\nwaive = "labels"\n')
+    assert (
+        "rule 'w': waive will be removed in 1.0; write it as: "
+        'keep = ["mine", "starred", "conversations"]'
+    ) in caplog.text
+
+
 def test_rule_defaults(tmp_path):
     path = tmp_path / "rules.toml"
     path.write_text('[[rule]]\nname = "x"\nbefore = 5\nlabel = "a"\n')
     (rule,) = load_rules(path, parse_before, lambda a: a)
     assert rule.protect == DEFAULT_PROTECT and rule.waived == [] and rule.accounts == []
+    assert rule.keep == list(DEFAULT_KEEP) and rule.exceptions == () and rule.deprecated == ""
     assert rule.forget_after is None and rule.forget_ms is None  # kept for ever
 
 
@@ -283,7 +419,7 @@ except = { subject = ["S-W1"], sender = "@shop.com", to_me = true }
 """
     rows = run(data, rules)
     assert {r["gmail_id"] for r in rows} == {"w8", "b1"}  # w1, p2, t1 excepted
-    assert "kept: rule exception" in capsys.readouterr().out
+    assert "kept: keep_if" in capsys.readouterr().out
 
 
 # ── query: a Gmail search ────────────────────────────────────────────────────
