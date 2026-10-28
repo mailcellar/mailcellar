@@ -285,7 +285,7 @@ def test_output_is_readable_by_index(tmp_path):
 
     assert backup_account(folder) == ACCOUNT
     [bm] = list(iter_backup(folder))
-    assert (bm.gmail_id, bm.labels) == ("g1", ["INBOX", "work"])
+    assert (bm.gmail_id, bm.labels) == ("g1", ("INBOX", "work"))
 
     db = tmp_path / "dedup.sqlite"
     dedup.main(["index", "--db", str(db), str(folder)])

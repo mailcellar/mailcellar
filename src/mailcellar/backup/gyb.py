@@ -34,7 +34,7 @@ import sqlite3
 import tempfile
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -390,7 +390,7 @@ class BackupMessage:
     gmail_id: str
     path: Path
     internal_date: str
-    labels: list[str] = field(default_factory=list)
+    labels: tuple[str, ...] = ()
 
 
 def backup_account(backup_dir: Path) -> str:
@@ -428,4 +428,4 @@ def iter_backup(backup_dir: Path):
         if path is None:
             logger.warning(f"{backup_dir}: {uid}'s file {fname!r} is outside the folder; skipped")
         elif path.exists():
-            yield BackupMessage(uid, path, internal_date or "", sorted(labels[num]))
+            yield BackupMessage(uid, path, internal_date or "", tuple(sorted(labels[num])))
