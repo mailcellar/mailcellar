@@ -767,3 +767,35 @@ def test_retries_are_logged_and_long_waits_at_info(caplog):
     levels = [(r.levelname, r.getMessage()) for r in caplog.records]
     assert all("429 (rate limit)" in m for _l, m in levels)
     assert [lvl for lvl, _m in levels] == ["DEBUG"] * 4 + ["INFO"]  # 1, 2, 4, 8 s; then 16 s
+
+
+def test_prune_decision_moves_what_is_gone_but_held_mail():
+    d = commands.prune_decision(
+        ["g1", "g2", "g3"],
+        100,
+        {"g2": "audit", "x9": "audit"},
+        force=False,
+        max_fraction=0.1,
+        where="Gmail",
+    )
+    # holds on mail not gone don't count
+    assert d == commands.PruneDecision(("g1", "g3"), (("g2", "audit"),))
+    nothing = commands.prune_decision([], 100, {}, force=False, max_fraction=0.1, where="Gmail")
+    assert nothing == commands.PruneDecision()
+
+
+def test_prune_decision_refuses_too_much_unless_forced_and_held_mail_doesnt_count():
+    def decide(held, force=False):
+        return commands.prune_decision(
+            gone, 100, held, force=force, max_fraction=0.1, where="the server"
+        )
+
+    gone = [f"g{i}" for i in range(11)]
+    refused = decide({})
+    assert refused.move == () and refused.refusal == (
+        "11 of 100 backed-up messages are gone from the server, more than 10%; "
+        "re-run with --force if that is right"
+    )
+    assert decide({}, force=True).move == tuple(gone)
+    held_one = decide({"g0": "audit"})
+    assert held_one.refusal == "" and len(held_one.move) == 10  # 10 of 100 is not more than 10%
