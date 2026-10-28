@@ -722,13 +722,12 @@ def apply(
             with Progress("Moving out of Trash", len(to_untrash)):
                 untrashed = gmail.untrash([d.new_id for d in to_untrash])
             failed = {f.split(":", 1)[0]: f for f in untrashed}
-        how = {UNTRASH: "untrashed", FOUND: "found", IN_GMAIL: "in gmail"}
         for d in by_way.get(UNTRASH, []) + found + by_way.get(IN_GMAIL, []):
             if d.new_id in failed:
                 emit(Result(d, "failed", failed[d.new_id]))
             else:
-                outcome = "untrashed" if d.way == UNTRASH else "recorded"
-                emit(record(d, d.new_id, how[d.way], outcome, d.detail))
+                outcome, how = UNTRASH_OUTCOMES[d.way]
+                emit(record(d, d.new_id, how, outcome, d.detail))
 
         imports = by_way.get(IMPORT, [])
         if imports:
@@ -759,6 +758,15 @@ def apply(
         if mcon is not None:
             mcon.close()
     return [results[d.source_id] for d in decisions]
+
+
+# An untrash, found or in-Gmail decision that didn't fail: way → (outcome, how it is
+# recorded). Its own message is untrashed; one found, or already out of Trash, recorded.
+UNTRASH_OUTCOMES = {
+    UNTRASH: ("untrashed", "untrashed"),
+    FOUND: ("recorded", "found"),
+    IN_GMAIL: ("recorded", "in gmail"),
+}
 
 
 def unmarked(failures) -> dict[str, str]:
