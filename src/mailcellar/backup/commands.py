@@ -49,6 +49,7 @@ import logging
 import sys
 import time
 from contextlib import closing, nullcontext
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -512,6 +513,44 @@ def gone_by_year(con, gone: list[str], chunk: int = 500) -> dict[str, int]:
     return years
 
 
+@dataclass(frozen=True)
+class PruneDecision:
+    """What a prune moves out of the backup, and what it leaves."""
+
+    move: tuple[str, ...] = ()  # IDs to move to _pruned/, in the order found
+    held: tuple[tuple[str, str], ...] = ()  # (ID, the hold keeping it in the backup)
+    refusal: str = ""  # why nothing moves although some could; "" if it may go ahead
+
+
+def prune_decision(
+    gone: list[str],
+    total: int,
+    held: dict[str, str],
+    *,
+    force: bool,
+    max_fraction: float,
+    where: str,
+) -> PruneDecision:
+    """
+    What to move out of the backup, given the backed-up IDs the mailbox
+    (`where`) no longer has (`gone`), how many messages the backup's index
+    holds (`total`), both with offloaded mail apart, and the holds keeping
+    some of them (`held`, ID → hold).
+    Held mail stays; the rest moves unless it is more than `max_fraction` of
+    `total` and not `force`d, which refuses the whole prune. Pure.
+    """
+    kept = tuple((g, held[g]) for g in gone if g in held)
+    move = tuple(g for g in gone if g not in held)
+    if len(move) > max_fraction * total and not force:
+        return PruneDecision(
+            (),
+            kept,
+            f"{len(move):,} of {total:,} backed-up messages are gone from {where}, "
+            f"more than {max_fraction:.0%}; re-run with --force if that is right",
+        )
+    return PruneDecision(move, kept)
+
+
 def _prune(
     con,
     gmail,
@@ -535,27 +574,27 @@ def _prune(
         print(f"Prune: keeping {len(offloaded):,} offloaded messages.")
     from mailcellar.hold import holds
 
-    held = holds.held(folder, now_ms(), gone)  # legal holds keep their mail in the backup
-    if held:
-        names = ", ".join(sorted(set(held.values())))
-        print(f"Prune: keeping {len(held):,} messages under hold {names}.")
-        gone = [g for g in gone if g not in held]
+    where = mailbox_name(gmail.provider)
+    decision = prune_decision(
+        gone,
+        total,
+        holds.held(folder, now_ms(), gone),  # legal holds keep their mail in the backup
+        force=force,
+        max_fraction=max_fraction,
+        where=where,
+    )
+    if decision.held:
+        names = ", ".join(sorted({hold for _id, hold in decision.held}))
+        print(f"Prune: keeping {len(decision.held):,} messages under hold {names}.")
+    if decision.refusal:
+        raise PruneAborted(decision.refusal)
+    gone = list(decision.move)
     if not gone:
-        print(f"Prune: nothing in the backup is gone from {mailbox_name(gmail.provider)}.")
+        print(f"Prune: nothing in the backup is gone from {where}.")
         return {"pruned": 0, "dest": None}, "ok"
 
-    if len(gone) > max_fraction * total and not force:
-        raise PruneAborted(
-            f"{len(gone):,} of {total:,} backed-up messages are gone from "
-            f"{mailbox_name(gmail.provider)}, "
-            f"more than {max_fraction:.0%}; re-run with --force if that is right"
-        )
-
     by_year = gone_by_year(con, gone)
-    print(
-        f"Prune: {len(gone):,} messages in the backup are permanently gone "
-        f"from {mailbox_name(gmail.provider)}:"
-    )
+    print(f"Prune: {len(gone):,} messages in the backup are permanently gone from {where}:")
     print("  " + ", ".join(f"{year} {n:,}" for year, n in sorted(by_year.items())))
 
     dest = pruned_folder(folder) / datetime.now().strftime("%Y-%m-%d-%H%M%S")
