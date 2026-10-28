@@ -49,7 +49,7 @@ import hashlib
 import logging
 import sys
 import time
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from contextlib import closing, nullcontext
 from dataclasses import dataclass
 from datetime import datetime
@@ -564,9 +564,9 @@ class PruneDecision:
 
 
 def prune_decision(
-    gone: list[str],
+    gone: Sequence[str],
     total: int,
-    held: dict[str, str],
+    held: Mapping[str, str],
     *,
     force: bool,
     max_fraction: float,
