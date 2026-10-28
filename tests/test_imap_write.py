@@ -250,6 +250,15 @@ def test_a_message_without_a_message_id_is_read_back_by_its_content(server):
     assert got == {"k": imap.content_id(stored)}  # what the server stored, not what was sent
 
 
+def test_each_append_advances_the_run_it_belongs_to(server):
+    from mailcellar import progress
+
+    messages = {k: (make_eml(msgid=f"<{k}@x>").replace(b"\n", b"\r\n"), ["INBOX"]) for k in "abc"}
+    with progress.Progress("Importing", 3, steps_inside=True) as p:
+        assert imap_box(server).import_messages(messages, lambda k, i: None) == []
+        assert p.done == 3  # one a message; the folder scans before and after don't count
+
+
 def test_a_failed_read_back_keeps_the_prediction_and_says_so(server, monkeypatch, caplog):
     server.append_adds = b"Content-Length: 1\r\n"
     uid = server.uid

@@ -772,7 +772,8 @@ def _import(
         tcon.commit()
     try:
         progress(f"Importing {len(imports):,} messages")
-        with Progress("Importing", len(imports)):
+        # Advanced per message from inside the import; IMAP's scans there keep this line.
+        with Progress("Importing", len(imports), steps_inside=True):
             for start in range(0, len(imports), IMPORT_CHUNK):
                 chunk = imports[start : start + IMPORT_CHUNK]
                 _import_chunk(gmail, tcon, index_folder, chunk, record, emit, system, prefix, strip)

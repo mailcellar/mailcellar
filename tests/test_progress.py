@@ -224,3 +224,26 @@ def test_the_innermost_progress_is_the_one_advanced():
             progress.advance(3)
         progress.advance()
     assert (outer.done, inner.done) == (1, 3)
+
+
+def test_a_part_inside_a_run_keeps_that_runs_line_moving(terminal):
+    terminal = terminal()
+    now = Clock()
+    with Progress("Importing", 10, now=now, steps_inside=True) as outer:
+        now.now += 3
+        outer.advance(4)
+        with progress.part("reading folders", 7) as step:
+            now.now += 5
+            step.advance()  # the outer line redraws, with its own count
+            assert outer.done == 4 and progress.current == [outer]
+    out = terminal.getvalue()
+    assert "reading folders" not in out
+    assert "\rImporting: 4 of 10 (40%), 0:08 so far\x1b[K" in out
+
+
+def test_a_part_on_its_own_or_inside_a_plain_run_is_a_run_of_its_own():
+    with progress.part("reading folders", 7) as step:
+        assert isinstance(step, Progress) and progress.current == [step]
+    with Progress("Reading state", 119) as outer:  # not advanced from inside: the step says more
+        with progress.part("reading folders", 7) as step:
+            assert isinstance(step, Progress) and progress.current == [outer, step]

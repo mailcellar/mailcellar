@@ -20,6 +20,11 @@ The innermost open Progress is `current`: GmailAccount's batches advance it
 once per message, so wrapping a Gmail call in a Progress is all it takes,
 and its rate-limit waits are reported with waited(): the rate and the time
 left go by time spent working, so a 30 s wait doesn't read as "1/min".
+A step that runs inside a longer one (IMAP's folder scan during a
+restore's uploads) opens part() rather than a Progress: a Progress of its
+own, unless the run it is inside was opened with steps_inside=True (its
+count is advanced from within those steps), whose line then stays on
+screen, still moving, instead of being replaced by the step's.
 cli's stderr handler calls clear_line() before each log record, so a
 warning or a rate-limit wait gets its own line and the progress line
 returns at the next update.
@@ -118,6 +123,35 @@ def waited(seconds: float) -> None:
         current[-1].waited(seconds)
 
 
+def tick() -> None:
+    """Redraw the innermost open Progress if due, without advancing it: it is still working."""
+    if current:
+        current[-1].update(current[-1].done)
+
+
+class _Step:
+    """part() inside another run: advancing it only keeps that run's line moving."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> None:
+        pass
+
+    def advance(self, n: int = 1) -> None:
+        tick()
+
+
+def part(what: str, total: int):
+    """
+    A Progress for a step of work, as a context manager: its own line,
+    unless the innermost open run has steps_inside, whose line then stays and
+    keeps moving (the step's own count isn't shown). A run that isn't
+    advanced from inside keeps the step's line, which says more than its own.
+    """
+    return _Step() if current and current[-1].steps_inside else Progress(what, total)
+
+
 def clear_line() -> None:
     """Rub out a progress line on the terminal, so other output starts clean."""
     global _open_line
@@ -130,8 +164,11 @@ def clear_line() -> None:
 class Progress:
     """A long run's counts, shown as describe() lines when due()."""
 
-    def __init__(self, what: str, total: int, *, now=time.monotonic, stream=None):
+    def __init__(
+        self, what: str, total: int, *, now=time.monotonic, stream=None, steps_inside=False
+    ):
         self.what, self.total, self.done = what, total, 0
+        self.steps_inside = steps_inside  # part()s inside keep this line (see part)
         self._now = now
         self._stream = stream
         self.started = now()

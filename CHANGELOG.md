@@ -15,6 +15,10 @@ in beta, so commands and options may still change before 1.0.
   like any other, and one still there shows as "already in the mailbox"
   (restored before). `count` reports such mail under "Only in backup", as
   "restored, then deleted", where it hid it before.
+- `restore` into an IMAP account shows how far its uploads have got: the
+  "Importing" line counts each message as it is appended, and the folder
+  reads around each batch keep that line moving rather than replacing it
+  with their own, which looked stalled.
 
 ## 0.17.0 (2026-10-28)
 
