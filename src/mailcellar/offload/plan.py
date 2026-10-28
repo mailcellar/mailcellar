@@ -15,7 +15,16 @@ import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
-from mailcellar.offload.rules import DEFAULT_PROTECT, PROTECTIONS, Rule, fold, years_text
+from mailcellar.offload.rules import (
+    DEFAULT_KEEP,
+    KEEP,
+    KEEP_OF,
+    KEPT_WHY,
+    PROTECTIONS,
+    Rule,
+    fold,
+    years_text,
+)
 from mailcellar.report import bulk
 from mailcellar.report.output import Table, day
 
@@ -205,10 +214,13 @@ def scope_sql(rule: Rule, accounts: list[str]) -> tuple[str, list]:
 
 
 def except_sql(rule: Rule) -> tuple[str, list]:
-    """SQL expression over pm: 1 when the rule's except matches (any key), else 0."""
+    """
+    SQL expression over pm: 1 when the rule's keep_if matches (every key of
+    any one table), else 0.
+    """
     params: list = []
-    conds = _conditions(rule.exceptions, params)
-    return ("(" + " OR ".join(conds) + ")" if conds else "0"), params
+    tables = ["(" + " AND ".join(_conditions(t, params)) + ")" for t in rule.exceptions]
+    return ("(" + " OR ".join(tables) + ")" if tables else "0"), params
 
 
 def _labels(con, where: str, params: list) -> dict[tuple, list[tuple]]:
@@ -264,12 +276,12 @@ def in_scope(con, rule: Rule, accounts: list[str], folders: dict[str, str]) -> l
 class RuleResult:
     rule: Rule
     selected: list[Message]
-    kept: Counter  # protection → messages it applies to (one message may count under several)
+    kept: Counter  # keep name → messages it applies to (one message may count under several)
     kept_size: Counter
     excluded: Counter  # exclusion → messages
     kept_total: int = 0
     scope_total: int = 0
-    # protection (or "except") → the messages it keeps, oldest first, for the review report
+    # keep name (or "keep_if") → the messages it keeps, oldest first, for the review report
     kept_messages: dict[str, list[Message]] = field(default_factory=dict)
 
 
@@ -298,8 +310,14 @@ def build_plan(
             if exclusion:
                 r.excluded[exclusion] += 1
                 continue
-            # The rule's own exception counts with the protections, ahead of them.
-            protections = ["except"] * m.flags["except"] + [p for p in rule.protect if m.flags[p]]
+            # keep_if counts with the protections, ahead of them; thread and replied count
+            # once, as conversations.
+            protections = list(
+                dict.fromkeys(
+                    ["keep_if"] * m.flags["except"]
+                    + [KEEP_OF[p] for p in rule.protect if m.flags[p]]
+                )
+            )
             if protections:
                 r.kept_total += 1
                 for p in protections:
@@ -348,6 +366,17 @@ def plan_rows(results: list[RuleResult], planned_ms: int) -> list[dict]:
     ]
 
 
+def keeps_text(rule: Rule) -> str:
+    """
+    What a rule keeps, for the Rules table: "keep_if, default", "default,
+    correspondents", "mine, starred", "nothing".
+    """
+    keep = rule.keep
+    if set(DEFAULT_KEEP) <= set(keep):
+        keep = ["default"] + [k for k in keep if k not in DEFAULT_KEEP]
+    return ", ".join(["keep_if"] * bool(rule.exceptions) + keep) or "nothing"
+
+
 def summary(results: list[RuleResult], top: int) -> list[Table]:
     rules, kept, years, senders = [], [], [], []
     for r in results:
@@ -358,8 +387,7 @@ def summary(results: list[RuleResult], top: int) -> list[Table]:
                 rule.name,
                 ", ".join(rule.accounts) or "all",
                 day(rule.before_ms),
-                ", ".join(rule.waived) or "none",
-                ", ".join(p for p in rule.protect if p not in DEFAULT_PROTECT) or "none",
+                keeps_text(rule),
                 years_text(rule.forget_after) if rule.forget_after else "",
                 r.scope_total,
                 sum(r.excluded.values()),
@@ -370,12 +398,10 @@ def summary(results: list[RuleResult], top: int) -> list[Table]:
                 day(sel[-1].internal_date) if sel else "",
             )
         )
-        if rule.exceptions:
-            kept.append(
-                (rule.name, "kept: rule exception", r.kept["except"], r.kept_size["except"])
-            )
-        for p in rule.protect:
-            kept.append((rule.name, f"kept: {PROTECTIONS[p]}", r.kept[p], r.kept_size[p]))
+        names = ["keep_if"] * bool(rule.exceptions)
+        names += [k for k, ps in KEEP.items() if any(p in rule.protect for p in ps)]
+        for k in names:
+            kept.append((rule.name, f"kept: {KEPT_WHY[k]}", r.kept[k], r.kept_size[k]))
         for e, text in EXCLUSIONS.items():
             if r.excluded[e]:
                 kept.append((rule.name, f"left out: {text}", r.excluded[e], None))
@@ -396,8 +422,7 @@ def summary(results: list[RuleResult], top: int) -> list[Table]:
                 ("Rule", "text"),
                 ("Accounts", "text"),
                 ("Before", "text"),
-                ("Waived", "text"),
-                ("Added", "text"),
+                ("Keeps", "text"),
                 ("Forget after", "text"),
                 ("In scope", "int"),
                 ("Left out", "int"),
@@ -411,9 +436,11 @@ def summary(results: list[RuleResult], top: int) -> list[Table]:
             notes=[
                 "In scope: the rule's scope, before its cut-off. Left out: already offloaded, in "
                 "Trash or Spam, gone from its mailbox, not indexed, or taken by an earlier rule. "
-                "Kept: a protection applies. Offload: in the plan. Sizes are the mailbox's own "
-                "figures. Forget after: 'offload forget --due' deletes what the rule offloaded "
-                "from the backup once it is that old and its mailbox has deleted it."
+                "Kept: its keep or keep_if applies. Offload: in the plan. Sizes are the "
+                "mailbox's own figures. Keeps: its keep and keep_if (keep's default: mine, "
+                "starred, conversations, labelled). Forget after: 'offload forget --due' "
+                "deletes what the rule offloaded from the backup once it is that old and its "
+                "mailbox has deleted it."
             ],
             limit=False,
         ),
@@ -422,7 +449,7 @@ def summary(results: list[RuleResult], top: int) -> list[Table]:
             "Kept and left out, per rule",
             [("Rule", "text"), ("Why", "text"), ("Messages", "int"), ("Size", "size")],
             kept,
-            notes=["A message counts under every protection that applies to it."],
+            notes=["A message counts under every keep reason that applies to it."],
             limit=False,
         ),
         Table(

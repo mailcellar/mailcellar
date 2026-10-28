@@ -44,7 +44,7 @@ name = "old build notifications"
 account = "work"
 sender = "@ci.example.com"
 before = "2023-01-01"
-except = { subject = "release" }
+keep_if = { subject = "release" }
 ```
 
 - `name` is recorded with every message the rule offloads, and is how you
@@ -58,8 +58,9 @@ except = { subject = "release" }
   read-only. At least one is needed; different keys must all
   match, and a key given a list matches any of its values. Here one key,
   `sender`, does it.
-- `except` takes the same keys and keeps a message that matches **any** of
-  them.
+- `keep_if` takes the same keys and keeps what matches them all. A list of
+  tables keeps what matches any one of them:
+  `keep_if = [{ subject = "release" }, { subject = "hotfix", larger_than_mb = 1 }]`.
 - `account` limits the rule to one account (an address, config name or a
   unique part of an address); without it the rule covers every account.
 
@@ -68,20 +69,27 @@ with no scope, a missing `before`. A typo cannot quietly widen a rule.
 
 ### What is protected
 
-Whatever the rule selects, mailcellar keeps in Gmail, by default:
+Whatever the rule selects, mailcellar keeps in Gmail what its `keep`
+names. Left out, `keep` is `["mine", "starred", "conversations",
+"labelled"]`:
 
-- **sent**: your own mail (sent, drafts, from one of your addresses);
+- **mine**: your own mail (sent, drafts, from one of your addresses);
 - **starred**;
-- **thread**: any message in a thread you wrote in;
-- **replied**: a message you replied to;
-- **labels**: a message with a user label the rule does not name.
+- **conversations**: any message in a thread you wrote in, or one you
+  replied to;
+- **labelled**: a message with a user label the rule does not name.
 
-`waive = ["thread"]` drops a default protection for one rule, and
-`protect = ["correspondents"]` adds one (keeps mail from anyone you have
-written to). Waive only what you have a reason to, and read the plan
-afterwards to see what the rule now takes. A `query` rule finds mail
-across your labels, so **labels** often keeps much of what it finds: the
-plan's "kept: another user label" line says how much.
+A rule that writes `keep` lists all it keeps:
+`keep = ["mine", "starred", "labelled"]` lets conversations you were in go
+too, and adding `"correspondents"` keeps mail from anyone you have written
+to. Leave out only what you have a reason to, and read the plan afterwards
+to see what the rule now takes. A `query` rule finds mail across your
+labels, so **labelled** often keeps much of what it finds: the plan's
+"kept: labelled" line says how much.
+
+Older rules say this with `waive`, `protect` and `except`. They work until
+1.0, and `plan` warns about each, with the rule written in `keep` and
+`keep_if` ([the reference](../reference/offload.md) has the translation).
 
 ## 2. Plan
 
@@ -96,12 +104,12 @@ mailcellar offload plan work
 
 - how many messages it would offload and how much space they take, by year
   and by sender (`--top N` sets how many senders are shown);
-- how many it kept, and which protection kept them.
+- how many it kept, and why: its `keep_if`, or one of its `keep` names.
 
 For a rule that selects more than you can read through, add `--review`:
 it writes a page per rule to `<data root>/offload/review/`, to open in a
 browser, with a random sample of what the rule would offload and of what
-each protection keeps, the largest messages, the threads with most messages
+each `keep` reason kept, the largest messages, the threads with most messages
 in the offload, and attachment types. It shows senders and subjects only;
 keep it to yourself.
 
@@ -111,9 +119,9 @@ plan again; each run replaces the plan file.
 
 Two typical adjustments:
 
-- **Too much.** Tighten `before`, add a scope key, or add an `except`.
+- **Too much.** Tighten `before`, add a scope key, or add a `keep_if`.
 - **A message must stay.** Give it a user label in Gmail (any label that
-  the rule does not name, so the `labels` protection keeps it), run
+  the rule does not name, so `labelled` keeps it), run
   `backup`, and plan again.
 
 `--csv DIR` also writes the summary tables as CSV, for a spreadsheet.

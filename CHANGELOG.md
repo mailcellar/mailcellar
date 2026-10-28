@@ -8,6 +8,15 @@ in beta, so commands and options may still change before 1.0.
 ## Unreleased
 
 ### Added
+- Offload rules say what they keep: `keep = ["mine", "starred",
+  "conversations", "labelled"]` (the default; `"correspondents"` adds mail
+  from anyone you have written to, `keep = []` keeps nothing), and
+  `keep_if`, a table of scope keys that must all match, or a list of them
+  of which any one keeps a message: `keep_if = [{ sender =
+  "@insurer.example" }, { subject = "invoice", larger_than_mb = 1 }]`. The
+  plan's Rules table has a Keeps column in place of Waived and Added, and
+  kept mail is counted per `keep` name, a conversation once however many
+  reasons keep it.
 - IMAP accounts can be backed up: `mailcellar setup ADDRESS --imap HOST`
   asks for the password, signs in, and keeps the server in the account's
   `imap.toml` and the password owner-only beside it. `backup`, `count`,
@@ -47,6 +56,16 @@ in beta, so commands and options may still change before 1.0.
   and in an `export` zip's `index.csv`: it is the backup's ID, Gmail's or
   an IMAP account's. Plans, apply logs and manifests, which mailcellar
   reads back, keep calling it `gmail_id`, and the restore log `source_id`.
+- Offload rules' `waive`, `protect` and `except` are deprecated, to be
+  removed at 1.0. They still work, can't be mixed with `keep` and `keep_if`
+  in one rule, and `offload plan` warns about each rule that uses them with
+  the rule in the new keys: `except = { a = …, b = … }` is `keep_if = [{ a
+  = … }, { b = … }]`. A rule that waives one of `thread` and `replied` but
+  not the other can't be written with `keep`; it keeps working, and its
+  warning says so. The plan's kept rows say "kept: yours", "kept: a
+  conversation you were in", "kept: labelled", "kept: keep_if", and
+  `--csv`'s rules table has Keeps in place of Waived and Added; the plan
+  CSV's `waived` column is unchanged.
 
 ### Fixed
 - A new data root is created owner-only (mode 700), as the config folder

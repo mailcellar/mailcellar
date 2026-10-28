@@ -10,11 +10,33 @@ account = "work"
 label = "work"           # or sender, list, forwarded_from, category, subject, to_me,
                          # larger_than_mb, query; different keys must all match
 before = "2022-01-01"    # or a number of years ago, e.g. "5"
-# except = { subject = "contract", to_me = true }   # keep what matches any of these
-# waive = ["thread"]     # drop default protections (sent, starred, thread, replied, labels)
-# protect = ["correspondents"]
+# keep = ["mine", "starred", "labelled"]   # what stays in Gmail; see below
+# keep_if = [{ subject = "contract" }, { sender = "@client.example", to_me = true }]
 # forget_after = 7       # retention: forget what it offloaded 7 years after its date
 ```
+
+`keep` names what stays in Gmail although the rule selects it. Left out, it
+is `["mine", "starred", "conversations", "labelled"]`; `keep = []` keeps
+nothing the rule selects.
+
+| `keep` name | Keeps |
+| --- | --- |
+| `mine` | your mail: sent, drafts, from one of your addresses |
+| `starred` | starred |
+| `conversations` | in a thread you wrote in, or a message you replied to |
+| `labelled` | a user label the rule doesn't name |
+| `correspondents` | from someone you have written to (not in the default) |
+
+`keep_if` keeps what matches a table of scope keys, or any one of a list of
+tables; the keys of one table must all match, as in the rule itself.
+
+Before 1.0, rules said this with `waive` (default protections to drop:
+`sent`, `starred`, `thread`, `replied`, `labels`), `protect` (protections to
+add, `correspondents`) and `except` (a table whose keys each keep on their
+own: `except = { a = …, b = … }` is `keep_if = [{ a = … }, { b = … }]`).
+They still work until 1.0, can't be mixed with `keep` and `keep_if` in one
+rule, and `plan` warns about each rule that uses them, with the rule
+written in the new keys.
 
 ```bash
 mailcellar offload plan                    # all accounts → <data root>/offload/offload-plan.csv
@@ -23,22 +45,22 @@ mailcellar offload plan --review           # also a review page per rule
 ```
 
 `plan` changes nothing. It prints what each rule would offload (by year and
-sender) and what its protections keep. To keep particular messages, add a
+sender) and what its `keep` and `keep_if` kept, per reason. To keep particular messages, add a
 user label in Gmail and run a backup.
 
 `query` is a Gmail search, written as in Gmail's search box
 (`query = "has:attachment filename:pdf"`). It narrows a rule like the other
-keys, and works in `except` too. `plan` asks Gmail which messages each
+keys, and works in `keep_if` too. `plan` asks Gmail which messages each
 search finds, with read-only access, and selects only those the backup
 has; it says how many it found that the backup lacks (run a backup, then
-plan again). `before`, `except` and the protections still apply, so a
+plan again). `before`, `keep` and `keep_if` still apply, so a
 search that finds labelled mail keeps it unless the rule names the label
-or waives `labels`. A rule without `query` doesn't contact Gmail.
+or leaves `labelled` out of `keep`. A rule without `query` doesn't contact Gmail.
 
 For a rule that selects thousands of messages, `--review` also writes one
 HTML page per rule to `<data root>/offload/review/` (open it in a browser):
 what the rule selects, in one line, the summary tables, a random sample of what the rule would offload and of
-what each protection keeps, the largest messages, the threads with the most
+what each `keep` reason kept, the largest messages, the threads with the most
 messages in the offload, and attachment types by size. It shows senders
 and subjects, never message bodies, and is for you alone: keep it on your
 machine. The same plan shows the same sample.
