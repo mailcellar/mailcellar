@@ -799,3 +799,26 @@ def test_prune_decision_refuses_too_much_unless_forced_and_held_mail_doesnt_coun
     assert decide({}, force=True).move == tuple(gone)
     held_one = decide({"g0": "audit"})
     assert held_one.refusal == "" and len(held_one.move) == 10  # 10 of 100 is not more than 10%
+
+
+def test_sort_changes_updates_downloads_skips_and_counts_what_is_gone():
+    labels_now = {
+        "have": ["INBOX", "Label_1"],  # backed up: its labels updated
+        "new": ["INBOX"],  # downloaded
+        "spam": ["SPAM"],  # never backed up
+        "chat": ["CHAT"],
+        "lost": None,  # backed up, deleted since the history was read
+        "off": None,  # offloaded, now gone from the mailbox: as expected
+        "never": None,  # gone before it was backed up: nothing to do
+    }
+    plan = commands.sort_changes(
+        labels_now, {"have", "lost", "off", "old"}, {"old", "unknown"}, {"off"}
+    )
+    assert plan == commands.HistoryPlan(
+        todo=("new",),
+        labels=(("have", ("INBOX", "Label_1")),),
+        skipped=2,
+        gone=frozenset({"lost", "old"}),  # "old" from the history's deletions
+        gone_offloaded=frozenset({"off"}),
+    )
+    assert commands.sort_changes({}, set(), set(), set()) == commands.HistoryPlan()
