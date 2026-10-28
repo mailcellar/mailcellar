@@ -22,6 +22,7 @@ from mailcellar.offload.rules import (
     KEPT_WHY,
     PROTECTIONS,
     Rule,
+    attachment_is,
     fold,
     years_text,
 )
@@ -90,6 +91,7 @@ def prepare(con: sqlite3.Connection, accounts: list[str], hits: Hits) -> None:
     need; TEMP query_hits: what each Gmail search found.
     """
     con.create_function("fold", 1, fold, deterministic=True)
+    con.create_function("attachment_is", 3, attachment_is, deterministic=True)
     con.executescript("""
         DROP TABLE IF EXISTS temp.query_hits;
         CREATE TEMP TABLE query_hits (account, query, gmail_id,
@@ -118,6 +120,7 @@ def prepare(con: sqlite3.Connection, accounts: list[str], hits: Hits) -> None:
                (st.thread_id IS NOT NULL) AS thread,
                (ri.message_id IS NOT NULL) AS replied,
                (wt.address IS NOT NULL) AS correspondents,
+               {bulk.BULK_SIGNAL} AS bulk,
                EXISTS (SELECT 1 FROM all_recipients r
                        WHERE r.account = bm.account AND r.gmail_id = bm.gmail_id
                          AND r.kind IN ('to', 'cc')
@@ -191,6 +194,25 @@ def _conditions(scope: dict[str, list], params: list) -> list[str]:
     if "to_me" in scope:
         conds.append("pm.to_me = ?")
         params.append(int(scope["to_me"][0]))
+    if "to" in scope:
+        conds.append(
+            "EXISTS (SELECT 1 FROM all_recipients r WHERE r.account = pm.account "
+            "AND r.gmail_id = pm.gmail_id AND "
+            + _domain_or_address("r.address", scope["to"], params)
+            + ")"
+        )
+    if "bulk" in scope:
+        conds.append("pm.bulk = ?")
+        params.append(int(scope["bulk"][0]))
+    if "attachment" in scope:
+        # an attachment: a part that isn't inline, or has a file name
+        conds.append(
+            "EXISTS (SELECT 1 FROM all_attachments a WHERE a.account = pm.account "
+            "AND a.gmail_id = pm.gmail_id AND (NOT a.inline OR a.filename != '') AND ("
+            + " OR ".join("attachment_is(a.mime_type, a.filename, ?)" for _ in scope["attachment"])
+            + "))"
+        )
+        params += scope["attachment"]
     if "larger_than_mb" in scope:
         conds.append("pm.size > ?")
         params.append(int(scope["larger_than_mb"][0] * 1024 * 1024))
@@ -207,6 +229,9 @@ def scope_sql(rule: Rule, accounts: list[str]) -> tuple[str, list]:
     """WHERE clause over pm for the rule's scope, cut-off and accounts."""
     params: list = [rule.before_ms]
     where = ["pm.internal_date < ?"]
+    if rule.after_ms is not None:
+        where.append("pm.internal_date >= ?")
+        params.append(rule.after_ms)
     chosen = [a for a in accounts if not rule.accounts or a in rule.accounts]
     where.append(f"pm.account IN ({bulk.sql_list(chosen)})")
     where += _conditions(rule.scope, params)
@@ -386,6 +411,7 @@ def summary(results: list[RuleResult], top: int) -> list[Table]:
             (
                 rule.name,
                 ", ".join(rule.accounts) or "all",
+                day(rule.after_ms) if rule.after_ms is not None else "",
                 day(rule.before_ms),
                 keeps_text(rule),
                 years_text(rule.forget_after) if rule.forget_after else "",
@@ -421,6 +447,7 @@ def summary(results: list[RuleResult], top: int) -> list[Table]:
             [
                 ("Rule", "text"),
                 ("Accounts", "text"),
+                ("After", "text"),
                 ("Before", "text"),
                 ("Keeps", "text"),
                 ("Forget after", "text"),
@@ -434,13 +461,13 @@ def summary(results: list[RuleResult], top: int) -> list[Table]:
             ],
             rules,
             notes=[
-                "In scope: the rule's scope, before its cut-off. Left out: already offloaded, in "
-                "Trash or Spam, gone from its mailbox, not indexed, or taken by an earlier rule. "
-                "Kept: its keep or keep_if applies. Offload: in the plan. Sizes are the "
-                "mailbox's own figures. Keeps: its keep and keep_if (keep's default: mine, "
-                "starred, conversations, labelled). Forget after: 'offload forget --due' "
-                "deletes what the rule offloaded from the backup once it is that old and its "
-                "mailbox has deleted it."
+                "In scope: the rule's scope, from After (if set) to Before. Left out: already "
+                "offloaded, in Trash or Spam, gone from its mailbox, not indexed, or taken by "
+                "an earlier rule. Kept: its keep or keep_if applies. Offload: in the plan. "
+                "Sizes are the mailbox's own figures. Keeps: its keep and keep_if (keep's "
+                "default: mine, starred, conversations, labelled). Forget after: 'offload "
+                "forget --due' deletes what the rule offloaded from the backup once it is that "
+                "old and its mailbox has deleted it."
             ],
             limit=False,
         ),
