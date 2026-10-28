@@ -273,9 +273,9 @@ def test_rule_result_counts_each_verdict_and_passes_on_what_it_took():
         scoped("e"),
         scoped("a", size=5),  # a second row for a: taken already, by this rule
     ]
-    r, taken = rule_result(Rule("r", "5", NEW), messages, {(A, "e")})
+    r, own = rule_result(Rule("r", "5", NEW), messages, {(A, "e")})
     assert [m.gmail_id for m in r.selected] == ["a"]
-    assert taken == {(A, "a"), (A, "e")}
+    assert own == {(A, "a")}  # only its own: build_plan adds them to what earlier rules took
     assert dict(r.excluded) == {"offloaded": 1, "earlier": 2}
     assert (r.kept_total, r.scope_total) == (2, 6)
     assert dict(r.kept) == {"mine": 1, "starred": 2} and dict(r.kept_size) == {
