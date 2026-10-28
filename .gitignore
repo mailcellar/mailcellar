@@ -20,3 +20,6 @@ htmlcov/
 
 # The documentation site (mkdocs build)
 /site/
+
+# Claude Code session worktrees, each a checkout of its own branch
+/.claude/worktrees/
