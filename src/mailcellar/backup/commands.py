@@ -49,6 +49,7 @@ import hashlib
 import logging
 import sys
 import time
+from collections.abc import Collection, Mapping
 from contextlib import closing, nullcontext
 from dataclasses import dataclass
 from datetime import datetime
@@ -136,35 +137,70 @@ def current_labels(gmail, gmail_ids: list[str], mailbox: int) -> dict[str, list[
     return {gid: None if d is None else d.get("labelIds", []) for gid, d in details.items()}
 
 
-def history_plan(
-    gmail, con, mcon, have: set[str], indexed: set[str], start: str, stats: dict
-) -> tuple[list, str]:
+@dataclass(frozen=True)
+class HistoryPlan:
+    """What a history-based run does with what changed: decided by sort_changes()."""
+
+    todo: tuple[str, ...] = ()  # IDs to download, in the order looked up
+    labels: tuple[tuple[str, tuple[str, ...]], ...] = ()  # (backed-up ID, its label IDs now)
+    skipped: int = 0  # new messages in Spam, Trash or Chat: never backed up
+    gone: frozenset[str] = frozenset()  # backed-up IDs the mailbox deleted, offloaded apart
+    gone_offloaded: frozenset[str] = frozenset()  # offloaded IDs it deleted, as expected
+
+
+def sort_changes(
+    labels_now: Mapping[str, list[str] | None],
+    have: Collection[str],
+    deleted: Collection[str],
+    offloaded: Collection[str],
+) -> HistoryPlan:
     """
-    History-based run: (IDs to download, historyId to store afterwards).
-    Works from each touched message's current state, so it can be repeated.
-    Updates labels of backed-up messages as it goes. Indexed messages whose
-    .eml has gone missing locally are looked up too, so they are re-fetched
-    as a full run would. Raises HistoryExpired.
+    Sort the messages a history-based run looked up (`labels_now`: ID → its
+    label IDs, None if the mailbox no longer has it): a backed-up one gets
+    its labels updated, a new one is downloaded unless it is in Spam, Trash
+    or Chat, and a backed-up one the history (`deleted`) or the lookup
+    found gone is counted, or, offloaded, marked gone. Pure.
     """
-    touched, deleted, new_history_id = gmail.history_changes(start)
-    # Offloaded messages are expected to go once Gmail empties its Trash.
-    offloaded = sidecar.kept_ids(mcon)
-    gone = deleted & have
-    lookup = sorted((touched - deleted) | (indexed - have))
-    todo = []
-    for gid, label_ids in current_labels(gmail, lookup, len(have)).items():
+    gone = {g for g in deleted if g in have}
+    todo, labels, skipped = [], [], 0
+    for gid, label_ids in labels_now.items():
         if label_ids is None:  # deleted since the history was read
             if gid in have:
                 gone.add(gid)
-            continue
-        if gid in have:
-            stats["labels_changed"] += apply_labels(con, mcon, gmail, gid, label_ids)
+        elif gid in have:
+            labels.append((gid, tuple(label_ids)))
         elif SKIP_LABELS & set(label_ids) or gyb.is_chat(label_ids):
-            stats["skipped"] += 1
+            skipped += 1
         else:
             todo.append(gid)
-    sidecar.mark_gone(mcon, gone & offloaded, now_ms())
-    stats["deleted_backed_up"] = len(gone - offloaded)
+    return HistoryPlan(
+        tuple(todo),
+        tuple(labels),
+        skipped,
+        frozenset(g for g in gone if g not in offloaded),
+        frozenset(g for g in gone if g in offloaded),
+    )
+
+
+def history_plan(
+    gmail, con, mcon, have: set[str], indexed: set[str], start: str
+) -> tuple[HistoryPlan, int, str]:
+    """
+    History-based run: (the plan, label updates made, historyId to store
+    afterwards). Works from each touched message's current state, so it can
+    be repeated. Updates labels of backed-up messages and marks offloaded
+    ones gone. Indexed messages whose .eml has gone missing locally are
+    looked up too, so they are re-fetched as a full run would. Raises
+    HistoryExpired.
+    """
+    touched, deleted, new_history_id = gmail.history_changes(start)
+    lookup = sorted((touched - deleted) | (indexed - have))
+    # Offloaded messages are expected to go once Gmail empties its Trash.
+    plan = sort_changes(
+        current_labels(gmail, lookup, len(have)), have, deleted, sidecar.kept_ids(mcon)
+    )
+    changed = sum(apply_labels(con, mcon, gmail, gid, ids) for gid, ids in plan.labels)
+    sidecar.mark_gone(mcon, plan.gone_offloaded, now_ms())
     logger.info(
         history_summary(
             changed=len(touched),
@@ -172,12 +208,12 @@ def history_plan(
             # backup and count say it elsewhere; the scan is already read, so it's free.
             present=None if gmail.provider == "gmail" else len(gmail.list_message_ids()),
             missing=len(indexed - have),
-            todo=len(todo),
-            labels=stats["labels_changed"],
-            skipped=stats["skipped"],
+            todo=len(plan.todo),
+            labels=changed,
+            skipped=plan.skipped,
         )
     )
-    return todo, new_history_id
+    return plan, changed, new_history_id
 
 
 def history_summary(
@@ -364,8 +400,14 @@ def _backup(
     if start:
         try:
             indexed = {u for (u,) in con.execute("SELECT uid FROM uids")}
-            todo, next_history_id = history_plan(gmail, con, mcon, have, indexed, start, stats)
-            stats["mode"] = "history"
+            plan, changed, next_history_id = history_plan(gmail, con, mcon, have, indexed, start)
+            todo = list(plan.todo)
+            stats |= {
+                "mode": "history",
+                "labels_changed": changed,
+                "skipped": plan.skipped,
+                "deleted_backed_up": len(plan.gone),
+            }
             con.commit()
             mcon.commit()
         except gmailapi.HistoryExpired:
