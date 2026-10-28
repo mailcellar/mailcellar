@@ -247,6 +247,28 @@ def list_unsubscribe(msg) -> str:
     return "both" if len(kinds) == 2 else (kinds[0] if kinds else "")
 
 
+def unsubscribe_targets(msg) -> tuple[str, str, bool]:
+    """
+    (the https: link, the mailto: address, one-click) a message's
+    List-Unsubscribe offers: the first of each kind, "" when it has none;
+    one-click (RFC 8058) when List-Unsubscribe-Post says
+    List-Unsubscribe=One-Click and there is an https: link. Anything else
+    (http:, other schemes, text outside <>) is left out: the header comes
+    from the sender and is shown to be opened. Pure.
+    """
+    raw = unfold(msg.get("List-Unsubscribe", ""))
+    https = mailto = ""
+    for target in re.findall(r"<([^<>]*)>", raw):
+        target = "".join(target.split())  # a folded or padded URL has no spaces
+        scheme = target.split(":", 1)[0].lower()
+        if scheme == "https" and not https:
+            https = target
+        elif scheme == "mailto" and not mailto:
+            mailto = target
+    post = "".join(unfold(msg.get("List-Unsubscribe-Post", "")).split()).lower()
+    return https, mailto, bool(https) and post == "list-unsubscribe=one-click"
+
+
 def header_key(msg) -> str:
     """
     From, Date and Subject as written (decoded, whitespace collapsed,

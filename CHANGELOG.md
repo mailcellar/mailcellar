@@ -35,6 +35,11 @@ in beta, so commands and options may still change before 1.0.
   Each is printed as a `[[rule]]` table, planned after the rules file's
   rules, with what it would take and one line per source; `--append` adds
   them to the rules file, commented out. It never sets `forget_after`.
+- `report bulk --unsubscribe` lists where to unsubscribe from each
+  candidate, read from its most recent message: the List-Unsubscribe link
+  (`https:` only) and address (`mailto:`), whether it offers one-click
+  unsubscribe, and a note when the link's domain isn't the sender's.
+  Nothing is opened or sent.
 - IMAP accounts can be backed up: `mailcellar setup ADDRESS --imap HOST`
   asks for the password, signs in, and keeps the server in the account's
   `imap.toml` and the password owner-only beside it. `backup`, `count`,

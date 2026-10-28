@@ -27,6 +27,7 @@ The report never unsubscribes or removes anything.
 import sqlite3
 import time
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from mailcellar.report.output import Table, day, human_size
 
@@ -360,3 +361,126 @@ def build(con: sqlite3.Connection, accounts: list[str], opts: Options) -> list[T
     now = opts.now_ms if opts.now_ms is not None else int(time.time() * 1000)
     prepare_sources(con, accounts, opts, now)
     return [summary(con, opts, now), *top_sources(con), candidates(con, opts, now), by_year(con)]
+
+
+# ── where to unsubscribe (report bulk --unsubscribe) ─────────────────────────
+
+# Second-level labels under a country code that are part of the suffix, as in
+# example.co.uk: a rough registrable domain without a public suffix list.
+COUNTRY_SECOND_LEVEL = {"co", "com", "org", "net", "ac", "gov", "edu", "ne", "or", "gen"}
+HEAD_BYTES = 256 * 1024  # read this much of a message for its headers
+
+
+def base_domain(host: str) -> str:
+    """A host's registrable domain, roughly: mail.shop.example.co.uk → example.co.uk. Pure."""
+    labels = host.lower().strip(".").split(".")
+    keep = (
+        3 if len(labels) >= 3 and len(labels[-1]) == 2 and labels[-2] in COUNTRY_SECOND_LEVEL else 2
+    )
+    return ".".join(labels[-keep:])
+
+
+@dataclass(frozen=True)
+class Newest:
+    """A candidate source's most recent message, and the headers read from its .eml."""
+
+    account: str
+    source: str
+    kind: str
+    sender: str
+    last_ms: int
+    targets: tuple[str, str, bool] | None  # unsubscribe_targets; None: no file to read
+
+
+def newest_messages(con, opts: Options) -> list[tuple]:
+    """
+    (account, source, kind, sender, last_ms, filename, gmail_id) for each
+    unsubscribe candidate's most recent message (of two at the same time, the
+    larger ID), newest first. After build().
+    """
+    return con.execute(
+        f"""SELECT s.account, s.source, s.kind, m.sender, s.last_ms,
+                   coalesce(i.filename, ''), max(m.gmail_id)
+            FROM (SELECT * FROM sources WHERE {CANDIDATE}) s
+            JOIN src_msg m ON m.account = s.account AND m.source = s.source
+                          AND m.internal_date = s.last_ms
+            LEFT JOIN all_index i ON i.account = m.account AND i.gmail_id = m.gmail_id
+            GROUP BY s.account, s.source
+            ORDER BY s.last_ms DESC, s.account, s.source""",
+        {"min": opts.min_messages},
+    ).fetchall()
+
+
+def _host(url: str) -> str:
+    try:
+        return urlsplit(url).hostname or ""
+    except ValueError:  # e.g. a malformed IPv6 host
+        return ""
+
+
+def read_newest(rows: list[tuple], folders: dict) -> list[Newest]:
+    """
+    Newest values for newest_messages()'s rows, with each message's
+    unsubscribe targets read from the head of its .eml (folders: account →
+    backup folder).
+    """
+    from email.parser import BytesHeaderParser
+    from email.policy import compat32
+
+    from mailcellar.message import strip_mbox_from_lines, unsubscribe_targets
+
+    out = []
+    for account, source, kind, sender, last_ms, filename, _gmail_id in rows:
+        targets = None
+        path = folders[account] / filename if filename else None
+        if path is not None and path.is_file():
+            with path.open("rb") as fh:
+                head = strip_mbox_from_lines(fh.read(HEAD_BYTES))
+            targets = unsubscribe_targets(BytesHeaderParser(policy=compat32).parsebytes(head))
+        out.append(Newest(account, source, kind, sender, last_ms, targets))
+    return out
+
+
+def unsubscribe_table(newest: list[Newest], active_ms: int) -> Table:
+    """Where to unsubscribe from each candidate, from its most recent message. Pure."""
+    rows = []
+    for n in newest:
+        when = (n.source, n.account, day(n.last_ms), "yes" if n.last_ms >= active_ms else "no")
+        if n.kind == "relayed" or n.targets is None:
+            note = "relayed: the header is your own list's" if n.kind == "relayed" else "no .eml"
+            rows.append((*when, "", "", "", note, ""))
+            continue
+        https, mailto, one_click = n.targets
+        address = mailto.split(":", 1)[1] if mailto else ""  # with any ?subject= it asks for
+        host = _host(https)
+        mail_host = address.split("?", 1)[0].rsplit("@", 1)[-1] if "@" in address else ""
+        sender = base_domain(n.sender.rsplit("@", 1)[-1]) if "@" in n.sender else ""
+        other = sorted({base_domain(h) for h in (host, mail_host) if h} - {sender})
+        note = f"not the sender's domain: {', '.join(other)}" if sender and other else ""
+        if not https and not mailto:
+            note = "no https: or mailto: unsubscribe"
+        rows.append((*when, "yes" if one_click else "no", host, address, note, https))
+    return Table(
+        "unsubscribe",
+        "Where to unsubscribe",
+        [
+            ("Source", "text"),
+            ("Account", "text"),
+            ("Last", "text"),
+            ("Still sending", "text"),
+            ("One-click", "text"),
+            ("Link host", "text"),
+            ("Mail to", "text"),
+            ("Note", "text"),
+            ("Link", "full"),
+        ],
+        rows,
+        notes=[
+            "From each candidate's most recent message: its List-Unsubscribe link (https: "
+            "only) and address (mailto:), and whether it offers one-click unsubscribe "
+            "(RFC 8058: the link alone does it, no page to fill in). These come from the mail "
+            "itself: check the host before opening a link, especially one not on the "
+            "sender's domain (mailing services are common, but so are lookalikes). "
+            "mailcellar opens nothing and sends nothing.",
+        ],
+    )

@@ -43,6 +43,19 @@ with none named, every backup in the data root.
 | `--min-messages N` | Candidates: sources with at least N messages (default 10) |
 | `--active-days DAYS` | "Still sending": a message within this many days (default 90) |
 | `--min-bulk-share PERCENT` | A source is bulk when at least this share of its messages has bulk signals (default 50) |
+| `--unsubscribe` | Also list where to unsubscribe from each candidate, from its most recent message |
+
+`--unsubscribe` adds a section, "Where to unsubscribe". For each candidate it
+reads the most recent message's `.eml` and shows its List-Unsubscribe link
+(`https:` only) and address (`mailto:`), whether it offers one-click
+unsubscribe (RFC 8058: `List-Unsubscribe-Post` with an `https:` link, so
+opening the link is all it takes), the message's date and whether the
+source is still sending. The link's host is shown on its own, with a note
+when its domain isn't the sender's. Mailing services are common, but the
+link comes from the mail itself, so check it before opening it. Relayed
+mail shows no link: its header is your own list's. The `Link`
+column is never cut, so it can be copied; with `--csv` it is in
+`bulk-unsubscribe.csv`. mailcellar opens no link and sends no mail.
 
 ### `report health`
 
