@@ -274,6 +274,21 @@ def cmd_suggest(args) -> None:
         logger.info(f"Appended {len(blocks)} suggestions to {path}, commented out.")
 
 
+def select_rows(
+    rows: list[dict], rules: set[str], accounts: set[str], limit: int | None
+) -> list[dict]:
+    """
+    The plan rows of the given rules and accounts (any of each; none means
+    all), the first `limit` of them if given. Pure.
+    """
+    chosen = [
+        r
+        for r in rows
+        if (not rules or r["rule"] in rules) and (not accounts or r["account"] in accounts)
+    ]
+    return chosen if limit is None else chosen[:limit]
+
+
 def cmd_apply(args) -> None:
     mode = "label" if args.label is not None else "trash" if args.trash is not None else "dry-run"
     label = args.label or args.trash or OFFLOAD_LABEL
@@ -288,13 +303,8 @@ def cmd_apply(args) -> None:
             + (", not labelled by a label run, or vetoed before" if mode == "trash" else "")
             + ")."
         )
-    if args.rule:
-        rows = [r for r in rows if r["rule"] in args.rule]
-    if args.accounts:
-        chosen = {resolve_account(a) for a in args.accounts}
-        rows = [r for r in rows if r["account"] in chosen]
-    if args.limit is not None:
-        rows = rows[: args.limit]
+    chosen = {resolve_account(a) for a in args.accounts or ()}
+    rows = select_rows(rows, set(args.rule or ()), chosen, args.limit)
     if not rows:
         sys.exit("Nothing to do: no plan rows match.")
     # Messages this tool labelled carry the label in a plan made after the next
