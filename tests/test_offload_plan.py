@@ -9,11 +9,21 @@ from fake_mailbox import FakeMailbox, raw_response
 from mailcellar.backup import commands, sidecar
 from mailcellar.backup.gyb import backup_account
 from mailcellar.offload import cli
-from mailcellar.offload.plan import PLAN_COLUMNS, build_plan
+from mailcellar.offload.plan import (
+    EXCLUSIONS,
+    PLAN_COLUMNS,
+    Message,
+    Verdict,
+    build_plan,
+    classify,
+    rule_result,
+)
 from mailcellar.offload.rules import (
     DEFAULT_KEEP,
     DEFAULT_PROTECT,
     KEEP,
+    PROTECTIONS,
+    Rule,
     RuleError,
     fold,
     load_rules,
@@ -235,6 +245,44 @@ def test_the_rules_table_says_what_each_rule_keeps():
     assert keeps(keep=["starred", "mine"]) == "mine, starred"
     assert keeps(keep=[]) == "nothing"
     assert keeps(waive="thread") == "mine, starred, conversations (replied only), labelled"
+
+
+def scoped(gid, size=10, account=A, **flags):
+    names = [*PROTECTIONS, *EXCLUSIONS, "except"]
+    values = {n: False for n in names} | flags
+    return Message(account, gid, OLD, size, "s@example.com", "", "", [], set(), values)
+
+
+def test_classify_leaves_out_then_keeps_then_takes():
+    rule = Rule("r", "5", NEW)  # keep's default: mine, starred, conversations, labelled
+    assert classify(rule, scoped("a", trash=True, starred=True), set()) == Verdict("trash")
+    assert classify(rule, scoped("a", starred=True), {(A, "a")}) == Verdict("earlier")
+    assert classify(rule, scoped("a"), {(B, "a")}) == Verdict()  # taken: B's "a" is another
+    # keep_if first; thread and replied count once, as conversations
+    both = scoped("a", replied=True, thread=True, sent=True, **{"except": True})
+    assert classify(rule, both, set()) == Verdict(keeps=("keep_if", "mine", "conversations"))
+    assert classify(rule, scoped("a", correspondents=True), set()) == Verdict()  # not in keep
+
+
+def test_rule_result_counts_each_verdict_and_passes_on_what_it_took():
+    messages = [
+        scoped("a", size=5),
+        scoped("b", size=7, starred=True, sent=True),
+        scoped("c", size=11, starred=True),
+        scoped("d", offloaded=True),
+        scoped("e"),
+        scoped("a", size=5),  # a second row for a: taken already, by this rule
+    ]
+    r, taken = rule_result(Rule("r", "5", NEW), messages, {(A, "e")})
+    assert [m.gmail_id for m in r.selected] == ["a"]
+    assert taken == {(A, "a"), (A, "e")}
+    assert dict(r.excluded) == {"offloaded": 1, "earlier": 2}
+    assert (r.kept_total, r.scope_total) == (2, 6)
+    assert dict(r.kept) == {"mine": 1, "starred": 2} and dict(r.kept_size) == {
+        "mine": 7,
+        "starred": 18,
+    }
+    assert [m.gmail_id for m in r.kept_messages["starred"]] == ["b", "c"]
 
 
 def test_account_argument_limits_the_plan(data):

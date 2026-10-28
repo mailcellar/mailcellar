@@ -13,7 +13,9 @@ from the backup's index.
 import sqlite3
 import time
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from collections.abc import Collection, Mapping
+from dataclasses import dataclass
+from types import MappingProxyType
 
 from mailcellar.offload.rules import (
     DEFAULT_KEEP,
@@ -297,17 +299,89 @@ def in_scope(con, rule: Rule, accounts: list[str], folders: dict[str, str]) -> l
     return out
 
 
-@dataclass
+@dataclass(frozen=True)
+class Verdict:
+    """
+    What a rule does with one message in its scope, decided by classify():
+    leaves it out, keeps it, or (neither) takes it.
+    """
+
+    exclusion: str = ""  # why it is left out (an EXCLUSIONS key); "" if it isn't
+    keeps: tuple[str, ...] = ()  # the keep names (or "keep_if") that keep it; () if none
+
+
+def classify(rule: Rule, m: Message, taken: Collection[tuple[str, str]]) -> Verdict:
+    """
+    Whether `rule` leaves `m` out, keeps it, or takes it, given the
+    (account, ID)s earlier rules took. Pure.
+    """
+    exclusion = next((e for e in EXCLUSIONS if e != "earlier" and m.flags[e]), "")
+    if not exclusion and (m.account, m.gmail_id) in taken:
+        exclusion = "earlier"
+    if exclusion:
+        return Verdict(exclusion)
+    # keep_if counts with the protections, ahead of them; thread and replied count
+    # once, as conversations.
+    return Verdict(
+        keeps=tuple(
+            dict.fromkeys(
+                ["keep_if"] * m.flags["except"] + [KEEP_OF[p] for p in rule.protect if m.flags[p]]
+            )
+        )
+    )
+
+
+@dataclass(frozen=True)
 class RuleResult:
     rule: Rule
-    selected: list[Message]
-    kept: Counter  # keep name → messages it applies to (one message may count under several)
-    kept_size: Counter
-    excluded: Counter  # exclusion → messages
+    selected: tuple[Message, ...]
+    excluded: Mapping[str, int]  # exclusion → messages
     kept_total: int = 0
     scope_total: int = 0
-    # keep name (or "keep_if") → the messages it keeps, oldest first, for the review report
-    kept_messages: dict[str, list[Message]] = field(default_factory=dict)
+    # keep name (or "keep_if") → the messages it keeps, oldest first, for the review report;
+    # one message may be under several
+    kept_messages: Mapping[str, tuple[Message, ...]] = MappingProxyType({})
+
+    @property
+    def kept(self) -> dict[str, int]:
+        """keep name → messages it applies to."""
+        return {p: len(ms) for p, ms in self.kept_messages.items()}
+
+    @property
+    def kept_size(self) -> dict[str, int]:
+        """keep name → the size of the messages it applies to."""
+        return {p: sum(m.size for m in ms) for p, ms in self.kept_messages.items()}
+
+
+def rule_result(
+    rule: Rule, messages: list[Message], taken: Collection[tuple[str, str]]
+) -> tuple[RuleResult, frozenset[tuple[str, str]]]:
+    """
+    One rule's result over the messages in its scope (in_scope), oldest
+    first, and the (account, ID)s taken so far, `taken` and its own. Pure.
+    """
+    taken = set(taken)
+    selected, kept_messages, excluded, kept_total = [], {}, Counter(), 0
+    for m in messages:
+        verdict = classify(rule, m, taken)
+        if verdict.exclusion:
+            excluded[verdict.exclusion] += 1
+        elif verdict.keeps:
+            kept_total += 1
+            for p in verdict.keeps:
+                kept_messages.setdefault(p, []).append(m)
+        else:
+            taken.add((m.account, m.gmail_id))
+            selected.append(m)
+    result = RuleResult(
+        rule,
+        tuple(selected),
+        MappingProxyType(dict(excluded)),
+        kept_total,
+        len(messages),
+        MappingProxyType({p: tuple(ms) for p, ms in kept_messages.items()}),
+    )
+    return result, frozenset(taken)
 
 
 def build_plan(
@@ -322,36 +396,10 @@ def build_plan(
     paths); hits: what each rule's Gmail searches found (see searches()).
     """
     prepare(con, accounts, hits or {})
-    taken: set[tuple] = set()
+    taken: frozenset[tuple[str, str]] = frozenset()
     results = []
     for rule in rules:
-        r = RuleResult(rule, [], Counter(), Counter(), Counter())
-        for m in in_scope(con, rule, accounts, folders):
-            r.scope_total += 1
-            key = (m.account, m.gmail_id)
-            exclusion = next((e for e in EXCLUSIONS if e != "earlier" and m.flags[e]), None)
-            if exclusion is None and key in taken:
-                exclusion = "earlier"
-            if exclusion:
-                r.excluded[exclusion] += 1
-                continue
-            # keep_if counts with the protections, ahead of them; thread and replied count
-            # once, as conversations.
-            protections = list(
-                dict.fromkeys(
-                    ["keep_if"] * m.flags["except"]
-                    + [KEEP_OF[p] for p in rule.protect if m.flags[p]]
-                )
-            )
-            if protections:
-                r.kept_total += 1
-                for p in protections:
-                    r.kept[p] += 1
-                    r.kept_size[p] += m.size
-                    r.kept_messages.setdefault(p, []).append(m)
-                continue
-            taken.add(key)
-            r.selected.append(m)
+        r, taken = rule_result(rule, in_scope(con, rule, accounts, folders), taken)
         results.append(r)
     return results
 
@@ -427,9 +475,11 @@ def summary(results: list[RuleResult], top: int) -> list[Table]:
         names = ["keep_if"] * bool(rule.exceptions)
         names += [k for k, ps in KEEP.items() if any(p in rule.protect for p in ps)]
         for k in names:
-            kept.append((rule.name, f"kept: {KEPT_WHY[k]}", r.kept[k], r.kept_size[k]))
+            kept.append(
+                (rule.name, f"kept: {KEPT_WHY[k]}", r.kept.get(k, 0), r.kept_size.get(k, 0))
+            )
         for e, text in EXCLUSIONS.items():
-            if r.excluded[e]:
+            if r.excluded.get(e):
                 kept.append((rule.name, f"left out: {text}", r.excluded[e], None))
         by_year: dict[str, list[int]] = defaultdict(lambda: [0, 0])
         by_sender: dict[str, list[int]] = defaultdict(lambda: [0, 0])
