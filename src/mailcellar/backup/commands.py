@@ -755,6 +755,17 @@ def local_to_ms(sqlite_internaldate: str) -> int:
     return int(datetime.fromisoformat(sqlite_internaldate).timestamp() * 1000)
 
 
+def parse_action(version: str | None, in_meta: bool) -> str:
+    """
+    What meta does with a backed-up message, by the parser_version
+    meta.sqlite has for it: "current" (this parser's: nothing), "reparse"
+    (an older one's: update its fields) or "add" (no row: add one). Pure.
+    """
+    if version == PARSER_VERSION:
+        return "current"
+    return "reparse" if in_meta else "add"
+
+
 def backfill(gmail, account: str, folder: Path) -> dict:
     """
     Bring meta.sqlite in line with the backup. Parses every backed-up
@@ -792,7 +803,8 @@ def backfill(gmail, account: str, folder: Path) -> dict:
         with Progress("Parsing", len(backed_up)) as parsing:
             for gid, rel, local_date in backed_up:
                 parsing.advance()
-                if known.get(gid) == PARSER_VERSION:
+                action = parse_action(known.get(gid), gid in known)
+                if action == "current":
                     stats["current"] += 1
                     continue
                 path = folder / rel
@@ -805,7 +817,7 @@ def backfill(gmail, account: str, folder: Path) -> dict:
                     logger.warning(f"Cannot parse {path}: {exc}")
                     stats["errors"] += 1
                     continue
-                if gid in known:
+                if action == "reparse":
                     sidecar.update_fields(mcon, gid, fields)
                     stats["reparsed"] += 1
                 else:

@@ -281,3 +281,10 @@ def test_a_sidecar_from_a_newer_mailcellar_is_neither_copied_nor_opened(tmp_path
     with pytest.raises(sidecar.MetaError, match="has schema 99"):
         sidecar.open_meta(folder)
     assert list(folder.glob("meta.sqlite.pre-v*")) == []
+
+
+def test_parse_action_by_the_parser_that_parsed_it():
+    assert commands.parse_action(PARSER_VERSION, True) == "current"
+    assert commands.parse_action("1", True) == "reparse"
+    assert commands.parse_action(None, True) == "reparse"  # a row with no version
+    assert commands.parse_action(None, False) == "add"
