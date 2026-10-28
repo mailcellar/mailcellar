@@ -7,13 +7,30 @@ The keys are documented in `src/mailcellar/offload/rules.py`:
 [[rule]]
 name = "old work mail"
 account = "work"
-label = "work"           # or sender, list, forwarded_from, category, subject, to_me,
-                         # larger_than_mb, query; different keys must all match
+label = "work"           # or sender, list, forwarded_from, category, subject, to_me, to,
+                         # bulk, attachment, larger_than_mb, query; different keys must all match
 before = "2022-01-01"    # or a number of years ago, e.g. "5"
+# after = "2012-01-01"   # and no older than this, written like before
 # keep = ["mine", "starred", "labelled"]   # what stays in Gmail; see below
 # keep_if = [{ subject = "contract" }, { sender = "@client.example", to_me = true }]
 # forget_after = 7       # retention: forget what it offloaded 7 years after its date
 ```
+
+Three scope keys select what the others can't say:
+
+- `to`: an address or `@domain` in To, Cc or Bcc, matched exactly, like
+  `sender`.
+- `bulk = true`: mail sent in bulk, as `report bulk` judges it: a List-Id,
+  List-Unsubscribe or Precedence bulk, list or junk header, or a Gmail
+  category tab. Mail relayed through your own domain is judged by its
+  original sender's headers. `bulk = false` selects the rest.
+- `attachment`: one or more of `any`, `image`, `pdf`, `video`, `audio`,
+  `office`, `archive`. An attachment is a part that isn't inline, or has a
+  file name; its kind comes from its MIME type, or from its file
+  extension when the type says nothing (`application/octet-stream`).
+
+They work in `keep_if` too. `after` doesn't: it bounds the rule's dates,
+from `after` up to `before`, and must be earlier than `before`.
 
 `keep` names what stays in Gmail although the rule selects it. Left out, it
 is `["mine", "starred", "conversations", "labelled"]`; `keep = []` keeps

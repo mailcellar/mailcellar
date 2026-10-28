@@ -50,10 +50,14 @@ keep_if = { subject = "release" }
 - `name` is recorded with every message the rule offloads, and is how you
   select it later.
 - `before` is required: a date, or a number of years ago (`"5"`). Mail
-  newer than it is never selected.
+  newer than it is never selected. `after`, written the same way, leaves
+  out mail older than it.
 - The scope keys say what to select: `label`, `sender` (an address or
   `@domain`), `list`, `forwarded_from`, `category`, `subject`, `to_me`,
-  `larger_than_mb`, and `query`, a search written as in Gmail's search box
+  `to` (a recipient), `bulk` (newsletters, notifications and the like, as
+  `report bulk` finds them), `attachment` (`image`, `pdf`, `video`,
+  `audio`, `office`, `archive` or `any`), `larger_than_mb`, and `query`,
+  a search written as in Gmail's search box
   (`"has:attachment older_than:5y"`), which `plan` runs in Gmail,
   read-only. At least one is needed; different keys must all
   match, and a key given a list matches any of its values. Here one key,

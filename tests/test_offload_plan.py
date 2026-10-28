@@ -1,6 +1,7 @@
 """offload plan: rules, selection, protections and the plan CSV."""
 
 import csv
+import re
 
 import pytest
 
@@ -546,3 +547,130 @@ def test_a_forget_after_no_longer_than_before_is_warned_about(data, caplog):
     run(data, rules)
     assert "rule 'slip': forget_after (2 years) is no longer than before (7)" in caplog.text
     assert "'fine'" not in caplog.text
+
+
+# ── bulk, to, attachment, after ──────────────────────────────────────────────
+
+EARLIER = 1_240_000_000_000  # 2009-04-17
+
+
+def mime(gid, parts, ms=OLD, labels=("INBOX",), **h):
+    """A multipart message: parts are (mime type, disposition or None, file name or None)."""
+    lines = ["From: someone@example.org", f"Subject: s-{gid}", f"Message-ID: <{gid}@x>"]
+    lines += [f"{k.replace('_', '-')}: {v}" for k, v in h.items()]
+    lines += ["MIME-Version: 1.0", 'Content-Type: multipart/mixed; boundary="b"', "", "--b"]
+    lines += ["Content-Type: text/plain", "", f"body {gid}"]
+    for kind, disposition, name in parts:
+        lines += ["--b", f"Content-Type: {kind}"]
+        if disposition:
+            lines.append(
+                f"Content-Disposition: {disposition}" + (f'; filename="{name}"' if name else "")
+            )
+        lines += ["Content-Transfer-Encoding: base64", "", "AAAA"]
+    body = ("\r\n".join(lines + ["--b--", ""])).encode()
+    r = raw_response(gid, ms=ms, label_ids=list(labels), body=body)
+    r["threadId"] = f"t-{gid}"
+    return r
+
+
+KEYED = [
+    message("k1", ("INBOX",), ms=EARLIER, To="Friend <Friend@P.example>"),
+    message("k2", ("INBOX",), List_Id="<news.shop.example>"),
+    message("k3", ("INBOX",), Precedence="bulk", Cc="team@lists.example"),
+    message("k4", ("INBOX", "CATEGORY_PROMOTIONS")),
+    message("k5", ("INBOX",), List_Unsubscribe="<https://shop.example/u>"),
+    message("k10", ("INBOX",), List_Id="<announce.x.com>"),  # relayed through your domain
+    mime("k6", [("image/jpeg", "attachment", "photo.jpg")]),
+    mime("k7", [("image/png", "inline", None)]),  # a logo in the body: no attachment
+    mime("k8", [("application/octet-stream", "attachment", "scan.PDF")]),
+    mime("k9", [("image/png", "inline", "chart.png")]),  # inline, but named: an attachment
+]
+
+
+@pytest.fixture
+def keyed(tmp_path, monkeypatch):
+    monkeypatch.setattr(FakeMailbox, "LABELS", LABELS)
+    gmail = FakeMailbox({m["id"]: m for m in KEYED})
+    commands.backup(gmail, A, tmp_path / "data" / A)
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+def selected(tmp_path, keys):
+    rule = f'[[rule]]\nname = "r"\nbefore = "2020-01-01"\n{keys}\n'
+    return {r["gmail_id"] for r in run(tmp_path, rule)}
+
+
+def test_bulk_is_report_bulks_signal(keyed):
+    assert selected(keyed, "bulk = true") == {"k2", "k3", "k4", "k5"}  # k10's list is yours
+    assert selected(keyed, "bulk = false") == {"k1", "k6", "k7", "k8", "k9", "k10"}
+
+
+def test_to_matches_to_cc_and_bcc_exactly(keyed):
+    assert selected(keyed, 'to = "friend@p.example"') == {"k1"}  # case ignored
+    assert selected(keyed, 'to = ["@lists.example", "@p.example"]') == {"k1", "k3"}
+    assert selected(keyed, 'to = "@example"') == set()  # a domain, not a suffix of one
+
+
+def test_attachment_by_kind(keyed):
+    assert selected(keyed, 'attachment = "any"') == {"k6", "k8", "k9"}
+    assert selected(keyed, 'attachment = "image"') == {"k6", "k9"}
+    assert selected(keyed, 'attachment = ["pdf", "video"]') == {"k8"}  # by its extension
+
+
+def test_after_sets_a_lower_bound(keyed):
+    assert selected(keyed, 'to = "@p.example"\nafter = "2009-01-01"') == {"k1"}
+    assert selected(keyed, 'to = "@p.example"\nafter = "2010-01-01"') == set()
+
+
+def test_the_new_keys_work_in_keep_if(keyed):
+    keep_if = 'keep_if = [{ attachment = "image" }, { to = "@p.example" }]'
+    assert selected(keyed, f"bulk = false\n{keep_if}") == {"k7", "k8", "k10"}
+
+
+@pytest.mark.parametrize(
+    ("keys", "error"),
+    [
+        ('label = "a"\nafter = "2030-01-01"', "after (2030-01-01) must be earlier than before"),
+        ('label = "a"\nafter = "soon"', "after must be a date (YYYY-MM-DD) or a number"),
+        ('label = "a"\nafter = true', "after must be a date"),
+        ('label = "a"\nafter = " "', "after must be a date"),  # not "no lower bound"
+        ('bulk = "yes"', "bulk must be true or false"),
+        ('attachment = "photos"', "unknown attachment kinds ['photos']"),
+        ('label = "a"\nkeep_if = { after = "2010" }', "unknown keys ['after']"),
+    ],
+)
+def test_new_key_errors(tmp_path, keys, error):
+    path = tmp_path / "rules.toml"
+    path.write_text(f'[[rule]]\nname = "x"\nbefore = "2020-01-01"\n{keys}\n')
+    with pytest.raises(RuleError, match=re.escape(error)):
+        load_rules(path, parse_before, lambda a: a)
+
+
+@pytest.mark.parametrize(
+    ("mime_type", "filename", "kinds"),
+    [
+        ("image/jpeg", "", {"any", "image"}),
+        ("IMAGE/HEIC", "x.heic", {"any", "image"}),
+        ("application/pdf", "", {"any", "pdf"}),
+        ("application/octet-stream", "Scan.PDF", {"any", "pdf"}),
+        ("", "clip.mov", {"any", "video"}),
+        ("audio/mpeg", "song.mp3", {"any", "audio"}),
+        (
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "",
+            {"any", "office"},
+        ),
+        ("application/vnd.ms-excel", "", {"any", "office"}),
+        ("application/x-zip-compressed", "", {"any", "archive"}),
+        ("application/rar", "", {"any", "archive"}),
+        ("text/csv", "", {"any", "office"}),
+        ("application/vnd.apple.pkpass", "pass.pkpass", {"any"}),  # Apple, but not a document
+        ("text/plain", "notes.pdf", {"any"}),  # typed: the extension doesn't count
+        ("application/octet-stream", "README", {"any"}),
+    ],
+)
+def test_attachment_kinds(mime_type, filename, kinds):
+    from mailcellar.offload.rules import ATTACHMENT_KINDS, attachment_is
+
+    assert {k for k in ATTACHMENT_KINDS if attachment_is(mime_type, filename, k)} == kinds

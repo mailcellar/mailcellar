@@ -5,6 +5,7 @@ mail to take out of Gmail.
     [[rule]]
     name = "old work mail"             # unique; recorded with every message
     before = "2022-01-01"              # required: a date, or a number of years ago ("5")
+    after = "2012-01-01"               # optional: and no older than this, written like before
     account = "work"                   # optional: address, config name or unique part
     label = "projects"                 # scope: at least one of the keys below
     keep = ["mine", "starred"]         # optional: the protections that apply (see below)
@@ -25,6 +26,12 @@ must all match:
     subject         part of the subject, ignoring case and accents (see fold)
     to_me           true: one of your addresses is in To or Cc; false: it isn't
                     (the mail came by a list, Bcc or an alias)
+    to              an address or "@domain" in To, Cc or Bcc
+    bulk            true: sent in bulk (List-Id, List-Unsubscribe, Precedence bulk,
+                    list or junk, or a Gmail category tab), as report bulk judges it;
+                    false: not
+    attachment      has an attachment (a part that isn't inline, or has a file name)
+                    of a kind: any, image, pdf, video, audio, office, archive
     larger_than_mb  size in MB (a number)
     query           a Gmail search, as typed in Gmail ("has:attachment filename:pdf");
                     offload plan asks Gmail, read-only, which messages it finds
@@ -88,11 +95,56 @@ SCOPES = (
     "category",
     "subject",
     "to_me",
+    "to",
+    "bulk",
+    "attachment",
     "larger_than_mb",
     "query",
 )
 CATEGORIES = ("promotions", "updates", "forums", "social", "personal")
-KEYS = {"name", "before", "account", "keep", "keep_if", "forget_after", *OLD_KEYS, *SCOPES}
+# attachment kind → (MIME type prefixes, file extensions for a part typed only
+# application/octet-stream or not at all); "any" is every attachment
+ATTACHMENT_KINDS = {
+    "any": ((), ()),
+    "image": (("image/",), tuple("jpg jpeg png gif heic heif tif tiff bmp webp".split())),
+    "pdf": (("application/pdf",), ("pdf",)),
+    "video": (("video/",), tuple("mp4 mov m4v avi mkv wmv webm 3gp mpg mpeg".split())),
+    "audio": (("audio/",), tuple("mp3 m4a wav aac flac ogg wma aiff amr".split())),
+    "office": (
+        (
+            "application/msword",
+            "application/msexcel",
+            "application/mspowerpoint",
+            "application/vnd.ms-",
+            "application/vnd.openxmlformats-officedocument.",
+            "application/vnd.oasis.opendocument.",
+            "application/vnd.apple.pages",
+            "application/vnd.apple.numbers",
+            "application/vnd.apple.keynote",
+            "application/rtf",
+            "text/csv",
+        ),
+        tuple("doc docx xls xlsx ppt pptx pps ppsx vsd vsdx odt ods odp rtf csv".split())
+        + ("pages", "numbers", "key"),
+    ),
+    "archive": (
+        (
+            "application/zip",
+            "application/x-zip",
+            "application/gzip",
+            "application/x-gzip",
+            "application/x-tar",
+            "application/rar",
+            "application/x-rar",
+            "application/vnd.rar",
+            "application/x-7z-compressed",
+            "application/x-bzip2",
+        ),
+        tuple("zip gz tgz tar rar 7z bz2".split()),
+    ),
+}
+UNTYPED = ("", "application/octet-stream")  # MIME types that say nothing: go by the extension
+KEYS = {"name", "before", "after", "account", "keep", "keep_if", "forget_after", *OLD_KEYS, *SCOPES}
 
 
 class RuleError(Exception):
@@ -112,6 +164,8 @@ class Rule:
     forget_after: int | None = None  # years, as written; None: kept for ever
     forget_ms: int | None = None  # its mail is due for forgetting when older than this
     deprecated: str = ""  # a warning: the rule uses waive, protect or except
+    after: str = ""  # as written; "": no lower bound
+    after_ms: int | None = None  # ms since epoch, UTC: nothing older is selected
 
     @property
     def waived(self) -> list[str]:
@@ -141,6 +195,18 @@ class Rule:
     def labels(self) -> set[str]:
         """The user labels the rule names, lower case."""
         return {v.lower() for v in self.scope.get("label", [])}
+
+
+def attachment_is(mime_type: str, filename: str, kind: str) -> bool:
+    """Whether a part is an attachment of a kind (ATTACHMENT_KINDS). Pure."""
+    if kind == "any":
+        return True
+    prefixes, extensions = ATTACHMENT_KINDS[kind]
+    mime_type = (mime_type or "").lower()
+    if mime_type.startswith(prefixes):
+        return True
+    extension = (filename or "").rsplit(".", 1)[-1].lower() if "." in (filename or "") else ""
+    return mime_type in UNTYPED and extension in extensions
 
 
 def years_text(n: int) -> str:
@@ -208,6 +274,21 @@ def parse_rule(raw: dict, parse_before, resolve_account) -> Rule:
         before_ms = parse_before(before)
     except Exception as exc:
         raise RuleError(f"rule {name!r}: {exc}") from None
+    after, after_ms = raw.get("after", ""), None
+    if "after" in raw:
+        if isinstance(after, int | float) and not isinstance(after, bool):
+            after = str(after)
+        bad = f"rule {name!r}: after must be a date (YYYY-MM-DD) or a number of years"
+        if not isinstance(after, str) or not after.strip():
+            raise RuleError(bad)
+        try:
+            after_ms = parse_before(after.strip())
+        except Exception:
+            raise RuleError(bad) from None
+        if after_ms >= before_ms:
+            raise RuleError(
+                f"rule {name!r}: after ({after}) must be earlier than before ({before})"
+            )
 
     scope = _parse_scope(name, raw, "")
     if not scope:
@@ -249,6 +330,8 @@ def parse_rule(raw: dict, parse_before, resolve_account) -> Rule:
         forget_after,
         forget_ms,
         deprecated,
+        after,
+        after_ms,
     )
 
 
@@ -358,9 +441,9 @@ def _parse_scope(name: str, raw: dict, where: str) -> dict[str, list]:
                 raise RuleError(f"rule {name!r}: {where}larger_than_mb must be a number")
             scope[key] = [value]
             continue
-        if key == "to_me":
+        if key in ("to_me", "bulk"):
             if not isinstance(value, bool):
-                raise RuleError(f"rule {name!r}: {where}to_me must be true or false")
+                raise RuleError(f"rule {name!r}: {where}{key} must be true or false")
             scope[key] = [value]
             continue
         values = _strings(name, where + key, value)
@@ -369,7 +452,15 @@ def _parse_scope(name: str, raw: dict, where: str) -> dict[str, list]:
             bad = sorted(set(values) - set(CATEGORIES))
             if bad:
                 raise RuleError(f"rule {name!r}: {where}unknown categories {bad}; use {CATEGORIES}")
-        if key in ("sender", "forwarded_from"):
+        if key == "attachment":
+            values = [v.lower() for v in values]
+            bad = sorted(set(values) - set(ATTACHMENT_KINDS))
+            if bad:
+                raise RuleError(
+                    f"rule {name!r}: {where}unknown attachment kinds {bad}; "
+                    f"use {', '.join(ATTACHMENT_KINDS)}"
+                )
+        if key in ("sender", "forwarded_from", "to"):
             values = [v.lower() for v in values]
         if key == "subject":
             values = [fold(v) for v in values]

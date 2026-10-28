@@ -17,6 +17,13 @@ in beta, so commands and options may still change before 1.0.
   plan's Rules table has a Keeps column in place of Waived and Added, and
   kept mail is counted per `keep` name, a conversation once however many
   reasons keep it.
+- Offload rules have four more keys. `bulk = true` selects mail sent in
+  bulk, by the same signal `report bulk` uses. `to` selects by recipient
+  (To, Cc or Bcc), an address or `@domain`. `attachment` selects by
+  attachment kind: `any`, `image`, `pdf`, `video`, `audio`, `office` or
+  `archive`. `after` sets the oldest date a rule takes, as `before` sets
+  the newest; the plan's Rules table shows it. The first three work in
+  `keep_if` too.
 - IMAP accounts can be backed up: `mailcellar setup ADDRESS --imap HOST`
   asks for the password, signs in, and keeps the server in the account's
   `imap.toml` and the password owner-only beside it. `backup`, `count`,

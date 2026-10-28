@@ -70,6 +70,7 @@ def test_rule_text_says_what_a_rule_selects():
         {
             "name": "r",
             "before": "2016-10-26",
+            "after": "2006-01-01",
             "query": ["has:attachment", "larger:10M"],
             "to_me": False,
             "larger_than_mb": 5,
@@ -80,7 +81,8 @@ def test_rule_text_says_what_a_rule_selects():
     )
     assert review.rule_text(rule) == (
         'to_me false · larger_than_mb 5 · query "has:attachment" or "larger:10M" · '
-        'before 2016-10-26 · keep if (sender "@example.org" · subject "contract") or (label "x")'
+        "from 2006-01-01 · before 2016-10-26 · "
+        'keep if (sender "@example.org" · subject "contract") or (label "x")'
     )
 
 
