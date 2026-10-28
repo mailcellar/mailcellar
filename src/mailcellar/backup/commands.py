@@ -183,15 +183,16 @@ def sort_changes(
 
 
 def history_plan(
-    gmail, con, mcon, have: set[str], indexed: set[str], start: str
-) -> tuple[HistoryPlan, int, str]:
+    gmail, con, mcon, have: set[str], indexed: set[str], start: str, stats: dict
+) -> tuple[HistoryPlan, str]:
     """
-    History-based run: (the plan, label updates made, historyId to store
-    afterwards). Works from each touched message's current state, so it can
-    be repeated. Updates labels of backed-up messages and marks offloaded
-    ones gone. Indexed messages whose .eml has gone missing locally are
-    looked up too, so they are re-fetched as a full run would. Raises
-    HistoryExpired.
+    History-based run: (the plan, historyId to store afterwards). Works from
+    each touched message's current state, so it can be repeated. Updates
+    labels of backed-up messages and marks offloaded ones gone, counting
+    into `stats` (backup's running tally) as it goes, so a run that fails
+    part way records what it did. Indexed messages whose .eml has gone
+    missing locally are looked up too, so they are re-fetched as a full run
+    would. Raises HistoryExpired.
     """
     touched, deleted, new_history_id = gmail.history_changes(start)
     lookup = sorted((touched - deleted) | (indexed - have))
@@ -199,7 +200,9 @@ def history_plan(
     plan = sort_changes(
         current_labels(gmail, lookup, len(have)), have, deleted, sidecar.kept_ids(mcon)
     )
-    changed = sum(apply_labels(con, mcon, gmail, gid, ids) for gid, ids in plan.labels)
+    stats |= {"skipped": plan.skipped, "deleted_backed_up": len(plan.gone)}
+    for gid, ids in plan.labels:
+        stats["labels_changed"] += apply_labels(con, mcon, gmail, gid, ids)
     sidecar.mark_gone(mcon, plan.gone_offloaded, now_ms())
     logger.info(
         history_summary(
@@ -209,11 +212,11 @@ def history_plan(
             present=None if gmail.provider == "gmail" else len(gmail.list_message_ids()),
             missing=len(indexed - have),
             todo=len(plan.todo),
-            labels=changed,
+            labels=stats["labels_changed"],
             skipped=plan.skipped,
         )
     )
-    return plan, changed, new_history_id
+    return plan, new_history_id
 
 
 def history_summary(
@@ -400,14 +403,9 @@ def _backup(
     if start:
         try:
             indexed = {u for (u,) in con.execute("SELECT uid FROM uids")}
-            plan, changed, next_history_id = history_plan(gmail, con, mcon, have, indexed, start)
+            plan, next_history_id = history_plan(gmail, con, mcon, have, indexed, start, stats)
             todo = list(plan.todo)
-            stats |= {
-                "mode": "history",
-                "labels_changed": changed,
-                "skipped": plan.skipped,
-                "deleted_backed_up": len(plan.gone),
-            }
+            stats["mode"] = "history"
             con.commit()
             mcon.commit()
         except gmailapi.HistoryExpired:
