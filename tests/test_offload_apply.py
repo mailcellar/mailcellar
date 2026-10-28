@@ -600,3 +600,20 @@ def test_second_copy_report_when_time_machine_answers_oddly(monkeypatch, tmp_pat
         "Latest Time Machine backup: unknown (no date in this output)"
         in (offload_apply.second_copy_report(tmp_path, None)[-1])
     )
+
+
+def test_select_rows_by_rule_account_and_limit():
+    rows = [
+        {"rule": "a", "account": "x@example.com", "gmail_id": "1"},
+        {"rule": "b", "account": "x@example.com", "gmail_id": "2"},
+        {"rule": "a", "account": "y@example.com", "gmail_id": "3"},
+        {"rule": "a", "account": "x@example.com", "gmail_id": "4"},
+    ]
+
+    def ids(rules=(), accounts=(), limit=None):
+        return [r["gmail_id"] for r in cli.select_rows(rows, set(rules), set(accounts), limit)]
+
+    assert ids() == ["1", "2", "3", "4"]  # none given: all
+    assert ids(rules=["a", "b"], accounts=["x@example.com"]) == ["1", "2", "4"]
+    assert ids(rules=["a"], limit=2) == ["1", "3"]  # the limit counts what is chosen
+    assert ids(limit=0) == []
