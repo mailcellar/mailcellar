@@ -375,8 +375,10 @@ def test_rule_defaults(tmp_path):
 def test_forget_after_is_years_from_now(tmp_path):
     path = tmp_path / "rules.toml"
     path.write_text('[[rule]]\nname = "x"\nbefore = 2\nlabel = "a"\nforget_after = 7\n')
+    earliest = parse_before("7")
     (rule,) = load_rules(path, parse_before, lambda a: a)
-    assert rule.forget_after == 7 and rule.forget_ms == parse_before("7")
+    latest = parse_before("7")  # "now" moves on while the rules load
+    assert rule.forget_after == 7 and earliest <= rule.forget_ms <= latest
 
 
 def test_unknown_account_is_an_error(data, capsys):
