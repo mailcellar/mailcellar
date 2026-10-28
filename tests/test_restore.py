@@ -1196,3 +1196,42 @@ def test_decisions_name_the_mailbox_restored_into():
     assert (d.way, d.detail) == ("found", "The server has it as n1")
     assert mailbox.mailbox_name("gmail", start=True) == "Gmail"
     assert mailbox.mailbox_name("imap") == "the server"
+
+
+def test_select_chooses_from_what_the_backup_knows():
+    def bm(gid, *labels):
+        return gyb.BackupMessage(gid, Path(f"{gid}.eml"), "", list(labels))
+
+    snap = restore.Snapshot(
+        offload={"o1": ("b1", "r1"), "o2": ("b2", "r2"), "gone": ("b1", "r1")},
+        stored={
+            "o1": (2, "h1", "v", "Pat@Example.com"),
+            "o2": (1, "h2", "v", ""),
+            "k1": (3, "", "", ""),
+        },
+        index={"o1": bm("o1", "Work", "mark"), "o2": bm("o2"), "k1": bm("k1"), "old": bm("old")},
+        recorded={"o1": "sha"},
+        restored=frozenset({"o2"}),
+        forgotten=frozenset({"gone"}),
+        superseded=frozenset({"old"}),
+        marks=frozenset({"mark"}),
+    )
+
+    def ids(**sel):
+        return [c.source_id for c in restore.select(snap, restore.Selection(**sel))]
+
+    (o1,) = restore.select(snap, restore.Selection())  # offloaded, not restored or forgotten
+    assert (o1.batch, o1.rule, o1.labels, o1.sender, o1.sha256) == (
+        "b1",
+        "r1",
+        ("Work",),
+        "pat@example.com",
+        "sha",
+    )
+    assert ids(include_restored=True) == ["o2", "o1"]  # oldest first
+    assert ids(everything=True) == ["o1", "k1"]  # never the superseded "old"
+    assert ids(ids=frozenset({"k1", "o1"})) == ["o1", "k1"]  # IDs: the whole backup
+    assert ids(ids=frozenset({"k1", "o1"}), offloaded_only=True) == ["o1"]
+    assert ids(batches=frozenset({"b2"}), include_restored=True) == ["o2"]
+    assert ids(rules=frozenset({"r2"})) == []  # restored already
+    assert ids(everything=True, narrow=restore.Narrowing(senders=("@example.com",))) == ["o1"]

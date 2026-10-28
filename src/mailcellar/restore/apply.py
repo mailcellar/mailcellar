@@ -23,7 +23,8 @@ Gmail already has with other content is skipped: Gmail would match the
 import to that message instead of storing this one.
 
 The steps, each returning new frozen values:
-  candidates()  the backup's messages to restore (Candidate)
+  candidates()  the backup's messages to restore (Candidate): read_snapshot()
+                reads what the backup knows, select() — pure — chooses
   plan()        reads the backup copies and Gmail, then decide() — a pure
                 function of what was read — picks each one's way back
                 (Decision)
@@ -48,6 +49,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from email.parser import BytesHeaderParser
 from pathlib import Path
+from types import MappingProxyType
 
 from mailcellar.backup import chain, gyb, sidecar
 from mailcellar.dedup.apply import DEDUP_LABEL
@@ -258,6 +260,105 @@ def _open_current(folder: Path) -> sqlite3.Connection:
     return con
 
 
+@dataclass(frozen=True)
+class Snapshot:
+    """What a backup knows that candidates are chosen from: read by read_snapshot()."""
+
+    offload: Mapping[str, tuple[str, str]]  # offloaded ID → (batch, rule)
+    # ID → (internal date, content hash, parser version, sender), from meta.sqlite
+    stored: Mapping[str, tuple[int | None, str | None, str | None, str | None]]
+    index: Mapping[str, gyb.BackupMessage]  # what gyb's index has, with its .eml
+    recorded: Mapping[str, str]  # ID → the .eml's SHA-256, as the hash chain recorded it
+    restored: frozenset[str]  # source IDs restored into the target already
+    forgotten: frozenset[str]  # deleted from the backup by offload forget
+    superseded: frozenset[str]  # old IDs of messages restored under new ones
+    marks: frozenset[str]  # an IMAP backup's review marks: never put back
+
+
+@dataclass(frozen=True)
+class Selection:
+    """Which candidates to take from a Snapshot: see candidates()."""
+
+    batches: frozenset[str] = frozenset()
+    rules: frozenset[str] = frozenset()
+    ids: frozenset[str] = frozenset()
+    everything: bool = False
+    narrow: Narrowing | None = None
+    include_restored: bool = False
+    offloaded_only: bool = False
+
+
+def read_snapshot(folder: Path, target: str = "") -> Snapshot:
+    """What the backup in `folder` knows, with what it restored into `target`. Read-only."""
+    con = _open_current(folder)
+    try:
+        offload = {
+            gid: (batch, rule)
+            for gid, batch, rule in con.execute("SELECT gmail_id, batch, rule FROM offloaded")
+        }
+        stored = {
+            gid: (internal_date, content_hash, version, sender)
+            for gid, internal_date, content_hash, version, sender in con.execute(
+                """SELECT gmail_id, internal_date, content_hash, parser_version, sender_addr
+                   FROM messages"""
+            )
+        }
+        restored = frozenset(sidecar.restored_ids(con, target))
+        forgotten = frozenset(sidecar.forgotten_ids(con))
+        superseded = frozenset(sidecar.superseded(con))
+        marks = sidecar.mark_labels(con)
+    finally:
+        con.close()
+    return Snapshot(
+        MappingProxyType(offload),
+        MappingProxyType(stored),
+        MappingProxyType({bm.gmail_id: bm for bm in gyb.iter_backup(folder)}),
+        MappingProxyType(chain.held(folder)),
+        restored,
+        forgotten,
+        superseded,
+        marks,
+    )
+
+
+def select(snap: Snapshot, sel: Selection) -> list[Candidate]:
+    """The candidates `sel` takes from `snap`, oldest first (see candidates()). Pure."""
+    whole = sel.everything or (bool(sel.ids) and not sel.offloaded_only)
+    pool = set(snap.index) | set(snap.offload) if whole else set(snap.offload)
+    left_out = snap.forgotten | (frozenset() if sel.include_restored else snap.restored)
+    if whole or sel.include_restored:
+        left_out |= snap.superseded
+
+    def candidate(gid: str) -> Candidate:
+        batch, rule = snap.offload.get(gid, ("", ""))
+        bm = snap.index.get(gid)
+        internal_date, content_hash, version, sender = snap.stored.get(gid, (None, "", "", ""))
+        return Candidate(
+            gid,
+            batch,
+            rule,
+            bm.path if bm else None,
+            tuple(label for label in bm.labels if label not in snap.marks) if bm else (),
+            internal_date or 0,
+            content_hash or "",
+            version or "",
+            offloaded=gid in snap.offload,
+            sender=(sender or "").lower(),
+            sha256=snap.recorded.get(gid, ""),
+        )
+
+    chosen = (
+        candidate(gid)
+        for gid in pool - left_out
+        if (not sel.ids or gid in sel.ids)
+        and (not sel.batches or snap.offload.get(gid, ("", ""))[0] in sel.batches)
+        and (not sel.rules or snap.offload.get(gid, ("", ""))[1] in sel.rules)
+    )
+    if sel.narrow:
+        chosen = (c for c in chosen if matches(c, sel.narrow))
+    return sorted(chosen, key=lambda c: (c.internal_date, c.source_id))
+
+
 def candidates(
     folder: Path,
     batches=(),
@@ -281,60 +382,18 @@ def candidates(
     while the mailbox still has it; the old IDs of messages restored under
     new ones are always left out, so none is listed twice.
     Messages deleted from the backup by offload forget are never candidates
-    (see forgotten_in).
+    (see forgotten_in). read_snapshot() reads; select() chooses.
     """
-    con = _open_current(folder)
-    try:
-        offload = {
-            gid: (batch, rule)
-            for gid, batch, rule in con.execute("SELECT gmail_id, batch, rule FROM offloaded")
-        }
-        recorded = chain.held(folder)  # each file's SHA-256, where the backup has a chain
-        stored = {
-            gid: (internal_date, content_hash, version, sender)
-            for gid, internal_date, content_hash, version, sender in con.execute(
-                """SELECT gmail_id, internal_date, content_hash, parser_version, sender_addr
-                   FROM messages"""
-            )
-        }
-        done = set() if include_restored else sidecar.restored_ids(con, target)
-        done |= sidecar.forgotten_ids(con)  # deleted from the backup: nothing to restore from
-        marks = sidecar.mark_labels(con)  # an IMAP backup's review marks: not put back
-    finally:
-        con.close()
-    whole = everything or (bool(ids) and not offloaded_only)
-    superseded = sidecar.superseded_ids(folder) if whole or include_restored else set()
-    index = {bm.gmail_id: bm for bm in gyb.iter_backup(folder)}
-    pool = set(index) | set(offload) if whole else set(offload)
-
-    def candidate(gid: str) -> Candidate:
-        batch, rule = offload.get(gid, ("", ""))
-        bm = index.get(gid)
-        internal_date, content_hash, version, sender = stored.get(gid, (None, "", "", ""))
-        return Candidate(
-            gid,
-            batch,
-            rule,
-            bm.path if bm else None,
-            tuple(label for label in bm.labels if label not in marks) if bm else (),
-            internal_date or 0,
-            content_hash or "",
-            version or "",
-            offloaded=gid in offload,
-            sender=(sender or "").lower(),
-            sha256=recorded.get(gid, ""),
-        )
-
-    chosen = (
-        candidate(gid)
-        for gid in pool - done - superseded
-        if (not ids or gid in ids)
-        and (not batches or offload.get(gid, ("", ""))[0] in batches)
-        and (not rules or offload.get(gid, ("", ""))[1] in rules)
+    selection = Selection(
+        batches=frozenset(batches),
+        rules=frozenset(rules),
+        ids=frozenset(ids),
+        everything=everything,
+        narrow=narrow,
+        include_restored=include_restored,
+        offloaded_only=offloaded_only,
     )
-    if narrow:
-        chosen = (c for c in chosen if matches(c, narrow))
-    return sorted(chosen, key=lambda c: (c.internal_date, c.source_id))
+    return select(read_snapshot(folder, target), selection)
 
 
 def restored_into(folder: Path, target: str = "") -> dict[str, str]:
