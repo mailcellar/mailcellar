@@ -341,6 +341,30 @@ def test_putting_back_fails_each_move_and_copy_on_its_own():
     }
 
 
+def test_further_homes_are_copied_into_only_where_missing():
+    plan = imap.PutBack(
+        {},
+        {},
+        {"a": ("INBOX", "Archive", "Projects"), "b": ("INBOX", "Projects"), "c": ("INBOX",)},
+        (),
+    )
+    more = imap.further_homes(plan, frozenset({"b"}))  # b stuck in Trash: copy it nowhere
+    assert more == {"a": ("Archive", "Projects")}  # c has one home: MOVE filled it
+
+    def message(gid, *places):
+        return imap.Message(gid, frozenset(), places[0], places=places)
+
+    scan = imap.Scan(
+        {"a": message("a", ("INBOX", 4), ("Projects", 9)), "z": message("z", ("INBOX", 5))},
+        frozenset(),
+        {},
+    )
+    # from the copy it fetches from; not into Projects, which has one already; z, not in
+    # `more`, gets none
+    assert imap.further_copies(more, scan) == (("a", "INBOX", 4, "Archive"),)
+    assert imap.further_copies({"gone": ("Archive",)}, scan) == ()  # not on the server now
+
+
 def test_a_bad_answer_to_a_read_stops_loudly(server, monkeypatch):
     server.add("INBOX", msgid="<a@x>", flags={"\\Seen"})
     uid = server.uid

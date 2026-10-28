@@ -947,6 +947,36 @@ def put_back_failures(
     return copied | stuck
 
 
+def further_homes(plan: PutBack, stuck: frozenset[str]) -> dict[str, tuple[str, ...]]:
+    """
+    ID → the homes after its first, which COPY fills once MOVE has put it
+    there: for each message with more than one, unless it is `stuck`
+    (stuck_ids), still where it was. Pure.
+    """
+    return {
+        gid: homes[1:] for gid, homes in plan.homes.items() if len(homes) > 1 and gid not in stuck
+    }
+
+
+def further_copies(
+    more: Mapping[str, tuple[str, ...]], scan: Scan
+) -> tuple[tuple[str, str, int, str], ...]:
+    """
+    The COPYs that fill further homes (`more`, from further_homes), as
+    (ID, folder, UID, destination), by the scan read after the MOVEs: from
+    the copy it fetches from, into each home it isn't in yet (no second
+    copy), in `more`'s order. A message the scan doesn't show has none. Pure.
+    """
+    out = []
+    for gid, extra in more.items():
+        if gid not in scan.messages:
+            continue
+        name, uid = scan.messages[gid].where
+        there = {n for n, _u in scan.messages[gid].places}
+        out += [(gid, name, uid, dst) for dst in extra if dst not in there]
+    return tuple(out)
+
+
 def untrash_result(plan: PutBack, stuck: Mapping[str, str], after: Scan) -> list[str]:
     """
     untrash()'s failures: the plan's own, those of putting back (`stuck`, from
@@ -1831,28 +1861,17 @@ class ImapAccount:
                         refused[(src, dst)] = str(exc)
         finally:
             self._changed()
-        stuck = stuck_ids(plan, refused)  # still where it was: copy it nowhere
-        more = {
-            gid: homes[1:]
-            for gid, homes in plan.homes.items()
-            if len(homes) > 1 and gid not in stuck  # its further homes, unfilled
-        }
+        more = further_homes(plan, stuck_ids(plan, refused))
         if more:
-            scan = self._scan()[1]
-            for gid, extra in more.items():
-                if gid not in scan.messages:
-                    continue
-                name, uid = scan.messages[gid].where
-                there = {n for n, _u in scan.messages[gid].places}
-                for dst in (d for d in extra if d not in there):  # no second copy
+            for gid, name, uid, dst in further_copies(more, self._scan()[1]):
 
-                    def copy(conn, chunk, dst=dst):
-                        self._ok(*conn.uid("COPY", chunk, quote(dst)), "COPY")
+                def copy(conn, chunk, dst=dst):
+                    self._ok(*conn.uid("COPY", chunk, quote(dst)), "COPY")
 
-                    try:
-                        self._write(name, [uid], f"copying to {dst}", copy)
-                    except gmailapi.GmailError as exc:
-                        copies.setdefault(gid, (dst, str(exc)))
+                try:
+                    self._write(name, [uid], f"copying to {dst}", copy)
+                except gmailapi.GmailError as exc:
+                    copies.setdefault(gid, (dst, str(exc)))
             self._changed()
         return put_back_failures(plan, refused, copies)
 
