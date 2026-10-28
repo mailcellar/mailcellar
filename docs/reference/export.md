@@ -1,9 +1,10 @@
 # Exporting mail: export
 
-Sometimes mail needs to go somewhere other than back into Gmail: to an
+Sometimes mail needs to go somewhere other than back into its mailbox: to an
 accountant or a lawyer, or into a desktop mail client to read a year of
 offloaded mail. `export` copies a selection out of the backup. It is
-read-only (nothing changes in Gmail or the backup) and needs no Gmail access.
+read-only (nothing changes in the mailbox or the backup) and needs no access
+to the mailbox.
 
 ```bash
 mailcellar export personal --offloaded --to ~/old-mail.mbox      # for a mail client

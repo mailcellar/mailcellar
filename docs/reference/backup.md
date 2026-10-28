@@ -3,10 +3,10 @@
 ```bash
 mailcellar backup                  # every account, incremental
 mailcellar backup personal         # one account
-mailcellar count                   # compare Gmail with the backups
+mailcellar count                   # compare each mailbox with its backup
 mailcellar backup personal --full  # list every message instead of using history
 mailcellar backup --unattended     # for scheduled runs: never opens a browser
-mailcellar backup personal --prune  # also move mail permanently deleted from Gmail
+mailcellar backup personal --prune  # also move mail permanently deleted from the mailbox
                                           # (not offloaded mail) into <data root>/_pruned/
 mailcellar meta                    # fill meta.sqlite for older mail
 mailcellar verify                  # are the backup's files still intact?
@@ -22,8 +22,8 @@ Otherwise 1, in any of these cases:
 
 `restore` exits 1 when any message was skipped or failed.
 
-**Checking the backup.** Once mail is offloaded and Gmail has emptied its
-Trash, the backup holds the only copy, so `verify` looks for damage that
+**Checking the backup.** Once mail is offloaded and the mailbox has emptied
+its Trash, the backup holds the only copy, so `verify` looks for damage that
 would otherwise go unnoticed: a failing disk, a sync tool rewriting files,
 an accidental delete. It needs no access to the mailbox and changes nothing (both
 databases are opened read-only).
@@ -53,7 +53,7 @@ progress goes to stderr.
 
 Backups live in `<data root>/<email>/`, in the format of
 [gyb](https://github.com/GAM-team/got-your-back), so other tools can read
-them too. [`mailcellar restore`](restore.md) puts mail back into Gmail.
+them too. [`mailcellar restore`](restore.md) puts mail back into its mailbox.
 
 ## Options
 
@@ -64,13 +64,13 @@ with none named, every account in `accounts.toml`.
 
 | Option | What it does |
 | --- | --- |
-| `--full` | List every message instead of reading Gmail's history since the last run |
+| `--full` | List every message instead of reading Gmail's history since the last run (an IMAP account reads every folder on each run, and works out what changed) |
 | `--prune` | Then move mail permanently deleted from the mailbox out of the backup, into `<data root>/_pruned/<email>/`; never offloaded mail |
 | `--yes` | With `--prune`: don't ask before moving |
 | `--force` | With `--prune`: allow moving more than 10% of the backup |
 | `--unattended` | For scheduled runs: never open a browser. A token that needs signing in fails that account's run, with the command to fix it |
-| `--refresh-labels` | Also re-sync the labels of messages already backed up. Gmail lists them label by label, 500 messages per call, so about a minute for 50,000 messages |
-| `--search QUERY` | Only consider messages matching this Gmail search |
+| `--refresh-labels` | Also re-sync the labels of messages already backed up. Gmail lists them label by label, 500 messages per call, so about a minute for 50,000 messages. An IMAP account's labels are refreshed on every run |
+| `--search QUERY` | Only consider messages matching this Gmail search (Gmail accounts only) |
 | `--folder FOLDER` | Backup folder (default `<data root>/<email>`) |
 | `--config CONFIG` | Config folder (default `~/.config/mailcellar`, or `$MAILCELLAR_CONFIG`) |
 

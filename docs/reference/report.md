@@ -12,7 +12,7 @@ mailcellar report health                  # completeness, runs, gaps, pruned and
 mailcellar report senders personal --top 30  # top senders and domains in one backup
 ```
 
-Reports read only the local backups, never Gmail. Each takes `--help`,
+Reports read only the local backups, never the mailboxes. Each takes `--help`,
 and prints notes on what its columns mean.
 
 ## Options
@@ -65,7 +65,7 @@ hold hasn't run for 7 days.
 
 | Option | What it does |
 | --- | --- |
-| `--window-days DAYS` | Gmail's history retention: longer gaps between backups mean a full listing (default 28) |
+| `--window-days DAYS` | Gmail's history retention: longer gaps between backups mean a full listing (default 28; Gmail accounts) |
 
 ### `report senders ACCOUNT`
 

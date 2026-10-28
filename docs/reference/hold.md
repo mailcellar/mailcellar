@@ -2,12 +2,12 @@
 
 A hold names mail that must be kept as it is, for a dispute, an audit or a
 records request. The commands that remove mail leave what a hold covers
-alone, in Gmail and in the backup:
+alone, in the mailbox and in the backup:
 
 | Command | With a hold |
 | --- | --- |
-| `offload apply`, `dedup apply` | held mail stays in Gmail (the log says `held: NAME`) |
-| `backup --prune` | held mail stays in the backup after Gmail deletes it |
+| `offload apply`, `dedup apply` | held mail stays in the mailbox (the log says `held: NAME`) |
+| `backup --prune` | held mail stays in the backup after the mailbox deletes it |
 | `offload forget` | held mail isn't forgotten |
 | `offload forget --empty` | a forget run that may contain held mail is kept |
 
@@ -76,7 +76,7 @@ The holds in force, with how many messages each keeps now.
 ### `hold show NAME [ACCOUNT ...]`
 
 The hold's reason and criteria; how many messages it keeps and their dates;
-how many of them Gmail no longer has, as far as the backup knows, so the
+how many of them the mailbox no longer has, as far as the backup knows, so the
 backup holds the only copy; and forgotten mail it may cover.
 
 ### `hold release NAME [ACCOUNT ...]`
