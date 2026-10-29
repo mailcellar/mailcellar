@@ -117,6 +117,15 @@ root.
 No. A paid macOS app is sold under the name "Mailcellar" on newmac.app.
 It isn't made by this project and has no connection to it.
 
+As its own site described it on 29 October 2026, that app isn't signed
+with an Apple Developer ID or notarized by Apple. Its install guide asks
+you to override macOS's warning, or to run a script that removes the
+quarantine flag so the warning never appears. Its terms and privacy
+policy name no company or address. And it asks for an app password to
+your email account. Whatever app you use, don't give a password for your
+email to software you can't verify, and don't bypass macOS's warnings to
+open it.
+
 mailcellar is free and open source (Apache-2.0), and it comes only from
 these places:
 
