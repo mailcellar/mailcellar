@@ -19,6 +19,13 @@ in beta, so commands and options may still change before 1.0.
   refuse the label because the planned messages already carry it.
 
 ### Fixed
+- A run of `offload forget` or `backup --prune` stopped part-way (a crash,
+  Ctrl-C) left a folder with no manifest, and the next run hard-linked its
+  files into its own folder: `offload forget --empty` of that run then
+  freed no space, and the forgotten mail stayed on disk in a folder
+  nothing listed. The next run now moves those files into its own folder,
+  so there is one copy under one manifest, and removes the stopped run's
+  folder once it is empty.
 - `restore` skipped a message it had restored before even when the mailbox
   had lost it since, so `restore --all` after the mailbox was emptied left
   some of the backup out. A restored message now counts as done only while

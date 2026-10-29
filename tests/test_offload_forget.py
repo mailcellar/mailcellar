@@ -497,6 +497,7 @@ def test_an_interrupted_forget_changes_neither_database_and_a_rerun_completes(
         return real_move(src, target)
 
     monkeypatch.setattr(gyb.shutil, "move", stopping_move)
+    monkeypatch.setattr(forget, "RUN_FORMAT", "run-1")  # the rerun gets a folder of its own
     with pytest.raises(KeyboardInterrupt):
         run("--batch", BATCH, "--yes", typed="2", monkeypatch=monkeypatch)
     in_backup = {m.gmail_id for m in gyb.iter_backup(folder)} | {
@@ -509,9 +510,12 @@ def test_an_interrupted_forget_changes_neither_database_and_a_rerun_completes(
     meta.close()
 
     monkeypatch.setattr(gyb.shutil, "move", real_move)
+    monkeypatch.setattr(forget, "RUN_FORMAT", "run-2")
     run("--batch", BATCH, "--yes", typed="2", monkeypatch=monkeypatch)
     assert "Forgot 2 messages" in capsys.readouterr().out
     assert not {"p0", "p1"} & {m.gmail_id for m in gyb.iter_backup(folder)}
+    (run_dir,) = forget.runs_dir(A).iterdir()  # the stopped run's folder is gone
+    assert all(p.stat().st_nlink == 1 for p in run_dir.rglob("*.eml"))  # --empty frees them
 
 
 def test_forget_rows_name_the_mailbox_by_provider():
