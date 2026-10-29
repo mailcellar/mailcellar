@@ -297,11 +297,13 @@ def cmd_apply(args) -> None:
     before = len(rows)
     rows = remaining(rows, mode, label, plan_folders, Path(args.log))
     if len(rows) < before:
+        why = ["offloaded", "restored since the plan"]
+        why += {
+            "label": ["labelled before"],
+            "trash": ["not labelled by a label run", "vetoed before"],
+        }.get(mode, [])
         logger.info(
-            f"{before - len(rows):,} plan rows already done (offloaded"
-            + (", or labelled before" if mode == "label" else "")
-            + (", not labelled by a label run, or vetoed before" if mode == "trash" else "")
-            + ")."
+            f"{before - len(rows):,} plan rows already done ({', '.join(why[:-1])}, or {why[-1]})."
         )
     chosen = {resolve_account(a) for a in args.accounts or ()}
     rows = select_rows(rows, set(args.rule or ()), chosen, args.limit)

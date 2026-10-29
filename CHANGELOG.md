@@ -35,6 +35,10 @@ in beta, so commands and options may still change before 1.0.
   plan, label), and only `--trash` needs a backup newer than the plan.
   Both now name the accounts to back up before `--trash` instead; a failed
   or missing backup is still a warning at every step.
+- `offload apply --limit` counted messages restored since the plan was
+  made, which every run skips (their labels changed with the restore), so
+  they took places from messages it could act on. Such messages are now
+  left out before the limit, as offloaded ones are, and aren't read.
 
 ## 0.17.0 (2026-10-28)
 
