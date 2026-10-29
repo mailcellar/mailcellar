@@ -25,6 +25,11 @@ delete the folder once you no longer need them.
   mailbox itself, stops if more than 10% of the backup would go unless
   `--force`, keeps mail under a legal hold, and combines with `--batch`,
   `--rule` and `--due` in one run.
+- The FAQ compares mailcellar with other tools (gyb, Gmvault, mbsync and
+  OfflineIMAP, imapsync, MailStore, piler): what each is for, and whether
+  it replaces mailcellar or runs beside it.
+- The README and the FAQ say that mailcellar is not the paid macOS app
+  sold as "Mailcellar" on newmac.app, and where mailcellar comes from.
 
 ### Changed
 - `offload forget` is now `mailcellar forget`, a command of its own,
@@ -38,6 +43,11 @@ delete the folder once you no longer need them.
   `--folder`.
 - `backup` and `count`, when they find mail deleted in the mailbox, now
   point to `forget --deleted` rather than `backup --prune`.
+- The documentation site is built with Zensical, Material for MkDocs's
+  successor, and has its new look: a plain header and other fonts. The
+  addresses of its pages are unchanged.
+- The package description on PyPI mentions IMAP accounts as well as
+  Gmail.
 
 ### Deprecated
 These go in a later release:
