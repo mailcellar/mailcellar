@@ -7,6 +7,8 @@ in beta, so commands and options may still change before 1.0.
 
 ## Unreleased
 
+## 0.19.0 (2026-10-29)
+
 **Upgrading from 0.18.0:** no database's schema changes. A script that
 runs `backup --prune --yes` now forgets nothing, since forget asks for
 the count to be typed and a script has no terminal to type it in: run
