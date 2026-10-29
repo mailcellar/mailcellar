@@ -2,6 +2,7 @@
 
 import csv
 import sqlite3
+import time
 from pathlib import Path
 
 import pytest
@@ -258,6 +259,39 @@ def test_trash_batches_advance(env):
     assert set(offloaded(env.folder)) == {f"w{i}" for i in range(5)}
     with pytest.raises(SystemExit, match="no plan rows match"):
         apply("--trash", "--yes", "--limit", "2")
+
+
+def test_mail_restored_since_the_plan_takes_no_place_under_limit(env, capsys):
+    apply("--label")
+    first = apply("--trash", "--yes", "--limit", "2")
+    assert outcomes(first[-2:], "trashed") == ["w0", "w1"]
+    con = sidecar.open_meta(env.folder)  # w0 restored, as restore records and labels it
+    sidecar.record_restored(con, "w0", "w0", "untrashed", "run", int(time.time() * 1000))
+    con.commit()
+    con.close()
+    env.live.set_labels("w0", {"work", "restored/2026-10-26"})
+    capsys.readouterr()
+    second = apply("--trash", "--yes", "--limit", "2")[len(first) :]
+    assert [r["gmail_id"] for r in second] == ["w2", "w3"]  # w0 isn't read, nor counted
+    assert outcomes(second, "trashed") == ["w2", "w3"]
+    assert "2 plan rows already done" in capsys.readouterr().err  # w1 offloaded, w0 restored
+    assert "TRASH" not in env.live.labels_of("w0")
+
+
+@pytest.mark.parametrize(
+    "restored_ms, expected",
+    [
+        (None, False),  # never restored
+        (946_684_799_000, False),  # restored before the plan: planned as it is now
+        (946_684_800_000, True),  # restored as the plan was made, or after
+        (946_684_801_000, True),
+    ],
+)
+def test_restored_since_planned(restored_ms, expected):
+    row = {"account": A, "gmail_id": "w0", "planned": "2000-01-01 00:00:00"}
+    restored = {A: {} if restored_ms is None else {"w0": restored_ms}}
+    assert offload_apply.restored_since_planned(row, restored) is expected
+    assert offload_apply.restored_since_planned({**row, "account": "b@y.com"}, restored) is False
 
 
 def test_label_batches_advance_and_vetoes_are_not_retried(env):

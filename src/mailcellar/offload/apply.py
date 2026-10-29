@@ -296,12 +296,42 @@ def offloaded_by_account(folders: dict[str, Path]) -> dict[str, set[str]]:
     return out
 
 
+def restored_by_account(folders: dict[str, Path]) -> dict[str, dict[str, int]]:
+    """account → {Gmail ID: when restored, ms} of offloaded messages put back since (read-only)."""
+    out = {}
+    for account, folder in folders.items():
+        path = sidecar.meta_path(folder)
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            out[account] = dict(
+                con.execute(
+                    "SELECT gmail_id, restored_ms FROM offloaded WHERE restored_ms IS NOT NULL"
+                )
+            )
+        finally:
+            con.close()
+    return out
+
+
+def restored_since_planned(row: Mapping, restored: Mapping[str, Mapping[str, int]]) -> bool:
+    """
+    Whether the row's message was restored after its plan row was made
+    (restored from restored_by_account). The restore changed its labels
+    (restored/<date> on, the offload label off), so every run would skip it,
+    and it has no place under --limit. A message restored before the plan
+    was made was planned as it is now. Pure.
+    """
+    when = restored.get(row["account"], {}).get(row["gmail_id"])
+    return when is not None and when >= timegm(time.strptime(row["planned"], PLANNED_FORMAT)) * 1000
+
+
 def remaining(
     rows: list[dict], mode: str, label: str, folders: dict[str, Path], log_path: Path
 ) -> list[dict]:
     """
     The plan rows still to do, so that repeated runs with --limit advance:
-    never offloaded ones; for --label, not those labelled before; for
+    never offloaded ones, and not those restored since the plan was made;
+    for --label, not those labelled before; for
     --trash, only those a label run labelled and not vetoed since. --trash
     only acts on labelled messages, so reading Gmail for the rest would only
     cost time (15,664 lookups, over four minutes, on 2026-10-26); a message
@@ -310,6 +340,8 @@ def remaining(
     """
     done = offloaded_by_account(folders)
     rows = [r for r in rows if r["gmail_id"] not in done.get(r["account"], set())]
+    restored = restored_by_account(folders)
+    rows = [r for r in rows if not restored_since_planned(r, restored)]
     labelled, vetoed = log_state(log_path, label)
     if mode == "label":
         rows = [r for r in rows if (r["account"], r["gmail_id"]) not in labelled]
