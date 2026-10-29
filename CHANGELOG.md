@@ -24,7 +24,8 @@ in beta, so commands and options may still change before 1.0.
   that is forget's dry run, where `--prune` used to ask; with `--yes`, you
   type the count, and with no terminal to type it in (a script) nothing is
   forgotten. `--prune` can't take `--folder`. It goes in a later
-  release: use `forget --deleted`.
+  release: use `forget --deleted`. `backup` and `count`, counting mail
+  deleted in the mailbox, now point to `forget --deleted`.
 - `restore --from-pruned` reads the batches `backup --prune` made before;
   it goes in a later release, and nothing moves them into `_forgotten/`.
 - `offload forget` is now `mailcellar forget`, a command of its own, since

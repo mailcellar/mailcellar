@@ -69,6 +69,7 @@ def test_an_imap_account_backs_up_and_follows_changes(server, capsys):
     out = capsys.readouterr().out
     assert "Downloaded 1 messages" in out
     assert "1 backed-up messages were permanently deleted from the server" in out
+    assert "'mailcellar forget --deleted' would take them, and any deleted before," in out
     got = labels()
     assert got["<a@x>"] == {"Projects"} and got["<b@x>"] == {"INBOX"}
     assert got["<d@x>"] == {"INBOX"} and "<c@x>" in got  # still in the backup
