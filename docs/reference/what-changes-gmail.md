@@ -22,7 +22,7 @@ or stages its changes:
 - **Backups only add.** `backup`, `count` and `meta` never delete anything.
   Two commands take mail out of the backup, and only when you ask:
   `backup --prune` moves mail the mailbox has deleted to `_pruned/`, behind
-  a confirmation and a 10% guard; `offload forget` deletes offloaded mail
+  a confirmation and a 10% guard; `forget` deletes offloaded mail
   the mailbox has deleted too, after you type the count, holding it 30 days in
   `_forgotten/` before `--empty` deletes it for good.
 - **Offloaded mail stays in the backup**, unless you forget it. Once the

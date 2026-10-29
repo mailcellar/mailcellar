@@ -10,6 +10,8 @@ mailcellar: one command for the Gmail backups and what is done with them.
   mailcellar auth    [ACCOUNT ...] --scope readonly|modify [--renew]   authorise or renew access
   mailcellar dedup   index | match | plan | apply
   mailcellar offload plan | apply       take old mail out of Gmail, keep it here
+  mailcellar forget  [ACCOUNT ...] --batch B | --rule R | --due | --empty | --undo RUN
+                     [--yes]   delete offloaded mail from the backup, held 30 days first
   mailcellar restore ACCOUNT --batch B | --rule R | --id G | --offloaded | --all
                      | --from-pruned B | --from-mbox F | --from-folder D
                      [--to ACCOUNT] [--yes]   put backed-up mail back into Gmail
@@ -35,6 +37,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 SYNOPSIS, FOOTER = __doc__.split("\n\n")[1:3]
+
+logger = logging.getLogger(__name__)
 
 
 def _backup_command(name: str):
@@ -85,10 +89,21 @@ def _dedup(argv: list[str]) -> int:
 
 
 def _offload(argv: list[str]) -> int:
+    if argv[:1] == ["forget"]:  # the old name, for a release
+        logger.warning(
+            "'offload forget' is now 'mailcellar forget'; this name goes in a later release"
+        )
+        return _forget(argv[1:])
     from mailcellar.offload.cli import main
 
     main(argv, prog="mailcellar offload")
     return 0
+
+
+def _forget(argv: list[str]) -> int:
+    from mailcellar.offload.forget_cli import main
+
+    return main(argv, prog="mailcellar forget")
 
 
 def _restore(argv: list[str]) -> int:
@@ -272,6 +287,7 @@ COMMANDS = {
     "schedule": _schedule,
     "dedup": _dedup,
     "offload": _offload,
+    "forget": _forget,
     "restore": _restore,
     "export": _export,
     "hold": _hold,

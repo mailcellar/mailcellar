@@ -532,7 +532,7 @@ def summary(results: list[RuleResult], top: int) -> list[Table]:
                 "offloaded, in Trash or Spam, gone from its mailbox, not indexed, or taken by "
                 "an earlier rule. Kept: its keep or keep_if applies. Offload: in the plan. "
                 "Sizes are the mailbox's own figures. Keeps: its keep and keep_if (keep's "
-                "default: mine, starred, conversations, labelled). Forget after: 'offload "
+                "default: mine, starred, conversations, labelled). Forget after: 'mailcellar "
                 "forget --due' deletes what the rule offloaded from the backup once it is that "
                 "old and its mailbox has deleted it."
             ],

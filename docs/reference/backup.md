@@ -108,7 +108,7 @@ Takes `--folder` and `--config`, as `backup` does.
 
 **The hash chain.** Each backup folder has a `chain.jsonl`, which gyb
 ignores: one line, or link, per `backup`, `restore`, `--prune` and
-`offload forget` (and its `--undo` and `--empty`), listing the messages it
+`forget` (and its `--undo` and `--empty`), listing the messages it
 added to or removed from the backup with the SHA-256 of each `.eml`, and
 the hash of the link before. The latest link's number and hash are also
 kept in the config folder (`anchors/<email>.json`), and `report health`

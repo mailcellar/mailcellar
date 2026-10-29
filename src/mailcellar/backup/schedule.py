@@ -361,7 +361,7 @@ def cmd_status(args) -> int:
         token, token_bad = token_note(config, account, now)
         due = sum(n[1] for n in forget.retention(backup_folder(account), now_ms).values())
         if due:
-            token += f"; {due:,} messages due under retention (offload forget --due)"
+            token += f"; {due:,} messages due under retention (mailcellar forget --due)"
         print(f"  {account}: {line}; {token}")
         problems = problems or bad or token_bad
     return 1 if problems else 0

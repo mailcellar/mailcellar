@@ -12,8 +12,8 @@ alone, in the mailbox and in the backup:
 | --- | --- |
 | `offload apply`, `dedup apply` | held mail stays in the mailbox (the log says `held: NAME`) |
 | `backup --prune` | held mail stays in the backup after the mailbox deletes it |
-| `offload forget` | held mail isn't forgotten |
-| `offload forget --empty` | a forget run that may contain held mail is kept |
+| `forget` | held mail isn't forgotten |
+| `forget --empty` | a forget run that may contain held mail is kept |
 
 Restore, export, search and the reports are unaffected: a hold keeps mail,
 it doesn't hide it.
@@ -44,7 +44,7 @@ when a hold is in force and there has been no backup for 7 days.
 
 **Mail already forgotten** keeps no addresses or labels, so a hold that
 names parties or a label covers it unless its dates or IDs rule it out,
-and `offload forget --empty` keeps that run. A hold errs on keeping.
+and `forget --empty` keeps that run. A hold errs on keeping.
 
 **Where holds are kept.** Each covered backup's `meta.sqlite` records its
 holds, released ones included (schema 11). Placing and releasing a hold

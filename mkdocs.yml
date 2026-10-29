@@ -68,6 +68,7 @@ nav:
       - What changes your mailbox: reference/what-changes-gmail.md
       - Removing duplicates: reference/dedup.md
       - Offloading old mail: reference/offload.md
+      - Forgetting mail: reference/forget.md
       - Restoring mail: reference/restore.md
       - Exporting mail: reference/export.md
       - Searching mail: reference/search.md

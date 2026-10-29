@@ -5,7 +5,7 @@ remove mail skips what a hold covers:
 
   offload apply, dedup apply   held mail stays in Gmail
   backup --prune               held mail stays in the backup after Gmail deletes it
-  offload forget, --empty      held mail is neither forgotten nor emptied
+  forget, --empty              held mail is neither forgotten nor emptied
 
 A hold follows its criteria, checked when a command runs, so mail that
 matches after the hold was placed (next week's reply from the other side)

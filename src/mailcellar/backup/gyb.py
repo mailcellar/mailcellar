@@ -20,9 +20,9 @@ Beyond what gyb does, each leaving a valid gyb folder:
   add_copy()  indexes a restored message under its new Gmail ID, sharing
               the old ID's .eml file
   prune()     moves a message's file out of the backup and deletes its
-              rows (backup --prune, offload forget); gyb itself never
+              rows (backup --prune, forget); gyb itself never
               removes anything
-  unprune()   puts back what prune() moved out (offload forget --undo)
+  unprune()   puts back what prune() moved out (forget --undo)
 """
 
 import base64

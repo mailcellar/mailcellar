@@ -206,7 +206,7 @@ def cmd_show(args) -> int:
 def main(argv=None, prog: str | None = None) -> int:
     p = argparse.ArgumentParser(
         prog=prog or "mailcellar hold",
-        description="Legal holds: mail that offload, dedup, backup --prune and offload forget "
+        description="Legal holds: mail that offload, dedup, backup --prune and forget "
         "leave alone, in its mailbox and in the backup. A hold follows its criteria, so mail "
         "that matches later is held too. Placing or releasing one changes nothing in the "
         "mailbox.",

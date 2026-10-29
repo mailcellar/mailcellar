@@ -14,6 +14,7 @@ Every command and option. For a task from start to finish, see the
 | [What changes your mailbox](what-changes-gmail.md) | the few commands that write to a mailbox, Gmail or IMAP |
 | [Removing duplicates](dedup.md) | `dedup` |
 | [Offloading old mail](offload.md) | `offload`, and the rule keys |
+| [Forgetting mail](forget.md) | `forget`, and retention |
 | [Restoring mail](restore.md) | `restore` |
 | [Exporting mail](export.md) | `export` |
 | [Searching mail](search.md) | `search` |
