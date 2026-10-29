@@ -386,6 +386,51 @@ def test_a_file_a_finished_run_still_lists_is_linked_not_moved(backed_up):
     assert (first / rel).is_file() and (second / rel).is_file()  # the finished run keeps it
 
 
+def test_an_interrupted_runs_copy_is_moved_before_an_older_finished_runs_is_linked(backed_up):
+    _gmail, folder = backed_up
+    pruned = folder.parent / "_pruned"
+    finished, stopped, rerun = pruned / "run0", pruned / "run1", pruned / "run2"
+    src = eml(folder, "g1")
+    rel = src.relative_to(folder)
+    for run in (finished, stopped):
+        (run / rel).parent.mkdir(parents=True)
+        (run / rel).write_bytes(src.read_bytes())
+    (finished / gyb.PRUNE_MANIFEST).write_text("gmail_id,path,internal_date,labels,file\n")
+    src.unlink()
+    con = gyb.open_backup(folder, ACCOUNT)
+    gyb.prune(con, folder, ["g1"], rerun)
+    con.close()
+    assert not stopped.exists()  # moved from, then gone
+    assert (finished / rel).is_file() and (rerun / rel).stat().st_nlink == 1
+
+
+def test_a_rerun_with_the_stopped_runs_name_finds_the_file_already_there(backed_up):
+    _gmail, folder = backed_up
+    dest = folder.parent / "_pruned" / "run1"
+    src = eml(folder, "g1")
+    rel = src.relative_to(folder)
+    (dest / rel).parent.mkdir(parents=True)
+    src.rename(dest / rel)  # moved, then stopped; the rerun starts in the same second
+    con = gyb.open_backup(folder, ACCOUNT)
+    (row,) = gyb.prune(con, folder, ["g1"], dest)
+    con.close()
+    assert row["file"] == "moved" and (dest / rel).is_file()
+
+
+def test_an_emptied_runs_folder_goes_whatever_else_finder_left_in_it(backed_up):
+    _gmail, folder = backed_up
+    first, second = folder.parent / "_pruned" / "run1", folder.parent / "_pruned" / "run2"
+    src = eml(folder, "g1")
+    rel = src.relative_to(folder)
+    (first / rel).parent.mkdir(parents=True)
+    src.rename(first / rel)
+    (first / ".DS_Store").write_bytes(b"\0")
+    con = gyb.open_backup(folder, ACCOUNT)
+    gyb.prune(con, folder, ["g1"], second)
+    con.close()
+    assert not first.exists()
+
+
 def test_a_missing_file_with_no_earlier_copy_is_still_reported_missing(backed_up):
     _gmail, folder = backed_up
     eml(folder, "g1").unlink()

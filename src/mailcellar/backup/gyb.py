@@ -242,28 +242,33 @@ def add_copy(
 PRUNE_MANIFEST = "pruned.csv"
 
 
-def earlier_copy(dest: Path, rel: str) -> Path | None:
-    """
-    The file for `rel` in another run's folder beside `dest`, if there is
-    one: an earlier prune or forget moved it out and was stopped (a crash,
-    a power cut) before its index rows were committed. The oldest, if more.
-    """
-    if not dest.parent.is_dir():
-        return None
-    for run in sorted(p for p in dest.parent.iterdir() if p.is_dir() and p != dest):
-        if (run / rel).is_file():
-            return run / rel
-    return None
-
-
 def interrupted(run: Path, manifest_name: str) -> bool:
     """Whether `run` is a run's folder that was stopped before writing its manifest."""
     return not (run / manifest_name).is_file()
 
 
+def earlier_copy(dest: Path, rel: str, manifest_name: str) -> tuple[Path, Path] | None:
+    """
+    (run folder, file) for `rel` in another run's folder beside `dest`, if
+    there is one: an earlier prune or forget moved it out and was stopped (a
+    crash, a power cut) before its index rows were committed. An interrupted
+    run's copy first, as that is the one to move; then the oldest.
+    """
+    if not dest.parent.is_dir():
+        return None
+    runs = sorted(
+        (p for p in dest.parent.iterdir() if p.is_dir() and p != dest),
+        key=lambda run: (not interrupted(run, manifest_name), run.name),
+    )
+    for run in runs:
+        if (run / rel).is_file():
+            return run, run / rel
+    return None
+
+
 def remove_if_empty(run: Path) -> None:
-    """Remove an interrupted run's folder once a later run has moved every file out of it."""
-    if run.is_dir() and not any(p.is_file() for p in run.rglob("*")):
+    """Remove an interrupted run's folder once a later run has moved every message out of it."""
+    if run.is_dir() and not any(run.rglob("*.eml")):
         shutil.rmtree(run)
 
 
@@ -308,9 +313,11 @@ def prune(
         if moved:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(src, target)
-        elif target is not None and (earlier := earlier_copy(dest, rel)) is not None:
+        elif target is not None and target.is_file():
+            moved = True  # a stopped run of the same name, in the same second, moved it here
+        elif target is not None and (found := earlier_copy(dest, rel, manifest_name)) is not None:
+            run, earlier = found
             target.parent.mkdir(parents=True, exist_ok=True)
-            run = dest.parent / earlier.relative_to(dest.parent).parts[0]
             if interrupted(run, manifest_name):
                 shutil.move(earlier, target)
                 emptied.add(run)
