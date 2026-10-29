@@ -7,7 +7,7 @@ from datetime import datetime
 import pytest
 
 from fake_mailbox import FakeMailbox, raw_response
-from mailcellar import cli
+from mailcellar import cli, mailbox
 from mailcellar.backup import commands, gyb, sidecar
 from mailcellar.dedup import db as dedup_db
 from mailcellar.dedup import index as dedup_index
@@ -354,8 +354,147 @@ def test_forget_undo_and_empty_keep_the_hash_chain_whole(env, monkeypatch):
 
 
 def test_forget_needs_a_selection(env):
-    with pytest.raises(SystemExit, match="say which offloaded mail"):
+    with pytest.raises(SystemExit, match="say which mail"):
         run()
+
+
+# ── --deleted: mail deleted in its mailbox, never offloaded (B40) ────────────
+
+
+@pytest.fixture
+def deleted(env, monkeypatch):
+    """env, with l1 (never offloaded) deleted in Gmail too, and forget listing the fake."""
+    folder, gmail = env
+    del gmail.messages["l1"]
+    monkeypatch.setattr(mailbox, "opener", lambda config: lambda account, scope: gmail)
+    return folder, gmail
+
+
+def test_deleted_forgets_mail_the_mailbox_deleted_and_never_offloaded(deleted, monkeypatch, capsys):
+    folder, gmail = deleted
+    assert cli.main(["forget", "--deleted", "--force"]) == 0  # a dry run
+    out = capsys.readouterr().out
+    assert "1 messages gone from Gmail, never offloaded" in out
+    assert "can be forgotten                       1  (" in out
+    assert "l1" in {m.gmail_id for m in gyb.iter_backup(folder)}
+
+    monkeypatch.setattr("builtins.input", lambda prompt: "1")
+    assert cli.main(["forget", "--deleted", "--force", "--yes"]) == 0
+    assert "Forgot 1 messages" in capsys.readouterr().out
+    left = {m.gmail_id for m in gyb.iter_backup(folder)}
+    assert "l1" not in left and {"p0", "p1"} <= left  # offloaded mail is --batch's, not this
+    con = sqlite3.connect(sidecar.meta_path(folder))
+    assert con.execute("SELECT gmail_id, batch, rule FROM forgotten").fetchall() == [
+        ("l1", "", forget.DELETED)
+    ]
+    con.close()
+    (run_dir,) = forget.runs_dir(A).iterdir()  # held, so --undo and --empty work on it
+    assert forget.held(A) == [(run_dir.name, 1)]
+    assert gmail.closed  # the listing logged out
+
+
+def test_deleted_with_batch_forgets_both_in_one_run(deleted, monkeypatch, capsys):
+    folder, _gmail = deleted
+    monkeypatch.setattr("builtins.input", lambda prompt: "3")
+    assert cli.main(["forget", "--batch", BATCH, "--deleted", "--force", "--yes"]) == 0
+    assert "Forgot 3 messages" in capsys.readouterr().out
+    assert not {"p0", "p1", "l1"} & {m.gmail_id for m in gyb.iter_backup(folder)}
+    assert forget.held(A) == [(next(forget.runs_dir(A).iterdir()).name, 3)]
+    from mailcellar.backup import chain
+
+    links = [chain.parse_line(line) for line in chain.read_lines(folder)]
+    assert [link.op for link in links].count("forget") == 1  # one link for the run
+    assert {g for g, _h in links[-1].removed} == {"p0", "p1", "l1"}
+    assert '"(deleted)"' in links[-1].note and '"notices"' in links[-1].note
+
+
+def test_deleted_mail_leaves_no_trace_in_the_indexes_or_plans(deleted, monkeypatch):
+    def dump(store):
+        con = sqlite3.connect(next(data_root().rglob(store)))
+        text = "\n".join(con.iterdump())
+        con.close()
+        return text
+
+    stores = ("meta.sqlite", "search.sqlite", "dedup.sqlite")  # msg-db.sqlite has neither
+    there = {s: "l1@x" in dump(s) or "Lunch l1" in dump(s) for s in stores}
+    assert there == dict.fromkeys(stores, True), there  # there to begin with
+    monkeypatch.setattr("builtins.input", lambda prompt: "1")
+    assert cli.main(["forget", "--deleted", "--force", "--yes"]) == 0
+    for store in stores:
+        assert "l1@x" not in dump(store) and "Lunch l1" not in dump(store), store
+    plan = {r["gmail_id"]: r for r in read_csv(data_root() / "offload" / "offload-plan.csv")}
+    assert (plan["l1"]["sender"], plan["l1"]["subject"]) == ("", "")
+    assert plan["l0"]["subject"] == "Lunch l0"  # offloaded, not forgotten: kept
+
+
+def test_a_refused_deleted_part_leaves_the_batch_to_go_ahead(deleted, monkeypatch, capsys):
+    folder, _gmail = deleted
+    monkeypatch.setattr("builtins.input", lambda prompt: "2")
+    assert cli.main(["forget", "--batch", BATCH, "--deleted", "--yes"]) == 1  # no --force
+    captured = capsys.readouterr()
+    assert "more than 10%" in captured.err and "--deleted is skipped" in captured.err
+    assert "Forgot 2 messages" in captured.out
+    left = {m.gmail_id for m in gyb.iter_backup(folder)}
+    assert "l1" in left and not {"p0", "p1"} & left
+
+
+def test_a_mailbox_that_cant_be_listed_is_an_error_not_a_traceback(deleted, monkeypatch, capsys):
+    from mailcellar import gmailapi
+
+    def refused(config):
+        def open_(account, scope):
+            raise gmailapi.NeedsConsent("the readonly token has expired")
+
+        return open_
+
+    monkeypatch.setattr(mailbox, "opener", refused)
+    assert cli.main(["forget", "--deleted", "--force"]) == 1
+    err = capsys.readouterr().err
+    assert "listing Gmail: the readonly token has expired; nothing is forgotten" in err
+
+
+def test_force_needs_deleted(env):
+    with pytest.raises(SystemExit, match="--force only applies with --deleted"):
+        run("--batch", BATCH, "--force")
+
+
+def test_deleted_refuses_more_than_a_tenth_without_force(deleted, capsys):
+    folder, _gmail = deleted
+    assert cli.main(["forget", "--deleted"]) == 1
+    assert "more than 10%; re-run with --force" in capsys.readouterr().err
+    assert "l1" in {m.gmail_id for m in gyb.iter_backup(folder)}
+
+
+def test_deleted_forgets_nothing_when_folders_couldnt_be_read(deleted, monkeypatch, capsys):
+    folder, gmail = deleted
+    monkeypatch.setattr(gmail, "unread", lambda: ("Archive",))
+    assert cli.main(["forget", "--deleted", "--force"]) == 1
+    assert "1 folders couldn't be read (Archive)" in capsys.readouterr().err
+    assert forget.held(A) == []
+
+
+def test_deleted_forgets_nothing_when_the_mailbox_lists_nothing(deleted, capsys):
+    _folder, gmail = deleted
+    gmail.messages.clear()
+    assert cli.main(["forget", "--deleted", "--force"]) == 1
+    assert "Gmail listed no messages at all; nothing is forgotten" in capsys.readouterr().err
+
+
+def test_deleted_leaves_held_mail(deleted, monkeypatch, capsys):
+    monkeypatch.setattr(forget_cli.holds, "held", lambda folder, now, ids: {"l1": "audit"})
+    assert cli.main(["forget", "--deleted", "--force"]) == 0
+    out = capsys.readouterr().out
+    assert "held                                   1  (hold audit; left as they are)" in out
+    assert "Dry run" not in out  # nothing left to forget
+
+
+def test_deleted_candidates_years_and_note():
+    chosen = forget.deleted(["a", "b"], {"a": (1_262_304_000_000, 10)})  # 2010-01-01
+    assert chosen[0] == Offloaded("a", "", forget.DELETED, None, 1_262_304_000_000, 10)
+    assert chosen[1].internal_date is None
+    assert forget.by_year(chosen) == [("2010", 1), ("unknown", 1)]
+    note = forget.note(chosen, {"notices": 7})  # --due with --deleted: no forget_after for it
+    assert note == '{"rules": ["(deleted)"], "forget_after": {}}'
 
 
 # ── retention: forget_after and --due (#72) ──────────────────────────────────

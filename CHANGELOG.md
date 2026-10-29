@@ -7,6 +7,15 @@ in beta, so commands and options may still change before 1.0.
 
 ## Unreleased
 
+### Added
+- `forget --deleted` takes out of the backup mail its mailbox has
+  permanently deleted and that was never offloaded, what `backup --prune`
+  moves to `_pruned/`, but as forget does: held 30 days, with `--undo`
+  and `--empty`, and taken out of the search index, the dedup catalogue,
+  plans and logs. It lists the mailbox itself, keeps prune's 10% guard
+  (`--force`) and legal holds, and combines with `--batch`, `--rule` and
+  `--due` in one run.
+
 ### Changed
 - `offload forget` is now `mailcellar forget`, a command of its own, since
   it acts on the backup rather than the mailbox; its options are
