@@ -1,11 +1,11 @@
 name: Docs
 
 # The documentation site, https://mailcellar.github.io/mailcellar/, built
-# from docs/ and mkdocs.yml. Pull requests build it (strict: a broken link or
-# a page missing from the nav fails); pushes to main also deploy it to GitHub
-# Pages. MkDocs is a build tool here, not a dependency of mailcellar: uvx runs
-# the pinned versions, and --exclude-newer keeps their own dependencies to
-# releases older than that date.
+# from docs/ and mkdocs.yml by Zensical, which reads mkdocs.yml as it is.
+# Pull requests build it (strict: a broken link or anchor fails); pushes to
+# main also deploy it to GitHub Pages. Zensical is a build tool here, not a
+# dependency of mailcellar: uvx runs the pinned version, and --exclude-newer
+# keeps its own dependencies to releases older than that date.
 
 on:
   push:
@@ -35,8 +35,8 @@ jobs:
           enable-cache: false
       - name: Build the site
         run: >-
-          uvx --exclude-newer 2026-10-11 --from mkdocs==1.6.1
-          --with mkdocs-material==9.7.7 mkdocs build --strict
+          uvx --exclude-newer 2026-10-11 --from zensical==0.0.69
+          zensical build --strict
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         if: github.event_name != 'pull_request'
         with:

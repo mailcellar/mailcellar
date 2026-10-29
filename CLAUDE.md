@@ -19,7 +19,7 @@ uv run pytest --cov                    # with branch coverage; a guide, no minim
 HYPOTHESIS_PROFILE=ci uv run pytest    # property tests at CI's 2,000 examples each
 uv run pytest -m imap_server           # IMAP against Dovecot in a container; opt-in
 uv run ruff format && uv run ruff check   # format, then lint; both must pass
-uvx --from mkdocs==1.6.1 --with mkdocs-material==9.7.7 mkdocs build -d <scratchpad>/site   # docs, strict
+uvx --exclude-newer 2026-10-11 --from zensical==0.0.69 zensical build --strict   # docs; writes site/ and .cache/
 uv run mailcellar config               # where the config and data are; each account's state
 uv run mailcellar setup [ADDRESS] [--client FILE] [--name N] [--no-auth] [--force]   # add an account
 uv run mailcellar <backup|count|meta|verify> [ACCOUNT ...] [options]   # all accounts by default
