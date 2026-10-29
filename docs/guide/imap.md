@@ -179,3 +179,7 @@ error, so a scheduled backup records it.
 
 **"certificate verify failed":** your server's certificate isn't one the
 system trusts. Give its CA with `--cafile`.
+
+**`offload plan` selects nothing on an account backed up before 0.17.0:**
+its older messages have no thread ID yet, so the plan takes them for gone
+from the server. Run `mailcellar meta ACCOUNT` once to fill them in.
