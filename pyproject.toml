@@ -1,7 +1,7 @@
 [project]
 name = "mailcellar"
 version = "0.18.0"
-description = "Gmail backups in gyb's format, with deduplication, offloading old mail, restore and reports"
+description = "Gmail and IMAP backups in gyb's format, with deduplication, offloading old mail, restore and reports"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
