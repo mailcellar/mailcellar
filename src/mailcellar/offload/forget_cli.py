@@ -45,6 +45,9 @@ def gmail_state(account: str, config: Path, ids: list[str]):
     with closing(mailbox.opener(config)(account, "readonly")) as box:
         with Progress(f"{account}: asking {mailbox_name(box.provider)}", len(ids)):
             live = box.message_labels(ids, failures)
+        skipped = box.unread()
+    if skipped:  # an IMAP folder unread: its mail would look gone, so nothing is known
+        return {}, dict.fromkeys(ids, f"{len(skipped):,} folders couldn't be read")
     return live, dict(f.split(": ", 1) for f in failures)
 
 

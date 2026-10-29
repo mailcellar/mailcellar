@@ -488,6 +488,14 @@ def test_deleted_leaves_held_mail(deleted, monkeypatch, capsys):
     assert "Dry run" not in out  # nothing left to forget
 
 
+def test_a_lookup_with_folders_unread_checks_nothing(monkeypatch, tmp_path):
+    box = FakeMailbox({})  # p0 isn't listed: gone, but only if every folder was read
+    monkeypatch.setattr(box, "unread", lambda: ("Archive",))
+    monkeypatch.setattr(mailbox, "opener", lambda config: lambda account, scope: box)
+    live, unread = forget_cli.gmail_state(A, tmp_path, ["p0"])
+    assert live == {} and unread == {"p0": "1 folders couldn't be read"}
+
+
 def test_deleted_candidates_years_and_note():
     chosen = forget.deleted(["a", "b"], {"a": (1_262_304_000_000, 10)})  # 2010-01-01
     assert chosen[0] == Offloaded("a", "", forget.DELETED, None, 1_262_304_000_000, 10)
