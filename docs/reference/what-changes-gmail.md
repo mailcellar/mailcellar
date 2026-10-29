@@ -13,18 +13,18 @@ or stages its changes:
 | `dedup apply --trash` / `offload apply --trash` | moves labelled messages to the mailbox's Trash | modify |
 | `auth ACCOUNT --scope modify` | with `keep_modify_token = true`, grants and stores modify access (changes nothing in the mailbox); otherwise only says that the commands above sign in when they run | modify |
 | `restore ACCOUNT … --yes` | moves offloaded mail out of Trash, or uploads backed-up mail the mailbox no longer has (into this account or, with `--to`, another), or mail from a pruned batch, an mbox file or another gyb folder; adds a `restored/<date>` label | modify |
-| `backup --prune` | the *backup*: moves mail permanently deleted from the mailbox into `<data root>/_pruned/` | read-only |
+| `forget --deleted --yes` (and `backup --prune --yes`, which runs it) | the *backup*: takes mail permanently deleted from the mailbox out of it, held 30 days in `<data root>/_forgotten/` | read-only |
 
 - **Nothing is ever permanently deleted from the mailbox.** Removals go to
   Trash, after a review label. Removing the label from a message vetoes it.
   Gmail empties its Trash after 30 days (an IMAP server when it or a mail
   client chooses); until then, a message can be moved back from Trash.
 - **Backups only add.** `backup`, `count` and `meta` never delete anything.
-  Two commands take mail out of the backup, and only when you ask:
-  `backup --prune` moves mail the mailbox has deleted to `_pruned/`, behind
-  a confirmation and a 10% guard; `forget` deletes offloaded mail
-  the mailbox has deleted too, after you type the count, holding it 30 days in
-  `_forgotten/` before `--empty` deletes it for good.
+  One command takes mail out of the backup, and only when you ask:
+  `forget` deletes mail the mailbox has deleted too, offloaded mail or
+  (`--deleted`) mail you deleted there yourself, after you type the count,
+  holding it 30 days in `_forgotten/` before `--empty` deletes it for good.
+  `--deleted` also stops if more than 10% of the backup would go.
 - **Offloaded mail stays in the backup**, unless you forget it. Once the
   mailbox empties its Trash, the backup is the only copy, and `restore` uploads it
   from there.

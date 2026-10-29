@@ -4,6 +4,7 @@ import pytest
 
 from fake_mailbox import ACCOUNT, MS, FakeMailbox, raw_response
 from mailcellar.backup import commands, sidecar
+from mailcellar.cli import main as cli_main
 from mailcellar.dedup import cli as dedup
 from mailcellar.message import PARSER_VERSION, parse_eml
 from test_backup import rows
@@ -110,10 +111,11 @@ def test_refresh_labels_updates_meta_label_ids(tmp_path):
     assert ("g1", "Label_1") in meta_rows(folder)["labels"]
 
 
-def test_sync_removes_meta_rows(tmp_path):
+def test_forget_deleted_removes_meta_rows(tmp_path, listing_from):
     gmail, folder = backed_up(tmp_path, {f"g{i}": raw_response(f"g{i}") for i in range(20)})
     del gmail.messages["g0"]
-    commands.prune(gmail, ACCOUNT, folder, confirm=lambda p: True)
+    listing_from(gmail)
+    assert cli_main(["forget", ACCOUNT, "--deleted", "--yes"]) == 0
     m = meta_rows(folder)
     assert "g0" not in m["messages"] and len(m["messages"]) == 19
     assert not any(gid == "g0" for gid, _ in m["labels"])

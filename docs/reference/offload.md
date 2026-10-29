@@ -139,7 +139,7 @@ the messages a `--label` run labelled, as its apply log shows. A message
 restored since the plan was made is left out, as one already offloaded is. Removing the
 label in the mailbox vetoes a message for good. A message the mailbox can't
 be asked about, even after retries, is skipped and tried again by the next run. Trashed messages are recorded as
-offloaded, so `backup --prune` keeps them in the backup after the mailbox
+offloaded, so `forget --deleted` keeps them in the backup after the mailbox
 empties its Trash.
 
 On an IMAP account (one the server lets mailcellar move mail on), the

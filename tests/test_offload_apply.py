@@ -10,6 +10,7 @@ import pytest
 from fake_mailbox import FakeMailbox, raw_response
 from mailcellar import gmailapi
 from mailcellar.backup import commands, sidecar
+from mailcellar.cli import main
 from mailcellar.dedup.apply import Result
 from mailcellar.offload import apply as offload_apply
 from mailcellar.offload import cli
@@ -126,7 +127,7 @@ def test_backup_checks(env, capsys):
     assert backup_checks(env)({"account": A, "gmail_id": "w3", "path": ""}) == ("already offloaded")
 
 
-def test_label_then_trash_records_offloaded(env, capsys):
+def test_label_then_trash_records_offloaded(env, capsys, listing_from):
     apply("--label")
     assert env.scopes == ["modify"]
     assert all(OFFLOAD_LABEL in env.live.labels_of(g) for g in env.live.messages)
@@ -155,11 +156,11 @@ def test_label_then_trash_records_offloaded(env, capsys):
     con = sqlite3.connect(env.folder / "meta.sqlite")
     assert {b for (b,) in con.execute("SELECT DISTINCT batch FROM offloaded")} == {batch}
 
-    # once Gmail empties its Trash, --prune keeps them in the backup
+    # once Gmail empties its Trash, forget --deleted keeps them in the backup
     for gid in ("w2", "w3", "w4"):
         del env.source.messages[gid]
-    result = commands.prune(env.source, A, env.folder, confirm=lambda p: True)
-    assert result["pruned"] == 0
+    listing_from(env.source)
+    assert main(["forget", A, "--deleted", "--yes"]) == 0
     assert all(next(env.folder.rglob(f"{g}.eml"), None) for g in ("w2", "w3", "w4"))
 
 

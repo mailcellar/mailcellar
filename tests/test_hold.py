@@ -183,14 +183,16 @@ def test_holds_need_the_new_schema_and_copy_the_old_one_aside(backup):
 # ── what a hold stops ────────────────────────────────────────────────────────
 
 
-def test_prune_keeps_held_mail_in_the_backup(backup, capsys):
+def test_forget_deleted_keeps_held_mail_in_the_backup(backup, capsys, listing_from):
     gmail, folder = backup
     hold("add", "landlord-2026", "--reason", "dispute", "--party", "@landlord.example")
     for gid in ("d1", "u1"):
         del gmail.messages[gid]  # deleted in Gmail for good
-    result = commands.prune(gmail, ACCOUNT, folder, confirm=lambda p: True, force=True)
-    assert result["pruned"] == 1  # u1 only
-    assert "keeping 1 messages under hold landlord-2026" in capsys.readouterr().out
+    listing_from(gmail)
+    assert cli.main(["forget", ACCOUNT, "--deleted", "--yes", "--force"]) == 0
+    out = capsys.readouterr().out
+    assert "Forgot 1 messages" in out  # u1 only
+    assert "held                                   1  (hold landlord-2026;" in out
     assert "d1" in chain.held(folder)
 
 

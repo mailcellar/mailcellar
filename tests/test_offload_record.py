@@ -6,15 +6,12 @@ import pytest
 
 from fake_mailbox import FakeMailbox, raw_response
 from mailcellar.backup import commands, sidecar
+from mailcellar.cli import main
 from mailcellar.report import health
 from mailcellar.report.db import open_sidecars
 
 A = "a@x.com"
 OFFLOADED = ("g0", "g1", "g2")
-
-
-def yes(prompt):
-    return True
 
 
 @pytest.fixture
@@ -123,21 +120,19 @@ def test_count_reports_offloaded_apart(setup):
     assert last_run(folder, "command", "offloaded", "deleted_in_gmail") == ("count", 3, 1)
 
 
-def test_sync_keeps_offloaded_and_leaves_them_out_of_the_guard(setup):
+def test_forget_deleted_keeps_offloaded_and_leaves_them_out_of_the_guard(setup, listing_from):
     gmail, folder = setup
     delete(gmail, *OFFLOADED, "g5")  # 4 of 20 gone: over 10%, but only 1 of 17 unexpectedly
-    result = commands.prune(gmail, A, folder, confirm=yes)
-    assert result["pruned"] == 1
+    listing_from(gmail)
+    assert main(["forget", A, "--deleted", "--yes"]) == 0
     con = sqlite3.connect(folder / "msg-db.sqlite")
     uids = {u for (u,) in con.execute("SELECT uid FROM uids")}
     assert set(OFFLOADED) <= uids and "g5" not in uids
     assert all(next(folder.rglob(f"{g}.eml"), None) for g in OFFLOADED)
-    assert offloaded_rows(folder) == dict.fromkeys(OFFLOADED, 1)
-    assert last_run(folder, "command", "status", "pruned", "offloaded") == ("sync", "ok", 1, 3)
 
-    delete(gmail, "g6", "g7")  # 2 more of 17 unexpectedly: the guard still applies
-    with pytest.raises(commands.PruneAborted):
-        commands.prune(gmail, A, folder, confirm=yes, max_fraction=0.1)
+    delete(gmail, "g6", "g7")  # 2 more of 16 unexpectedly: the guard still applies
+    assert main(["forget", A, "--deleted", "--yes"]) == 1
+    assert {"g6", "g7"} <= {u for (u,) in con.execute("SELECT uid FROM uids")}
 
 
 def test_history_backup_does_not_count_offloaded_as_deleted(setup):

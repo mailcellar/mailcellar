@@ -13,7 +13,7 @@ message is parsed once:
   runs            one row per backup, count and prune run: mode, counts,
                   outcome (for the health report)
   offloaded       messages removed from Gmail on purpose and kept here;
-                  --prune never moves them
+                  forget --deleted never takes them
   restored        messages put back into Gmail by restore (into this
                   account or another), and the ID each has there now
   meta            schema_version, and history_id: where the next
@@ -772,7 +772,7 @@ def offloaded_ids(con: sqlite3.Connection) -> set[str]:
 
 def kept_ids(con: sqlite3.Connection) -> set[str]:
     """
-    Gmail IDs --prune never moves out and count doesn't call "only in backup":
+    Gmail IDs forget --deleted never takes and count doesn't call "only in backup":
     every message ever offloaded, restored or not. A message restored under
     a new ID keeps its old ID in the backup.
     """

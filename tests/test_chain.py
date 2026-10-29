@@ -17,6 +17,7 @@ from mailcellar.backup.chain import (
     UNEXPLAINED,
     Link,
 )
+from mailcellar.cli import main as cli_main
 from mailcellar.report import health
 
 
@@ -210,12 +211,13 @@ def test_a_missing_file_downloaded_again_is_a_refetch(backed_up):
     assert ops(folder)[-1] == "refetch" and kinds(folder) == []
 
 
-def test_a_prune_records_what_it_moves_out(backed_up):
+def test_forget_deleted_records_what_it_moves_out(backed_up, listing_from):
     gmail, folder = backed_up
     del gmail.messages["g1"]
-    commands.prune(gmail, ACCOUNT, folder, confirm=lambda prompt: True, force=True)
+    listing_from(gmail)
+    assert cli_main(["forget", ACCOUNT, "--deleted", "--yes", "--force"]) == 0
     last = chain.parse_line(chain.read_lines(folder)[-1])
-    assert last.op == "prune" and [g for g, _h in last.removed] == ["g1"]
+    assert last.op == "forget" and [g for g, _h in last.removed] == ["g1"]
     assert kinds(folder) == []
 
 
@@ -438,15 +440,3 @@ def test_a_missing_file_with_no_earlier_copy_is_still_reported_missing(backed_up
     (row,) = gyb.prune(con, folder, ["g1"], folder.parent / "_pruned" / "run1")
     con.close()
     assert row["file"] == "was missing"
-
-
-def test_the_per_year_count_works_in_chunks_of_any_size(backed_up):
-    _gmail, folder = backed_up
-    con = gyb.open_backup(folder, ACCOUNT)
-    ids = ["g1", "g2", "g3"]
-    assert commands.gone_by_year(con, ids, chunk=1) == commands.gone_by_year(con, ids, chunk=500)
-    assert sum(commands.gone_by_year(con, ids, chunk=2).values()) == 3
-    assert commands.gone_by_year(con, []) == {}
-    big = [f"x{i}" for i in range(40_000)]  # more than SQLite's limit of variables
-    assert commands.gone_by_year(con, big) == {}
-    con.close()

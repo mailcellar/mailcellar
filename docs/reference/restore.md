@@ -119,14 +119,16 @@ index. Each restores every message it holds, narrowed by `--id`, `--before`,
 and `--yes`:
 
 ```bash
-mailcellar restore personal --from-pruned 2026-03-01-120000   # what backup --prune moved out
+mailcellar restore personal --from-pruned 2026-03-01-120000   # what backup --prune moved out before
 mailcellar restore personal --from-mbox ~/Takeout/Mail/All.mbox --yes
 mailcellar restore personal --from-folder /Volumes/old/GYB-GMail-Backup-old@example.org
 ```
 
 - `--from-pruned BATCH`: mail that `backup --prune` moved into
-  `<data root>/_pruned/<email>/BATCH/`, with the labels in its `pruned.csv`.
-  It goes back into that account, or another with `--to`.
+  `<data root>/_pruned/<email>/BATCH/` before it ran `forget --deleted`,
+  with the labels in its `pruned.csv`. It goes back into that account, or
+  another with `--to`. For this release; mail `forget --deleted` takes
+  comes back with [`forget --undo RUN`](forget.md) while it is held.
 - `--from-mbox FILE`: a Google Takeout export, or a file `mailcellar export`
   wrote, into ACCOUNT. Labels come from each message's `X-Gmail-Labels`
   header (Takeout's names such as `Inbox` or `Category Updates` become
@@ -170,7 +172,7 @@ account restored into. Without `--yes` it is a dry run.
 
 | Option | What it reads |
 | --- | --- |
-| `--from-pruned BATCH` | Mail `backup --prune` moved into `<data root>/_pruned/<email>/BATCH/` |
+| `--from-pruned BATCH` | Mail `backup --prune` moved into `<data root>/_pruned/<email>/BATCH/` before it ran forget (for this release) |
 | `--from-mbox FILE` | An mbox file: a Google Takeout export, or one `export` wrote |
 | `--from-folder DIR` | A gyb backup folder from elsewhere, read as it is |
 

@@ -384,15 +384,22 @@ def cmd_apply(args) -> None:
     if trashed:
         providers = providers_of({e.row["account"]: folders[e.row["account"]] for e in trashed})
         print(
-            f"Recorded {len(trashed):,} offloaded messages (batch {batch}); 'backup --prune' "
+            f"Recorded {len(trashed):,} offloaded messages (batch {batch}); 'forget --deleted' "
             f"keeps them in the backup. {space_freed(set(providers.values()))}"
         )
         print(f"Manifest → {manifest_path(offload_dir(), batch)}")
 
 
 def confirm_count(n: int, what: str) -> bool:
-    """Ask for the count to be typed: for the steps that can't be undone by a click."""
-    answer = input(f"{what} Type {n} to go ahead: ").strip().replace(",", "")
+    """
+    Ask for the count to be typed: for the steps that can't be undone by a
+    click. With no terminal to type it in (a script, a scheduled job), no.
+    """
+    try:
+        answer = input(f"{what} Type {n} to go ahead: ").strip().replace(",", "")
+    except EOFError:
+        print("\nNo terminal to type the count in, so no.")
+        return False
     return answer == str(n)
 
 

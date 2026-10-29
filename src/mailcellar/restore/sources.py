@@ -1,8 +1,9 @@
 """
 sources: mail to restore from somewhere other than the backup's own index.
 
-  pruned   what `backup --prune` moved into <data root>/_pruned/<email>/<batch>/,
-           with the labels and dates in its pruned.csv
+  pruned   what `backup --prune` moved into <data root>/_pruned/<email>/<batch>/
+           before it ran forget, with the labels and dates in its pruned.csv
+           (read for a release, then --from-pruned goes)
   mbox     a Google Takeout export, or a file written by `mailcellar export`,
            with labels from each message's X-Gmail-Labels header
   folder   a gyb backup folder from elsewhere, read as it is (read-only)

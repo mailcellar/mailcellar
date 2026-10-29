@@ -1,5 +1,6 @@
 import csv
 import sqlite3
+import sys
 from datetime import datetime
 
 import httplib2
@@ -10,7 +11,9 @@ from fake_mailbox import ACCOUNT, MS, FakeMailbox, raw_response
 from mailcellar import gmailapi
 from mailcellar.backup import chain, commands, gyb
 from mailcellar.backup.gyb import backup_account, iter_backup
+from mailcellar.cli import main as cli_main
 from mailcellar.dedup import cli as dedup
+from mailcellar.offload import forget, forget_cli
 from test_index import make_eml
 
 
@@ -342,17 +345,17 @@ def synced(tmp_path, n=20, gone=("g0",), trashed=("g1",)):
     return gmail, folder
 
 
-def yes(prompt):
-    return True
+def forget_deleted(*more) -> int:
+    """`mailcellar forget ACCOUNT --deleted --yes`, what backup --prune now runs."""
+    return cli_main(["forget", ACCOUNT, "--deleted", "--yes", *more])
 
 
-def test_sync_moves_permanently_deleted_messages_out(tmp_path):
+def test_forget_deleted_moves_permanently_deleted_messages_out(tmp_path, listing_from):
     gmail, folder = synced(tmp_path)
-    result = commands.prune(gmail, ACCOUNT, folder, confirm=yes)
+    listing_from(gmail)
+    assert forget_deleted() == 0
 
-    assert result["pruned"] == 1
-    dest = result["dest"]
-    assert dest.parent == tmp_path / "data" / "_pruned" / ACCOUNT
+    (dest,) = forget.runs_dir(ACCOUNT).iterdir()
     assert not (folder / "2026/10/22/g0.eml").exists()
     assert (dest / "2026/10/22/g0.eml").is_file()
     r = rows(folder)
@@ -360,7 +363,7 @@ def test_sync_moves_permanently_deleted_messages_out(tmp_path):
     assert not any(uid == "g0" for uid, _ in r["labels"])
     assert len(r["messages"]) == 19
 
-    with (dest / "pruned.csv").open() as fh:
+    with (dest / forget.MANIFEST).open() as fh:
         manifest = list(csv.DictReader(fh))
     assert manifest == [
         {
@@ -373,47 +376,50 @@ def test_sync_moves_permanently_deleted_messages_out(tmp_path):
     ]
 
 
-def test_sync_drops_index_entries_whose_file_is_missing(tmp_path):
+def test_forget_deleted_drops_index_entries_whose_file_is_missing(tmp_path, listing_from):
     gmail, folder = synced(tmp_path)
     (folder / "2026/10/22/g0.eml").unlink()
-    result = commands.prune(gmail, ACCOUNT, folder, confirm=yes)
-    assert result["pruned"] == 1
+    listing_from(gmail)
+    assert forget_deleted() == 0
     assert "g0" not in rows(folder)["uids"]
-    assert not (result["dest"] / "2026/10/22/g0.eml").exists()
+    (dest,) = forget.runs_dir(ACCOUNT).iterdir()
+    assert not (dest / "2026/10/22/g0.eml").exists()
 
 
-def test_sync_declined_changes_nothing(tmp_path):
+def test_forget_deleted_dry_run_changes_nothing(tmp_path, listing_from):
     gmail, folder = synced(tmp_path)
     before = rows(folder)
-    assert commands.prune(gmail, ACCOUNT, folder, confirm=lambda p: False) == {
-        "pruned": 0,
-        "dest": None,
-    }
+    listing_from(gmail)
+    assert cli_main(["forget", ACCOUNT, "--deleted"]) == 0
     assert rows(folder) == before
-    assert not (tmp_path / "data" / "_pruned").exists()
+    assert not forget.runs_dir(ACCOUNT).exists()
 
 
-def test_sync_stops_above_threshold_unless_forced(tmp_path):
+def test_forget_deleted_stops_above_threshold_unless_forced(tmp_path, listing_from, capsys):
     gmail, folder = synced(tmp_path, n=10, gone=("g0", "g1"), trashed=())
-    with pytest.raises(commands.PruneAborted, match="more than 10%"):
-        commands.prune(gmail, ACCOUNT, folder, confirm=yes)
+    listing_from(gmail)
+    assert forget_deleted() == 1
+    assert "more than 10%" in capsys.readouterr().err
     assert len(rows(folder)["uids"]) == 10
-    assert commands.prune(gmail, ACCOUNT, folder, confirm=yes, force=True)["pruned"] == 2
+    assert forget_deleted("--force") == 0
+    assert len(rows(folder)["uids"]) == 8
 
 
-def test_sync_refuses_when_gmail_lists_nothing(tmp_path):
+def test_forget_deleted_refuses_when_gmail_lists_nothing(tmp_path, listing_from, capsys):
     gmail, folder = synced(tmp_path)
     gmail.messages.clear()
-    with pytest.raises(commands.PruneAborted, match="no messages at all"):
-        commands.prune(gmail, ACCOUNT, folder, confirm=yes, force=True)
+    listing_from(gmail)
+    assert forget_deleted("--force") == 1
+    assert "no messages at all" in capsys.readouterr().err
     assert len(rows(folder)["uids"]) == 20
 
 
-def test_pruned_backup_is_still_valid_for_index(tmp_path):
+def test_forgotten_backup_is_still_valid_for_index(tmp_path, listing_from):
     gmail, folder = synced(tmp_path)
     db = tmp_path / "dedup.sqlite"
     dedup.main(["index", "--db", str(db), str(folder)])
-    commands.prune(gmail, ACCOUNT, folder, confirm=yes)
+    listing_from(gmail)
+    forget_deleted()
     dedup.main(["index", "--db", str(db), str(folder)])
     con = sqlite3.connect(db)
     assert con.execute("SELECT count(*) FROM messages WHERE gmail_id = 'g0'").fetchone() == (0,)
@@ -455,19 +461,77 @@ def test_cli_prune_skipped_after_fetch_failures(tmp_path, cli):
     assert "g0" in rows(folder)["uids"]
 
 
-def test_cli_prune_yes_and_aborted(tmp_path, cli):
+def test_cli_prune_runs_forget_deleted_after_the_backup(tmp_path, cli, listing_from, capsys):
     state, run = cli
-    gmail, folder = synced(tmp_path / "ok")
+    gmail, folder = synced(tmp_path)
     state.update(gmail=gmail, folder=folder)
-    assert run("backup", "a", "--prune", "--yes") == 0
-    assert "g0" not in rows(folder)["uids"]
+    listing_from(gmail)
+    assert run("backup", "a", "--prune") == 0  # forget's dry run
+    captured = capsys.readouterr()
+    assert "'backup --prune' is now 'mailcellar forget --deleted'" in captured.err
+    assert "Dry run: nothing was changed" in captured.out
+    assert "g0" in rows(folder)["uids"]
 
-    # above the guard: aborted, exit 1, nothing pruned
-    chain.anchor_path(ACCOUNT).unlink()  # a second, separate backup of the account
-    gmail, folder = synced(tmp_path / "guard", n=10, gone=("g0", "g1"), trashed=())
+    assert run("backup", "a", "--prune", "--yes") == 0
+    assert "Forgot 1 messages" in capsys.readouterr().out
+    assert "g0" not in rows(folder)["uids"]
+    assert not (tmp_path / "data" / "_pruned").exists()  # forget's holding area, not prune's
+
+
+def test_cli_prune_above_the_guard_exits_1_unless_forced(tmp_path, cli, listing_from):
+    state, run = cli
+    gmail, folder = synced(tmp_path, n=10, gone=("g0", "g1"), trashed=())
     state.update(gmail=gmail, folder=folder)
+    listing_from(gmail)
     assert run("backup", "a", "--prune", "--yes") == 1
     assert len(rows(folder)["uids"]) == 10
+    assert run("backup", "a", "--prune", "--yes", "--force") == 0
+    assert len(rows(folder)["uids"]) == 8
+
+
+def test_cli_prune_a_forget_error_fails_that_account_only(tmp_path, cli, monkeypatch, capsys):
+    state, run = cli
+    gmail, folder = synced(tmp_path)
+    state.update(gmail=gmail, folder=folder)
+    backed_up = []
+    connect = commands.connect
+
+    def counting(args):
+        backed_up.append(args.account)
+        return connect(args)
+
+    monkeypatch.setattr(commands, "connect", counting)
+    monkeypatch.setattr(forget_cli, "main", lambda argv, prog: sys.exit("error: boom"))
+    assert run("backup", "a", "b", "--prune") == 1
+    assert backed_up == ["a", "b"]  # b's backup still ran
+    assert f"error: {ACCOUNT}: boom" in capsys.readouterr().err
+
+
+def test_cli_prune_yes_with_no_terminal_forgets_nothing(tmp_path, cli, listing_from, monkeypatch):
+    state, run = cli
+    gmail, folder = synced(tmp_path)
+    state.update(gmail=gmail, folder=folder)
+    listing_from(gmail)
+
+    def no_terminal(prompt):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", no_terminal)
+    assert run("backup", "a", "--prune", "--yes") == 0  # declined, as prune's "no" was
+    assert "g0" in rows(folder)["uids"]
+
+
+def test_count_refuses_a_mailbox_that_lists_nothing(tmp_path):
+    gmail, folder = synced(tmp_path)
+    gmail.messages.clear()
+    with pytest.raises(gmailapi.GmailError, match="Gmail listed no messages at all"):
+        commands.count(gmail, ACCOUNT, folder)
+
+
+def test_cli_prune_with_folder_is_refused(cli):
+    _state, run = cli
+    with pytest.raises(SystemExit, match="works on the backups in the data root"):
+        run("backup", "a", "--prune", "--folder", "elsewhere")
 
 
 def test_cli_sync_is_gone(tmp_path, cli, capsys):
@@ -767,38 +831,6 @@ def test_retries_are_logged_and_long_waits_at_info(caplog):
     levels = [(r.levelname, r.getMessage()) for r in caplog.records]
     assert all("429 (rate limit)" in m for _l, m in levels)
     assert [lvl for lvl, _m in levels] == ["DEBUG"] * 4 + ["INFO"]  # 1, 2, 4, 8 s; then 16 s
-
-
-def test_prune_decision_moves_what_is_gone_but_held_mail():
-    d = commands.prune_decision(
-        ["g1", "g2", "g3"],
-        100,
-        {"g2": "audit", "x9": "audit"},
-        force=False,
-        max_fraction=0.1,
-        where="Gmail",
-    )
-    # holds on mail not gone don't count
-    assert d == commands.PruneDecision(("g1", "g3"), (("g2", "audit"),))
-    nothing = commands.prune_decision([], 100, {}, force=False, max_fraction=0.1, where="Gmail")
-    assert nothing == commands.PruneDecision()
-
-
-def test_prune_decision_refuses_too_much_unless_forced_and_held_mail_doesnt_count():
-    def decide(held, force=False):
-        return commands.prune_decision(
-            gone, 100, held, force=force, max_fraction=0.1, where="the server"
-        )
-
-    gone = [f"g{i}" for i in range(11)]
-    refused = decide({})
-    assert refused.move == () and refused.refusal == (
-        "11 of 100 backed-up messages are gone from the server, more than 10%; "
-        "re-run with --force if that is right"
-    )
-    assert decide({}, force=True).move == tuple(gone)
-    held_one = decide({"g0": "audit"})
-    assert held_one.refusal == "" and len(held_one.move) == 10  # 10 of 100 is not more than 10%
 
 
 def test_sort_changes_updates_downloads_skips_and_counts_what_is_gone():
