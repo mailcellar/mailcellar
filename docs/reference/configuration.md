@@ -1,3 +1,7 @@
+---
+description: "Reference for mailcellar's config folder, accounts.toml and settings.toml, and the setup, auth, schedule and config commands."
+---
+
 # Configuration
 
 The config folder holds credentials, so keep it private (`chmod 700

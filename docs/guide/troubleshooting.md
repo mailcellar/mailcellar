@@ -1,3 +1,7 @@
+---
+description: "Answers to common questions about mailcellar: slow runs, mail missing from the backup, storage still full, weekly sign-ins, deletion, and the Mac app of the same name."
+---
+
 # Troubleshooting and FAQ
 
 Short answers to questions that come up. For something that has gone wrong

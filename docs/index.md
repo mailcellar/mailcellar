@@ -1,3 +1,8 @@
+---
+title: "Back up Gmail and IMAP email to your own disk"
+description: "mailcellar backs up Gmail, Google Workspace and any IMAP mailbox to your own disk, takes old mail out by rule to free space, and keeps it searchable and restorable."
+---
+
 # mailcellar
 
 **Gmail full? Keep every email on your own disk, and free the space.**

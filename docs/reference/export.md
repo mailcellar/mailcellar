@@ -1,3 +1,7 @@
+---
+description: "Reference for mailcellar export: every option for copying mail from the backup to an mbox file or a zip of .eml files."
+---
+
 # Exporting mail: export
 
 Sometimes mail needs to go somewhere other than back into its mailbox: to an

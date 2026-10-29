@@ -1,3 +1,7 @@
+---
+description: "Create the free Google Cloud OAuth client mailcellar needs to read Gmail through the Gmail API: a one-time setup of about ten minutes."
+---
+
 # Setting up Google Cloud for mailcellar
 
 mailcellar reads your mail through the Gmail API, so it needs an *OAuth

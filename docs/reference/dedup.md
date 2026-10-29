@@ -1,3 +1,7 @@
+---
+description: "Reference for mailcellar dedup: every option of index, match, plan and apply, for finding and removing duplicate email."
+---
+
 # Removing duplicates: dedup
 
 ```bash

@@ -1,3 +1,7 @@
+---
+description: "Run, check and keep a local backup of Gmail or IMAP mail: incremental backups, count and verify, and a second copy of the backup on another disk."
+---
+
 # Backing up, and keeping the backup safe
 
 mailcellar's backup is a copy of Gmail on your disk. It is what lets you

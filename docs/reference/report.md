@@ -1,3 +1,7 @@
+---
+description: "Reference for mailcellar report: storage, bulk senders, volume, threads, labels, correspondents, health and senders, over the backups."
+---
+
 # Reports: report
 
 ```bash

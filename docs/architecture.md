@@ -1,3 +1,7 @@
+---
+description: "How mailcellar works inside: one command over one Python package, the gyb-compatible backup on disk, the databases beside it, and what each command does."
+---
+
 # Architecture
 
 One command, `mailcellar`, over one Python package, `src/mailcellar/`:

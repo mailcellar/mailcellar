@@ -1,3 +1,7 @@
+---
+description: "Reference for mailcellar backup, count, meta and verify: incremental Gmail and IMAP backups, comparing a mailbox with its backup, and checking its integrity."
+---
+
 # Backups: backup, count, meta, verify
 
 ```bash

@@ -1,3 +1,7 @@
+---
+description: "Free Gmail storage by taking old mail out by rule while the local backup keeps it: staged, reviewed before anything leaves, never deleted permanently."
+---
+
 # Offloading old mail safely: a worked example
 
 Offloading takes old mail out of Gmail, to free its storage, while the local

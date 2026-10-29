@@ -1,3 +1,7 @@
+---
+description: "Run email backups weekly and unattended: a launchd agent on macOS, a cron line on Linux, and how to check each account's last backup and token."
+---
+
 # Scheduled backups
 
 Backups read Gmail's change history, which Gmail keeps for about four weeks,

@@ -1,3 +1,7 @@
+---
+description: "Remove duplicate emails from Gmail or IMAP, found in your local backups: forwarded copies across accounts and repeats within one, in stages, never deleted permanently."
+---
+
 # Removing duplicate mail: a worked example
 
 Duplicates come from two places: mail that one account auto-forwards to

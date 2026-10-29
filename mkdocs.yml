@@ -3,7 +3,7 @@
 # stays the command reference, linked from the site. To preview it locally:
 #   uvx --from mkdocs==1.6.1 --with mkdocs-material==9.7.7 mkdocs serve
 site_name: mailcellar
-site_description: Back up Gmail locally, move old mail out by rule, and keep it searchable and restorable.
+site_description: Back up Gmail and IMAP mail locally, move old mail out by rule, and keep it searchable and restorable.
 site_url: https://mailcellar.github.io/mailcellar/
 repo_url: https://github.com/mailcellar/mailcellar
 repo_name: mailcellar/mailcellar
