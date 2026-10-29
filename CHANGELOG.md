@@ -7,6 +7,11 @@ in beta, so commands and options may still change before 1.0.
 
 ## Unreleased
 
+**Upgrading from 0.17.0:** no database's schema changes.
+`dedup apply --trash` now trashes only removals that a `dedup apply
+--label` run labelled: if you added the label to messages by hand, run
+`--label` before `--trash`.
+
 ### Changed
 - `dedup apply --trash` reads only the removals its apply log says a
   `--label` run labelled with that label, and not those a trash run found
