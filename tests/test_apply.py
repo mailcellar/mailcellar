@@ -329,20 +329,84 @@ def test_cli_label_and_trash_with_a_named_label(cli):
     ]
 
 
-def test_cli_trash_with_the_default_label_skips_unlabelled(cli):
+def test_cli_trash_with_another_label_than_the_label_run_reads_nothing(cli):
     gmail, run = cli
     run("--label", "to-trash")
-    logged = run("--trash")  # default: dedup-redundant
-    assert [o for *_x, o in logged[-2:]] == ["skipped", "skipped"]
+    lookups = list(gmail[B].lookups)
+    with pytest.raises(SystemExit, match="no removal a label run labelled"):
+        run("--trash")  # default: dedup-redundant, which no label run added
+    assert gmail[B].lookups == lookups
     assert not any(c[0] == "trash" for c in gmail[B].calls)
 
 
-@pytest.mark.parametrize("stage", ["--label", "--trash"])
-def test_cli_refuses_a_label_planned_messages_already_had(cli, stage):
+def test_cli_refuses_a_label_planned_messages_already_had(cli):
     gmail, run = cli
     with pytest.raises(SystemExit, match="already had the label 'work'"):
-        run(stage, "work")
+        run("--label", "work")
+    with pytest.raises(SystemExit, match="no removal a label run labelled"):
+        run("--trash", "work")  # never labelled by a run, so never asked about
     assert gmail[B].calls == gmail[B].lookups == []  # Gmail never contacted
+
+
+def test_cli_trash_reads_only_the_removals_a_label_run_labelled(cli):
+    gmail, run = cli
+    run("--label", "--limit", "1")  # b0 only
+    gmail[B].lookups.clear()
+    logged = run("--trash")
+    assert gmail[B].lookups == [("get", ["b0"])]  # b1, never labelled, isn't read
+    assert logged[-1:] == [("trash (dedup-redundant)", "b0", "trashed")]
+
+
+def test_cli_trash_skips_a_vetoed_removal_without_reading_it_again(cli):
+    gmail, run = cli
+    run("--label")
+    gmail[B].set_labels("b0", gmail[B].labels_of("b0") - {DEDUP_LABEL})  # vetoed
+    gmail[B].set_labels("b1", gmail[B].labels_of("b1") | {"keep"})  # changed: tried again
+    logged = run("--trash")
+    assert logged[-2:] == [
+        ("trash (dedup-redundant)", "b0", "skipped"),
+        ("trash (dedup-redundant)", "b1", "skipped"),
+    ]
+    gmail[B].lookups.clear()
+    run("--trash")
+    assert gmail[B].lookups == [("get", ["b1"])]
+
+
+def test_removals_an_older_version_labelled_are_trashed_after_labelling_again(cli, tmp_path):
+    gmail, run = cli
+    run("--label")
+    log = tmp_path / "log.csv"
+    log.write_text(log.read_text().replace("label (dedup-redundant)", "label"))  # no label name
+    with pytest.raises(SystemExit, match="no removal a label run labelled"):
+        run("--trash")
+    assert run("--label")[-2:] == [
+        ("label (dedup-redundant)", "b0", "labelled"),
+        ("label (dedup-redundant)", "b1", "labelled"),
+    ]
+    assert [o for *_x, o in run("--trash")[-2:]] == ["trashed", "trashed"]
+
+
+def test_a_plan_made_after_labelling_can_still_label_and_trash(cli, tmp_path):
+    gmail, run = cli
+    run("--label")
+    plan = tmp_path / "plan.csv"
+    with plan.open(newline="") as fh:
+        rows = list(csv.DictReader(fh))
+    for r in rows:  # planned again after a backup: the label run's label is in it
+        r["labels"] = ";".join(filter(None, [r["labels"], DEDUP_LABEL]))
+    with plan.open("w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=PLAN_COLUMNS)
+        w.writeheader()
+        w.writerows(rows)
+    run("--label")
+    assert [o for *_x, o in run("--trash")[-2:]] == ["trashed", "trashed"]
+
+
+def test_labelled_rows_keeps_the_labelled_and_not_vetoed_in_order():
+    rows = [{"account": B, "gmail_id": g} for g in ("b0", "b1", "b2", "b3")]
+    labelled = {(B, "b3"), (B, "b1"), (B, "b2"), (A, "b0")}
+    got = dedup_apply.labelled_rows(rows, labelled, {(B, "b2")})
+    assert [r["gmail_id"] for r in got] == ["b1", "b3"]
 
 
 # ── results: frozen values, and the pure steps ───────────────────────────────

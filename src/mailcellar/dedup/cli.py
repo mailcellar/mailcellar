@@ -13,6 +13,8 @@ from pathlib import Path
 from mailcellar.dedup.apply import (
     DEDUP_LABEL,
     apply_plan,
+    labelled_rows,
+    log_state,
     read_removals,
     unusable_label,
     write_apply_log,
@@ -119,11 +121,31 @@ def cmd_apply(args) -> None:
     mode = "label" if args.label is not None else "trash" if args.trash is not None else "dry-run"
     dedup_label = args.label or args.trash or DEDUP_LABEL
     rows = read_removals(Path(args.plan))
+    labelled, vetoed = log_state(Path(args.log), dedup_label)
+    if mode == "trash":
+        before = len(rows)
+        rows = list(labelled_rows(rows, labelled, vetoed))
+        if len(rows) < before:
+            logger.info(
+                f"{before - len(rows):,} removals not labelled by a label run, or vetoed "
+                "before: not read."
+            )
     if args.limit is not None:
         rows = rows[: args.limit]
     if not rows:
-        sys.exit("Nothing to do: the plan has no 'remove' rows.")
-    problem = unusable_label(rows, dedup_label)
+        sys.exit(
+            "Nothing to do: "
+            + (
+                "no removal a label run labelled, and none vetoed since."
+                if mode == "trash"
+                else "the plan has no 'remove' rows."
+            )
+        )
+    # Messages a label run labelled carry the label in a plan made after the
+    # next backup; only a label already there for other reasons makes it unusable.
+    problem = unusable_label(
+        [r for r in rows if (r["account"], r["gmail_id"]) not in labelled], dedup_label
+    )
     if problem:
         sys.exit(f"error: can't use {dedup_label!r} as the apply label: {problem}.")
 
