@@ -1,5 +1,8 @@
 import csv
+import logging
+import os
 import sqlite3
+import time
 from datetime import datetime
 
 import httplib2
@@ -11,6 +14,7 @@ from mailcellar import gmailapi
 from mailcellar.backup import chain, commands, gyb
 from mailcellar.backup.gyb import backup_account, iter_backup
 from mailcellar.dedup import cli as dedup
+from mailcellar.paths import PART_MAX_AGE, remove_stale_parts, stale_parts
 from test_index import make_eml
 
 
@@ -822,3 +826,116 @@ def test_sort_changes_updates_downloads_skips_and_counts_what_is_gone():
         gone_offloaded=frozenset({"off"}),
     )
     assert commands.sort_changes({}, set(), set(), set()) == commands.HistoryPlan()
+
+
+# ── crash leftovers ───────────────────────────────────────────────────────────
+
+
+def made(folder, names, old=True):
+    """Files under folder; `old` ones last changed over PART_MAX_AGE ago."""
+    past = time.time() - PART_MAX_AGE - 60
+    for name in names:
+        path = folder / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"secret")
+        if old:
+            os.utime(path, (past, past))
+
+
+def files(folder):
+    return sorted(str(p.relative_to(folder)) for p in folder.rglob("*") if p.is_file())
+
+
+def test_stale_parts_takes_old_hidden_part_files_only(tmp_path):
+    ages = [
+        (tmp_path / ".t.json.aaaaaaaa.part", 7200.0),
+        (tmp_path / "x" / ".t.json.part", 7200.0),  # before 0.15.2
+        (tmp_path / ".tmp-cccccccc.part", 7200.0),
+        (tmp_path / ".t.json.bbbbbbbb.part", 10.0),  # perhaps a write in progress
+        (tmp_path / ".t.json.dddddddd", 7200.0),
+        (tmp_path / "t.json", 7200.0),
+        (tmp_path / "export.mbox.part", 7200.0),
+    ]
+    assert stale_parts(ages, 3600) == (
+        tmp_path / ".t.json.aaaaaaaa.part",
+        tmp_path / ".tmp-cccccccc.part",
+        tmp_path / "x" / ".t.json.part",
+    )
+
+
+def test_remove_stale_parts_leaves_real_files_and_writes_in_progress(tmp_path, monkeypatch):
+    real = ["accounts.toml", "work/client_secrets.json", "work/token-readonly.json"]
+    made(tmp_path, real)
+    made(tmp_path, ["work/.token-readonly.json.ab12cd34.part", "anchors/.a.json.part"])
+    made(tmp_path, ["work/.client_secrets.json.ef56gh78.part"], old=False)
+    stuck = ".token-readonly.json.ij90kl12.part"  # say, root's, after a run with sudo
+    made(tmp_path, [f"work/{stuck}"])
+    real_unlink = type(tmp_path).unlink
+
+    def unlink(self, missing_ok=False):
+        if self.name == stuck:
+            raise PermissionError(self)
+        real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(type(tmp_path), "unlink", unlink)
+    assert remove_stale_parts(tmp_path.rglob("*")) == 2
+    assert files(tmp_path) == sorted(
+        [*real, "work/.client_secrets.json.ef56gh78.part", f"work/{stuck}"]
+    )
+
+
+def test_a_backup_run_removes_old_leftovers_in_mailcellars_folders_only(tmp_path, cli, caplog):
+    state, run = cli
+    gmail, folder = synced(tmp_path, gone=(), trashed=())
+    config = tmp_path / "config"  # config_root() in tests: the anchors are here too
+    (config / "accounts.toml").write_text(f'work = "{ACCOUNT}"\n')
+    made(config, ["work/token-readonly.json", "work/.client_secrets.json.ab12cd34.part"])
+    made(config, ["service-accounts/.example.com.json.cd34ef56.part"])
+    made(config, ["anchors/.a.json.gh78ij90.part"])
+    made(config, [".draft.part", "notes/.draft.part"])  # not where mailcellar writes
+    made(folder, ["2011/3/13/.tmp-ab12cd34.part"])  # a day no later run writes to
+    made(folder, ["2026/10/22/.tmp-ef56gh78.part"], old=False)  # another run's, in progress
+    state.update(gmail=gmail, folder=folder)
+    with caplog.at_level(logging.INFO):
+        assert run("backup", "a", "--config", str(config)) == 0
+    assert sorted(str(p.relative_to(config)) for p in config.rglob("*.part")) == [
+        ".draft.part",
+        "notes/.draft.part",
+    ]
+    assert [p.name for p in folder.rglob("*.part")] == [".tmp-ef56gh78.part"]
+    assert "Removed 3 leftover files a crash left in the config folder." in caplog.text
+    assert "Removed 1 leftover file a crash left in the backup." in caplog.text
+
+
+def test_private_folders_stay_inside_the_config_folder(tmp_path):
+    config = tmp_path / "config"
+    config.mkdir()
+    accounts = ['work = "a@example.com"', '"." = "b@example.com"', '"../x" = "c@example.com"']
+    (config / "accounts.toml").write_text("\n".join(accounts) + "\n")
+    assert gmailapi.private_folders(config) == (config / "service-accounts", config / "work")
+    (config / "accounts.toml").write_text("not toml =\n")
+    assert gmailapi.private_folders(config) == (config / "service-accounts",)
+
+
+def test_the_config_folder_is_tidied_once_and_before_connecting(tmp_path, monkeypatch, caplog):
+    config = tmp_path / "config"
+    made(config, ["service-accounts/.example.com.json.ab12cd34.part"])
+
+    def unreachable(args):
+        raise gmailapi.GmailError("the server can't be reached")
+
+    monkeypatch.setattr(commands, "connect", unreachable)
+    with caplog.at_level(logging.INFO):
+        assert commands.main(["backup", "a", "b", "--config", str(config)]) == 1
+    assert not list(config.rglob("*.part"))
+    assert caplog.text.count("a crash left in the config folder") == 1
+
+
+def test_a_folder_that_isnt_the_backup_is_left_alone(tmp_path):
+    gmail = FakeMailbox({"g1": raw_response("g1")})
+    commands.backup(gmail, ACCOUNT, tmp_path / "data" / ACCOUNT)  # anchored from now on
+    wrong = tmp_path / "Documents"
+    made(wrong, ["drafts/.tmp-ab12cd34.part"])
+    with pytest.raises(commands.BackupMissing):
+        commands.backup(gmail, ACCOUNT, wrong)
+    assert files(wrong) == ["drafts/.tmp-ab12cd34.part"]

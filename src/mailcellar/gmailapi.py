@@ -153,6 +153,24 @@ def config_accounts(config_root: Path) -> dict[str, Path]:
     return found
 
 
+def private_folders(config_root: Path) -> tuple[Path, ...]:
+    """
+    The folders in config_root this module writes private files to (with
+    paths.write_private): each account's from accounts.toml, and the
+    service-account keys'. Only those inside config_root, and not the root
+    itself; no account's when accounts.toml can't be read.
+    """
+    try:
+        accounts = config_accounts(config_root)
+    except GmailError, ValueError, OSError:
+        accounts = {}
+    root = config_root.resolve()
+    inside = {
+        f for f in accounts.values() if f.resolve() != root and f.resolve().is_relative_to(root)
+    }
+    return tuple(sorted({*inside, config_root / SERVICE_ACCOUNTS_DIR}))
+
+
 def resolve_account(config_root: Path, name: str) -> tuple[str, Path]:
     """
     (account, config folder) for `name`: a full address, a config folder

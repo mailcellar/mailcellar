@@ -24,6 +24,13 @@ in beta, so commands and options may still change before 1.0.
   plan, label), and only `--trash` needs a backup newer than the plan.
   Both now name the accounts to back up before `--trash` instead; a failed
   or missing backup is still a warning at every step.
+- A hard crash in the middle of writing a file left a hidden `….part`
+  copy that nothing removed: an owner-only copy of a token, OAuth client,
+  service-account key, `imap.toml`, IMAP password or chain anchor in the
+  config folder, or of a message in a backup. Each `backup` run now
+  removes such leftovers once they are an hour old, in the config
+  folder's account, key and anchor folders and in each backup, including
+  the `.<name>.part` that versions before 0.15.2 left.
 
 ## 0.17.0 (2026-10-28)
 

@@ -14,6 +14,7 @@ data and ~/mailcellar doesn't exist). They are functions, so a changed setting
 applies.
 """
 
+from collections.abc import Iterable
 from pathlib import Path
 
 DATA_DIR = "~/mailcellar"  # the default data root: visible, since it holds the user's mail
@@ -25,6 +26,7 @@ SETTINGS_NAME = "settings.toml"  # in the config folder: data_dir = "~/data/mail
 SETTINGS_KEYS = {"data_dir", "token_warn_days", "keep_modify_token"}
 TOKEN_WARN_DAYS = 5  # days after consent when a token starts to be reported as ageing
 PRUNED_DIR = "_pruned"  # <data>/_pruned/<email>/<timestamp>/, written by --prune
+PART_MAX_AGE = 3600  # seconds: a hidden .part older than this was left by a crash
 
 
 def _path(value: str) -> Path:
@@ -182,6 +184,47 @@ def write_private(path: Path, data: bytes) -> None:
     except BaseException:
         part.unlink(missing_ok=True)
         raise
+
+
+def stale_parts(ages: Iterable[tuple[Path, float]], max_age: float) -> tuple[Path, ...]:
+    """
+    Of (file, age in seconds), the hidden `.part` files older than max_age:
+    a temporary file that a process crashed before renaming, in any of the
+    namings (write_private's `.<name>.<random>.part`, `.<name>.part` before
+    0.15.2, gyb's `.tmp-<random>.part`). Younger ones may be another
+    process's write in progress. Pure.
+    """
+    return tuple(
+        sorted(
+            p
+            for p, age in ages
+            if p.name.startswith(".") and p.name.endswith(".part") and age > max_age
+        )
+    )
+
+
+def remove_stale_parts(candidates: Iterable[Path]) -> int:
+    """
+    Remove the files among candidates (a listing the caller chose) that
+    stale_parts takes for a crash's leftovers; returns how many went. One
+    that can't be removed is left: tidying up mustn't fail the command.
+    """
+    import time
+
+    now, ages = time.time(), []
+    for p in candidates:
+        try:
+            ages.append((p, now - p.stat().st_mtime))
+        except OSError:
+            continue  # gone since the listing
+    removed = 0
+    for p in stale_parts(ages, PART_MAX_AGE):
+        try:
+            p.unlink()
+        except OSError:
+            continue
+        removed += 1
+    return removed
 
 
 def find_backups(data: Path | None = None) -> list[Path]:

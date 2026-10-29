@@ -60,7 +60,8 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
   - `dedup index/match/plan`, `offload plan` and `search`, which write
     only their own files in the data root;
   - plain `backup` and `meta`, which add to and refresh the backup but
-    never delete from it.
+    never delete mail from it (`backup` removes only a crash's hidden
+    `.part` leftovers, an hour old).
 - Copy a database aside before running a schema migration on real data.
   `sidecar.open_meta` does it for `meta.sqlite` (`meta.sqlite.pre-vN` next
   to it, before the first write); for `dedup.sqlite` and `search.sqlite`,

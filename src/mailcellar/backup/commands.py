@@ -59,7 +59,7 @@ from mailcellar import gmailapi, mailbox
 from mailcellar.backup import chain, gyb, sidecar
 from mailcellar.mailbox import mailbox_name
 from mailcellar.message import PARSER_VERSION, parse_eml, parse_message
-from mailcellar.paths import backup_folder, config_root, pruned_folder
+from mailcellar.paths import backup_folder, config_root, pruned_folder, remove_stale_parts
 from mailcellar.progress import Progress
 
 logger = logging.getLogger(__name__)
@@ -314,6 +314,11 @@ def backup(
         raise BackupMissing(problem)
     con = gyb.open_backup(folder, account)
     mcon = sidecar.open_meta(folder)
+    # A message write cut off by a hard crash, in a day folder perhaps never
+    # written again; gone once an hour old.
+    removed = remove_stale_parts(folder.rglob(".tmp-*.part"))
+    if removed:
+        logger.info(f"Removed {leftovers(removed)} a crash left in the backup.")
     started = now_ms()
     # Why every message is listed, when asked for; "" means history if possible.
     if query:
@@ -671,6 +676,26 @@ def record_unattended_failure(args, reason: str = "needs-consent") -> None:
         sidecar.record_run(mcon, "backup", now, now, "error", reason=reason)
     finally:
         mcon.close()
+
+
+def remove_config_leftovers(config: Path) -> None:
+    """
+    Remove what write_private's writes cut off by a hard crash left, once an
+    hour old: tokens, clients, keys, passwords and chain anchors. Only in the
+    folders those are written to (gmailapi.private_folders, the anchors'),
+    never in the config folder itself or below them: it may be set to one
+    that isn't only mailcellar's. Each backup run does it, before any
+    account connects, so they go whether or not their file is written again.
+    """
+    folders = sorted({*gmailapi.private_folders(config), config_root() / chain.ANCHOR_DIR})
+    removed = remove_stale_parts(p for folder in folders for p in folder.glob(".*.part"))
+    if removed:
+        logger.info(f"Removed {leftovers(removed)} a crash left in the config folder.")
+
+
+def leftovers(n: int) -> str:
+    """'1 leftover file', '2 leftover files'. Pure."""
+    return f"{n:,} leftover file" + ("" if n == 1 else "s")
 
 
 def cmd_backup(args) -> int:
@@ -1115,6 +1140,8 @@ def main(argv=None, prog: str | None = None) -> int:
         sys.exit(f"error: {exc}")
     if args.folder and len(accounts) != 1:
         sys.exit("error: --folder needs exactly one account.")
+    if args.func is cmd_backup:
+        remove_config_leftovers(Path(args.config))
     status = 0
     for account in accounts:
         if len(accounts) > 1:

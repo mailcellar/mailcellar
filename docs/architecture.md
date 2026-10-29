@@ -196,7 +196,12 @@ no room for goes in `meta.sqlite`.
   Gmail (Trash and Spam count as present) are moved to
   `<data root>/_pruned/<email>/`, behind confirmation and a 10% guard. Messages
   recorded in `offloaded` always stay, and count neither toward the guard
-  nor as deleted in `count` or a backup run.
+  nor as deleted in `count` or a backup run. A backup run does remove
+  crash leftovers an hour old (`paths.stale_parts`): gyb's `.tmp-*.part`
+  in the backup, and write_private's hidden `.part` files in the folders
+  it writes in the config folder (`gmailapi.private_folders`: the
+  accounts' and the service-account keys'; and the anchors'), never in the
+  config folder itself or below them.
 
 ## Deduplication
 

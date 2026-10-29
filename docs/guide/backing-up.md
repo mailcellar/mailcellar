@@ -10,7 +10,9 @@ second copy of it. The README has the reference for each command
 
 - **It only adds.** `backup`, `count` and `meta` never delete anything from
   the backup. Mail you delete from Gmail stays in the backup, and
-  `backup` says how many such messages there are.
+  `backup` says how many such messages there are. The one thing `backup`
+  removes is a crash's leftover: a hidden `….part` file, a write that was
+  cut off, an hour or more old, in the backup or the config folder.
 - **It can move, never delete, with `--prune`.** `backup --prune` moves mail
   that is permanently gone from Gmail out of the backup into
   `<data root>/_pruned/<email>/<batch>/`. It asks first, refuses to move
