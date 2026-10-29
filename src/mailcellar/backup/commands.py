@@ -520,8 +520,8 @@ def cmd_backup(args) -> int:
         if stats["deleted_backed_up"] and not args.prune:
             print(
                 f"{stats['deleted_backed_up']:,} backed-up messages were permanently deleted "
-                f"from {mailbox_name(gmail.provider)}; 'backup --prune' would move them out "
-                "of the backup."
+                f"from {mailbox_name(gmail.provider)}; 'mailcellar forget --deleted' would "
+                "take them, and any deleted before, out of the backup."
             )
         if stats["failed"]:
             logger.warning(
