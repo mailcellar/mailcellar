@@ -4,9 +4,11 @@ description: "Reference for mailcellar forget: deleting mail from the backup in 
 
 # Forgetting mail: forget
 
-Some offloaded mail shouldn't be kept at all, even in the backup.
-`forget` deletes it from the backup, in stages, and only once the
-mailbox has deleted it too:
+Some mail shouldn't be kept at all, even in the backup. `forget` deletes
+it from the backup, in stages, and only once the mailbox has deleted it
+too: mail you offloaded (`--batch`, `--rule`, `--due`), or mail you
+deleted in the mailbox yourself
+([`--deleted`](#mail-deleted-in-the-mailbox-deleted)). For offloaded mail:
 
 ```bash
 mailcellar forget --batch 2026-01-15-093000          # dry run: what would go

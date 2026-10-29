@@ -42,8 +42,8 @@ Offloading and removing duplicates go on as before, and leave the held
 mail alone: `offload apply` and `dedup apply` skip each held message, with
 `held: deposit-2026` as the reason in their log.
 
-`backup --prune` keeps held mail in the backup even after Gmail deletes it,
-and `forget` won't forget it. Nothing stops Gmail itself deleting
+`forget` doesn't forget held mail, not even with `--deleted`, so it stays
+in the backup even after Gmail deletes it. Nothing stops Gmail itself deleting
 a message, or you deleting it in Gmail, but the backup keeps its copy.
 
 ## 3. Check what it keeps
