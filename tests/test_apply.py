@@ -372,6 +372,20 @@ def test_cli_trash_skips_a_vetoed_removal_without_reading_it_again(cli):
     assert gmail[B].lookups == [("get", ["b1"])]
 
 
+def test_cli_trash_leaves_out_removals_an_earlier_trash_run_trashed(cli):
+    gmail, run = cli
+    run("--label")
+    run("--trash", "--limit", "1")  # b0 only
+    gmail[B].lookups.clear()
+    logged = run("--trash", "--limit", "1")  # the limit counts b1, not b0 again
+    assert gmail[B].lookups == [("get", ["b1"])]
+    assert logged[-1:] == [("trash (dedup-redundant)", "b1", "trashed")]
+    gmail[B].lookups.clear()
+    with pytest.raises(SystemExit, match="vetoed or trashed since"):
+        run("--trash")
+    assert gmail[B].lookups == []
+
+
 def test_removals_an_older_version_labelled_are_trashed_after_labelling_again(cli, tmp_path):
     gmail, run = cli
     run("--label")
