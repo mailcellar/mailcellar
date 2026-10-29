@@ -11,8 +11,7 @@ alone, in the mailbox and in the backup:
 | Command | With a hold |
 | --- | --- |
 | `offload apply`, `dedup apply` | held mail stays in the mailbox (the log says `held: NAME`) |
-| `backup --prune` | held mail stays in the backup after the mailbox deletes it |
-| `forget` | held mail isn't forgotten |
+| `forget` (and `--deleted`) | held mail isn't forgotten, even once the mailbox has deleted it |
 | `forget --empty` | a forget run that may contain held mail is kept |
 
 Restore, export, search and the reports are unaffected: a hold keeps mail,

@@ -21,10 +21,6 @@ def runs(folder, *cols):
     return con.execute(f"SELECT {', '.join(cols)} FROM runs ORDER BY run_id").fetchall()
 
 
-def yes(prompt):
-    return True
-
-
 # ── recording runs ───────────────────────────────────────────────────────────
 
 
@@ -89,28 +85,15 @@ def test_backup_failures_and_errors_are_recorded(tmp_path):
     assert runs(folder, "status", "failed", "downloaded") == [("failures", 1, 1), ("error", 0, 0)]
 
 
-def test_count_and_sync_runs(tmp_path):
+def test_count_runs(tmp_path):
     folder = tmp_path / ACCOUNT_DIR
     gmail = FakeMailbox({f"g{i}": raw_response(f"g{i}") for i in range(10)})
     commands.backup(gmail, A, folder)
     del gmail.messages["g0"]
     gmail.messages["g10"] = raw_response("g10")
     commands.count(gmail, A, folder)
-    commands.prune(gmail, A, folder, confirm=lambda p: False)
-    commands.prune(gmail, A, folder, confirm=yes)
-    commands.prune(gmail, A, folder, confirm=yes)  # nothing left to prune
-    for gid in ("g1", "g2"):
-        del gmail.messages[gid]
-    with pytest.raises(commands.PruneAborted):
-        commands.prune(gmail, A, folder, confirm=yes, max_fraction=0.1)
     cols = ("command", "status", "in_gmail", "missing", "only_in_backup", "pruned", "messages")
-    assert runs(folder, *cols)[1:] == [
-        ("count", "missing", 10, 1, 1, None, 10),
-        ("sync", "declined", None, None, None, 0, 10),
-        ("sync", "ok", None, None, None, 1, 9),
-        ("sync", "ok", None, None, None, 0, 9),
-        ("sync", "aborted", None, None, None, 0, 9),
-    ]
+    assert runs(folder, *cols)[1:] == [("count", "missing", 10, 1, 1, None, 10)]
 
 
 # ── the report ───────────────────────────────────────────────────────────────

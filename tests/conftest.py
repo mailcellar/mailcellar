@@ -74,3 +74,25 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if "imap_server" in item.keywords:
             item.add_marker(skip)
+
+
+@pytest.fixture
+def listing_from(monkeypatch):
+    """
+    use(box): `mailcellar forget --deleted` (and `backup --prune`, which runs
+    it) lists `box`, a FakeMailbox, instead of a real mailbox; types the
+    count forget asks for; and reports no second copies.
+    """
+    import re
+
+    from mailcellar import mailbox
+    from mailcellar.offload import forget_cli
+
+    def use(box):
+        monkeypatch.setattr(mailbox, "opener", lambda config: lambda account, scope: box)
+        monkeypatch.setattr(
+            "builtins.input", lambda prompt: re.search(r"Type (\d+)", prompt).group(1)
+        )
+        monkeypatch.setattr(forget_cli, "second_copy_report", lambda root, newest: [])
+
+    return use

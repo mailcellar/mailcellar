@@ -8,6 +8,7 @@ from email.message import EmailMessage
 
 from fake_mailbox import ACCOUNT, FakeMailbox, raw_response
 from mailcellar.backup import commands, sidecar
+from mailcellar.cli import main as cli_main
 from mailcellar.message import (
     attachment_hashes,
     attachments,
@@ -213,9 +214,10 @@ def test_v3_sidecar_migrates_and_reparse_fills_children_once(tmp_path):
     assert len(children(folder)[0]) == 1
 
 
-def test_sync_removes_child_rows(tmp_path):
+def test_forget_deleted_removes_child_rows(tmp_path, listing_from):
     gmail, folder = backed_up(tmp_path, n=20)
     del gmail.messages["g0"]
-    commands.prune(gmail, ACCOUNT, folder, confirm=lambda p: True)
+    listing_from(gmail)
+    assert cli_main(["forget", ACCOUNT, "--deleted", "--yes"]) == 0
     assert "g0" not in {g for g, *_ in children(folder)[0]}
     assert len(children(folder)[0]) == 19

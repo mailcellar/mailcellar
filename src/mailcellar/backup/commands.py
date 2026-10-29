@@ -11,11 +11,10 @@ gyb folder moved there is continued as it is.
           everything when there is no history to start from, the history
           has expired, or with --full, --search or --refresh-labels
           (which re-syncs the labels of every backed-up message).
-          With --prune, it then moves messages permanently gone from the
-          mailbox (not even in Trash or Spam) out of the backup, into
-          <data root>/_pruned/<email>/<timestamp>/ with a pruned.csv
-          manifest. It asks first unless --yes, and stops if more than 10%
-          would go, unless --force. Offloaded messages always stay.
+          With --prune, for a release, it then runs `mailcellar forget
+          --deleted` on the account (forget_cli), passing on --yes and
+          --force: mail the mailbox has deleted for good, never offloaded,
+          leaves the backup, held 30 days.
   count   Compare the mailbox with the backup: what is missing locally, and
           what the backup holds that the mailbox no longer has, offloaded
           mail apart. Changes nothing.
@@ -39,7 +38,7 @@ Usage
   mailcellar meta personal
 
 Exit status is 1 if an account failed, any message could not be fetched,
-a prune stopped at its guard (backup), or the backup is missing messages
+--prune's forget refused (backup), or the backup is missing messages
 (count).
 """
 
@@ -49,7 +48,7 @@ import hashlib
 import logging
 import sys
 import time
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Collection, Mapping
 from contextlib import closing, nullcontext
 from dataclasses import dataclass
 from datetime import datetime
@@ -59,14 +58,13 @@ from mailcellar import gmailapi, mailbox
 from mailcellar.backup import chain, gyb, sidecar
 from mailcellar.mailbox import mailbox_name
 from mailcellar.message import PARSER_VERSION, parse_eml, parse_message
-from mailcellar.paths import backup_folder, config_root, pruned_folder
+from mailcellar.offload import forget
+from mailcellar.paths import backup_folder, config_root
 from mailcellar.progress import Progress
 
 logger = logging.getLogger(__name__)
 
 COMMIT_EVERY = 100
-# --prune stops without --force if more than this share of the backup would go.
-PRUNE_MAX_FRACTION = 0.10
 
 
 def now_ms() -> int:
@@ -466,194 +464,6 @@ def _backup(
     mcon.commit()
 
 
-class PruneAborted(Exception):
-    pass
-
-
-def gone_from_server(gmail, con, offloaded: set[str]) -> tuple[list[str], int, list[str]]:
-    """
-    (Gmail IDs in the backup's index that Gmail no longer has, index size,
-    offloaded IDs among the gone), all excluding offloaded messages but the last.
-    Trash and Spam count as present, so only permanently deleted mail is gone.
-    """
-    indexed = {uid for (uid,) in con.execute("SELECT uid FROM uids")}
-    on_server = set(gmail.list_message_ids(include_spam_trash=True))
-    if indexed and not on_server:
-        raise PruneAborted(
-            f"{mailbox_name(gmail.provider, start=True)} returned no messages at all; "
-            "refusing to prune"
-        )
-    gone = indexed - on_server
-    return sorted(gone - offloaded), len(indexed - offloaded), sorted(gone & offloaded)
-
-
-def prune(
-    gmail,
-    account: str,
-    folder: Path,
-    confirm,
-    force: bool = False,
-    max_fraction: float = PRUNE_MAX_FRACTION,
-) -> dict:
-    """
-    Move messages permanently gone from Gmail out of the backup, into
-    <data root>/_pruned/<email>/<timestamp>/. Offloaded messages stay. Returns
-    {"pruned": n, "dest": path or None}. Records the run in meta.sqlite,
-    also when it is declined or aborted.
-    """
-    con = gyb.open_backup(folder, account)
-    mcon = sidecar.open_meta(folder)
-    started = now_ms()
-    status = "error"
-    result = {"pruned": 0, "dest": None}
-    offloaded = sidecar.kept_ids(mcon)
-    mcon.close()
-    try:
-        result, status = _prune(
-            con, gmail, account, folder, offloaded, confirm, force, max_fraction
-        )
-        return result
-    except PruneAborted:
-        status = "aborted"
-        raise
-    finally:
-        try:
-            mcon = sidecar.open_meta(folder)
-            try:
-                sidecar.record_run(
-                    mcon,
-                    "sync",  # the runs table's name for a prune, from before --prune
-                    started,
-                    now_ms(),
-                    status,
-                    pruned=result["pruned"],
-                    messages=con.execute("SELECT count(*) FROM uids").fetchone()[0],
-                    offloaded=len(offloaded),
-                )
-            finally:
-                mcon.close()
-        finally:
-            con.close()
-
-
-def gone_by_year(con, gone: list[str], chunk: int = 500) -> dict[str, int]:
-    """
-    Year → how many of the messages `gone` were dated then. In chunks, so the
-    number of SQL variables stays under SQLite's limit however many are gone.
-    """
-    years: dict[str, int] = {}
-    for start in range(0, len(gone), chunk):
-        ids = gone[start : start + chunk]
-        for year, n in con.execute(
-            f"""SELECT substr(m.message_internaldate, 1, 4), count(*)
-                FROM uids u JOIN messages m USING (message_num)
-                WHERE u.uid IN ({",".join("?" * len(ids))}) GROUP BY 1""",
-            ids,
-        ):
-            years[year] = years.get(year, 0) + n
-    return years
-
-
-@dataclass(frozen=True)
-class PruneDecision:
-    """What a prune moves out of the backup, and what it leaves."""
-
-    move: tuple[str, ...] = ()  # IDs to move to _pruned/, in the order found
-    held: tuple[tuple[str, str], ...] = ()  # (ID, the hold keeping it in the backup)
-    refusal: str = ""  # why nothing moves although some could; "" if it may go ahead
-
-
-def prune_decision(
-    gone: Sequence[str],
-    total: int,
-    held: Mapping[str, str],
-    *,
-    force: bool,
-    max_fraction: float,
-    where: str,
-) -> PruneDecision:
-    """
-    What to move out of the backup, given the backed-up IDs the mailbox
-    (`where`) no longer has (`gone`), how many messages the backup's index
-    holds (`total`), both with offloaded mail apart, and the holds keeping
-    some of them (`held`, ID → hold).
-    Held mail stays; the rest moves unless it is more than `max_fraction` of
-    `total` and not `force`d, which refuses the whole prune. Pure.
-    """
-    kept = tuple((g, held[g]) for g in gone if g in held)
-    move = tuple(g for g in gone if g not in held)
-    if len(move) > max_fraction * total and not force:
-        return PruneDecision(
-            (),
-            kept,
-            f"{len(move):,} of {total:,} backed-up messages are gone from {where}, "
-            f"more than {max_fraction:.0%}; re-run with --force if that is right",
-        )
-    return PruneDecision(move, kept)
-
-
-def _prune(
-    con,
-    gmail,
-    account: str,
-    folder: Path,
-    offloaded: set[str],
-    confirm,
-    force: bool,
-    max_fraction: float,
-) -> tuple[dict, str]:
-    """The body of prune(): (result, run status)."""
-    gone, total, gone_offloaded = gone_from_server(gmail, con, offloaded)
-    if gone_offloaded:
-        mcon = sidecar.open_meta(folder)
-        try:
-            sidecar.mark_gone(mcon, gone_offloaded, now_ms())
-            mcon.commit()
-        finally:
-            mcon.close()
-    if offloaded:
-        print(f"Prune: keeping {len(offloaded):,} offloaded messages.")
-    from mailcellar.hold import holds
-
-    where = mailbox_name(gmail.provider)
-    decision = prune_decision(
-        gone,
-        total,
-        holds.held(folder, now_ms(), gone),  # legal holds keep their mail in the backup
-        force=force,
-        max_fraction=max_fraction,
-        where=where,
-    )
-    if decision.held:
-        names = ", ".join(sorted({hold for _id, hold in decision.held}))
-        print(f"Prune: keeping {len(decision.held):,} messages under hold {names}.")
-    if decision.refusal:
-        raise PruneAborted(decision.refusal)
-    gone = list(decision.move)
-    if not gone:
-        print(f"Prune: nothing in the backup is gone from {where}.")
-        return {"pruned": 0, "dest": None}, "ok"
-
-    by_year = gone_by_year(con, gone)
-    print(f"Prune: {len(gone):,} messages in the backup are permanently gone from {where}:")
-    print("  " + ", ".join(f"{year} {n:,}" for year, n in sorted(by_year.items())))
-
-    dest = pruned_folder(folder) / datetime.now().strftime("%Y-%m-%d-%H%M%S")
-    if not confirm(f"Move them out of the backup to {dest}?"):
-        print("Prune: nothing pruned.")
-        return {"pruned": 0, "dest": None}, "declined"
-    chain.append(folder, account, "prune", removed=chain.removal(folder, gone))
-    manifest = gyb.prune(con, folder, gone, dest)
-    mcon = sidecar.open_meta(folder)
-    try:
-        sidecar.delete_messages(mcon, (m["gmail_id"] for m in manifest))
-        mcon.commit()
-    finally:
-        mcon.close()
-    print(f"Prune: moved {len(manifest):,} messages to {dest}")
-    return {"pruned": len(manifest), "dest": dest}, "ok"
-
-
 def record_unattended_failure(args, reason: str = "needs-consent") -> None:
     """
     A backup that couldn't get access, needing a sign-in (unattended) or with
@@ -678,6 +488,11 @@ def cmd_backup(args) -> int:
         sys.exit(
             "error: --prune can't be combined with --search: messages outside "
             "the search would look deleted."
+        )
+    if args.prune and args.folder:
+        sys.exit(
+            "error: --prune runs 'mailcellar forget --deleted', which works on the backups in "
+            "the data root, not --folder."
         )
     try:
         account, folder, gmail = connect(args)
@@ -724,17 +539,31 @@ def cmd_backup(args) -> int:
             )
             return 1
 
-        if args.prune:
+        if not args.prune:
+            return 0
+    return prune_by_forget(args, account)  # once the backup's own session has logged out
 
-            def confirm(prompt):
-                return args.yes or input(f"{prompt} [y/N] ").strip().lower() == "y"
 
-            try:
-                prune(gmail, account, folder, confirm, force=args.force)
-            except PruneAborted as exc:
-                logger.error(f"Prune aborted: {exc}")
-                return 1
-        return 0
+def prune_by_forget(args, account: str) -> int:
+    """
+    backup --prune, for a release: `mailcellar forget --deleted` on the
+    account, after its backup, with --yes and --force passed on. Without
+    --yes that is forget's dry run; with it, forget asks for the count.
+    """
+    from mailcellar.offload import forget_cli
+
+    logger.warning(
+        "'backup --prune' is now 'mailcellar forget --deleted', run after the backup: mail "
+        "goes to <data root>/_forgotten/, held 30 days. --prune goes in a later release"
+    )
+    argv = [account, "--deleted", "--config", args.config]
+    argv += ["--yes"] * args.yes + ["--force"] * args.force
+    try:
+        return forget_cli.main(argv, prog="mailcellar forget")
+    except SystemExit as exc:  # forget's errors end its run, not the other accounts' backups
+        if isinstance(exc.code, str):
+            logger.error(f"{account}: {exc.code.removeprefix('error: ')}")
+        return exc.code if isinstance(exc.code, int) and exc.code else 1
 
 
 # ── meta backfill ────────────────────────────────────────────────────────────
@@ -927,7 +756,12 @@ def count(gmail, account: str, folder: Path) -> dict:
     try:
         indexed = {uid for (uid,) in con.execute("SELECT uid FROM uids")}
         backed_up = gyb.backed_up_ids(con, folder)
-        gone, _total, gone_kept = gone_from_server(gmail, con, kept)
+        found = forget.gone_from(indexed, gmail.list_message_ids(include_spam_trash=True), kept)
+        if found.listed_nothing:  # a mailbox answering wrongly, not every message deleted
+            raise gmailapi.GmailError(
+                f"{mailbox_name(gmail.provider, start=True)} listed no messages at all"
+            )
+        gone, gone_kept = found.deleted, found.offloaded
     finally:
         con.close()
 
@@ -982,10 +816,7 @@ def count(gmail, account: str, folder: Path) -> dict:
 def cmd_count(args) -> int:
     account, folder, gmail = connect(args)
     with closing(gmail):
-        try:
-            c = count(gmail, account, folder)
-        except PruneAborted as exc:
-            sys.exit(f"error: {exc}")
+        c = count(gmail, account, folder)
     server = mailbox_name(gmail.provider)
     on_server = (
         "In Gmail (excl. spam/trash)" if server == "Gmail" else "On the server (excl. junk/trash)"
@@ -1011,8 +842,8 @@ def cmd_count(args) -> int:
             print(f"  {label:<34} {n:>8,}")
     if c["gone_from_server"]:
         print(
-            f"\n'backup --prune' would move {c['gone_from_server']:,} permanently "
-            "deleted messages out of the backup."
+            f"\n'mailcellar forget --deleted' would take {c['gone_from_server']:,} "
+            "permanently deleted messages out of the backup."
         )
     if c["restored_gone"]:
         print(
@@ -1076,11 +907,13 @@ def main(argv=None, prog: str | None = None) -> int:
     p_backup.add_argument(
         "--prune",
         action="store_true",
-        help="Then move messages permanently deleted from the mailbox "
-        "out of the backup, into <data root>/_pruned/<email>/",
+        help="Then run 'mailcellar forget --deleted' on the account: what the mailbox has "
+        "deleted for good leaves the backup, held 30 days (--prune goes in a later release)",
     )
     p_backup.add_argument(
-        "--yes", action="store_true", help="With --prune: don't ask before moving messages"
+        "--yes",
+        action="store_true",
+        help="With --prune: forget them after the count is typed; without it, a dry run",
     )
     p_backup.add_argument(
         "--unattended",
@@ -1091,7 +924,8 @@ def main(argv=None, prog: str | None = None) -> int:
     p_backup.add_argument(
         "--force",
         action="store_true",
-        help=f"With --prune: allow pruning more than {PRUNE_MAX_FRACTION:.0%}% of the backup",
+        help="With --prune: go ahead although more than "
+        f"{forget.MAX_DELETED_SHARE:.0%}% of the backup's messages are gone from the mailbox",
     )
     p_backup.set_defaults(func=cmd_backup)
 

@@ -180,7 +180,8 @@ def main(argv=None, prog: str | None = None) -> int:
     elsewhere.add_argument(
         "--from-pruned",
         metavar="BATCH",
-        help="Mail backup --prune moved out of the backup, in <data root>/_pruned/<email>/BATCH/",
+        help="Mail backup --prune moved out of the backup before it ran forget, in "
+        "<data root>/_pruned/<email>/BATCH/ (this option goes in a later release)",
     )
     elsewhere.add_argument(
         "--from-mbox",

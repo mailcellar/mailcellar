@@ -120,7 +120,7 @@ def state(con, folders: list[Path], opts: Options, now: int) -> Table:
             "No .eml: indexed in msg-db.sqlite but the file is missing (backup re-fetches it). "
             "Not in sidecar / Older parser: run mailcellar meta. Offloaded: removed from "
             "its mailbox on purpose and kept in the backup; in Trash until the mailbox "
-            "empties it (Gmail after 30 days), as last seen by count, a prune or a backup. "
+            "empties it (Gmail after 30 days), as last seen by count or a backup. "
             "Start point: a stored history ID; its age is the time since the last backup "
             "that stored one. Times are UTC."
         ],
@@ -229,7 +229,11 @@ def by_month(con) -> Table:
             ("Failed runs", "int"),
         ],
         rows,
-        notes=["Failed runs: download failures, errors, or a prune stopped by its guard."],
+        notes=[
+            "Failed runs: download failures, errors, or a prune stopped by its guard "
+            "(before backup --prune ran forget, which records no run; its refusals go "
+            "to stderr and its exit status)."
+        ],
     )
 
 
@@ -246,7 +250,10 @@ def pruned(folders: list[Path]) -> Table:
         "Pruned batches (<data root>/_pruned/)",
         [("Account", "text"), ("Batch", "text"), ("Messages", "int")],
         rows,
-        notes=["Messages moved out of the backup by --prune, one folder per run (local time)."],
+        notes=[
+            "Messages backup --prune moved out of the backup before it ran forget, one folder "
+            "per run (local time); restore --from-pruned reads them, for a release."
+        ],
         limit=False,
     )
 
@@ -309,8 +316,8 @@ def holds_table(folders: list[Path], now: int) -> Table:
         ],
         rows,
         notes=[
-            "Mail a hold keeps is left alone by offload, dedup, backup --prune and "
-            "forget, in its mailbox and in the backup; mail that matches later is kept too. "
+            "Mail a hold keeps is left alone by offload, dedup and forget, in its mailbox "
+            "and in the backup; mail that matches later is kept too. "
             "Only in backup: its mailbox no longer has it, so the backup holds the only "
             "copy. A hold can only keep what has been backed up: run backups while one is in force "
             "('mailcellar hold show NAME' has the details)."

@@ -488,12 +488,80 @@ def test_deleted_leaves_held_mail(deleted, monkeypatch, capsys):
     assert "Dry run" not in out  # nothing left to forget
 
 
+def test_gone_from_splits_what_the_mailbox_no_longer_lists():
+    gone = forget.gone_from({"a", "b", "c", "o1", "o2"}, {"a", "o1", "x"}, {"o1", "o2"})
+    assert gone == forget.Gone(("b", "c"), ("o2",), 3)
+    assert forget.gone_from({"a"}, set(), set()).listed_nothing
+    assert not forget.gone_from(set(), set(), set()).listed_nothing  # an empty backup
+
+
+def test_deleted_decision_takes_what_is_gone_but_held_mail():
+    gone = forget.Gone(("g1", "g2", "g3"), (), 100)
+    d = forget.deleted_decision(
+        gone, (), {"g2": "audit", "x9": "audit"}, force=False, where="Gmail"
+    )
+    # holds on mail not gone don't count
+    assert d == forget.DeletedDecision(("g1", "g3"), (("g2", "audit"),))
+    empty = forget.Gone((), (), 100)
+    assert forget.deleted_decision(empty, (), {}, force=False, where="Gmail") == (
+        forget.DeletedDecision()
+    )
+
+
+def test_deleted_decision_refuses_too_much_unless_forced_and_held_mail_doesnt_count():
+    gone = forget.Gone(tuple(f"g{i}" for i in range(11)), (), 100)
+
+    def decide(held, force=False):
+        return forget.deleted_decision(gone, (), held, force=force, where="the server")
+
+    refused = decide({})
+    assert refused.move == () and refused.refusal == (
+        "11 of 100 backed-up messages are gone from the server, more than 10%; "
+        "re-run with --force if that is right"
+    )
+    assert decide({}, force=True).move == gone.deleted
+    held_one = decide({"g0": "audit"})
+    assert held_one.refusal == "" and len(held_one.move) == 10  # 10 of 100 is not more than 10%
+
+
+def test_deleted_decision_refuses_an_empty_or_partial_listing_even_forced():
+    nothing = forget.Gone(("g1",), (), 1, listed_nothing=True)
+    d = forget.deleted_decision(nothing, (), {}, force=True, where="Gmail")
+    assert d.move == () and d.refusal == "Gmail listed no messages at all"
+    partial = forget.Gone(("g1",), (), 100)
+    d = forget.deleted_decision(partial, ("Archive",), {}, force=True, where="the server")
+    assert d.move == () and "1 folders couldn't be read (Archive)" in d.refusal
+
+
+def test_presence_from_a_listing_and_none_known_when_folders_were_unread():
+    assert forget.presence({"a"}, (), ["a", "b"]) == ({"a": set(), "b": None}, {})
+    live, unread = forget.presence({"a"}, ("Archive",), ["a", "b"])
+    assert live == {} and set(unread) == {"a", "b"}
+
+
 def test_a_lookup_with_folders_unread_checks_nothing(monkeypatch, tmp_path):
     box = FakeMailbox({})  # p0 isn't listed: gone, but only if every folder was read
     monkeypatch.setattr(box, "unread", lambda: ("Archive",))
     monkeypatch.setattr(mailbox, "opener", lambda config: lambda account, scope: box)
     live, unread = forget_cli.gmail_state(A, tmp_path, ["p0"])
     assert live == {} and unread == {"p0": "1 folders couldn't be read"}
+
+
+def test_a_combined_run_signs_in_once(deleted, monkeypatch):
+    _folder, gmail = deleted
+    opened = []
+
+    def counting(config):
+        def open_(account, scope):
+            opened.append(account)
+            return gmail
+
+        return open_
+
+    monkeypatch.setattr(mailbox, "opener", counting)
+    monkeypatch.setattr(forget_cli, "gmail_state", lambda *a: pytest.fail("signed in again"))
+    assert cli.main(["forget", "--batch", BATCH, "--deleted", "--force"]) == 0
+    assert opened == [A]
 
 
 def test_deleted_candidates_years_and_note():

@@ -17,6 +17,16 @@ in beta, so commands and options may still change before 1.0.
   `--due` in one run.
 
 ### Changed
+- `backup --prune` now runs `mailcellar forget --deleted` on the account
+  after its backup, in place of moving mail into `<data root>/_pruned/`:
+  the mail is held 30 days in `_forgotten/`, with `forget --undo` and
+  `--empty`, and taken out of the indexes, plans and logs. Without `--yes`
+  that is forget's dry run, where `--prune` used to ask; with `--yes`, you
+  type the count, and with no terminal to type it in (a script) nothing is
+  forgotten. `--prune` can't take `--folder`. It goes in a later
+  release: use `forget --deleted`.
+- `restore --from-pruned` reads the batches `backup --prune` made before;
+  it goes in a later release, and nothing moves them into `_forgotten/`.
 - `offload forget` is now `mailcellar forget`, a command of its own, since
   it acts on the backup rather than the mailbox; its options are
   unchanged, and its reference is a page of its own (Forgetting mail).

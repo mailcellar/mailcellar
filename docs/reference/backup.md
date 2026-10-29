@@ -10,8 +10,7 @@ mailcellar backup personal         # one account
 mailcellar count                   # compare each mailbox with its backup
 mailcellar backup personal --full  # list every message instead of using history
 mailcellar backup --unattended     # for scheduled runs: never opens a browser
-mailcellar backup personal --prune  # also move mail permanently deleted from the mailbox
-                                          # (not offloaded mail) into <data root>/_pruned/
+mailcellar backup personal --prune  # then run 'mailcellar forget --deleted' (for a release)
 mailcellar meta                    # fill meta.sqlite for older mail
 mailcellar verify                  # are the backup's files still intact?
 ```
@@ -19,8 +18,8 @@ mailcellar verify                  # are the backup's files still intact?
 **Exit status** (for scripts and schedulers): 0 when everything worked.
 Otherwise 1, in any of these cases:
 - an account failed (with several accounts, the others still run);
-- downloads failed (the next run fetches them), or `--prune` stopped at its
-  guard;
+- downloads failed (the next run fetches them), or the forget that `--prune`
+  runs refused (its 10% guard, or a mailbox it couldn't list in full);
 - `count` found mail missing from the backup;
 - `verify` found a problem.
 
@@ -69,9 +68,9 @@ with none named, every account in `accounts.toml`.
 | Option | What it does |
 | --- | --- |
 | `--full` | List every message instead of reading Gmail's history since the last run (an IMAP account reads every folder on each run, and works out what changed) |
-| `--prune` | Then move mail permanently deleted from the mailbox out of the backup, into `<data root>/_pruned/<email>/`; never offloaded mail |
-| `--yes` | With `--prune`: don't ask before moving |
-| `--force` | With `--prune`: allow moving more than 10% of the backup |
+| `--prune` | Then run [`mailcellar forget --deleted`](forget.md#mail-deleted-in-the-mailbox-deleted) on the account: mail the mailbox has deleted for good, never offloaded, leaves the backup, held 30 days in `<data root>/_forgotten/`. Without `--yes`, forget's dry run. Not with `--search` or `--folder`. For this release; then use `forget --deleted` |
+| `--yes` | With `--prune`: forget them after you type the count |
+| `--force` | With `--prune`: go ahead although more than 10% of the backup's messages are gone from the mailbox |
 | `--unattended` | For scheduled runs: never open a browser. A token that needs signing in fails that account's run, with the command to fix it |
 | `--refresh-labels` | Also re-sync the labels of messages already backed up. Gmail lists them label by label, 500 messages per call, so about a minute for 50,000 messages. An IMAP account's labels are refreshed on every run |
 | `--search QUERY` | Only consider messages matching this Gmail search (Gmail accounts only) |
@@ -107,8 +106,8 @@ Takes `--folder` and `--config`, as `backup` does.
 `verify` takes account names and finds the backups in the data root.
 
 **The hash chain.** Each backup folder has a `chain.jsonl`, which gyb
-ignores: one line, or link, per `backup`, `restore`, `--prune` and
-`forget` (and its `--undo` and `--empty`), listing the messages it
+ignores: one line, or link, per `backup`, `restore`, `forget` (and its
+`--undo` and `--empty`), and `--prune` before it ran forget, listing the messages it
 added to or removed from the backup with the SHA-256 of each `.eml`, and
 the hash of the link before. The latest link's number and hash are also
 kept in the config folder (`anchors/<email>.json`), and `report health`

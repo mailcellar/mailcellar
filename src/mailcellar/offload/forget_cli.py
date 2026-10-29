@@ -6,7 +6,6 @@ the old name: cli.py hands it on here for a release.
 
 import argparse
 import logging
-import sqlite3
 import sys
 import time
 from contextlib import closing
@@ -16,12 +15,6 @@ from pathlib import Path
 
 from mailcellar import gmailapi
 from mailcellar.backup import sidecar
-from mailcellar.backup.commands import (
-    PRUNE_MAX_FRACTION,
-    PruneAborted,
-    gone_from_server,
-    prune_decision,
-)
 from mailcellar.backup.gyb import backup_account
 from mailcellar.hold import holds
 from mailcellar.mailbox import mailbox_name
@@ -47,7 +40,7 @@ def gmail_state(account: str, config: Path, ids: list[str]):
             live = box.message_labels(ids, failures)
         skipped = box.unread()
     if skipped:  # an IMAP folder unread: its mail would look gone, so nothing is known
-        return {}, dict.fromkeys(ids, f"{len(skipped):,} folders couldn't be read")
+        return forget.presence((), skipped, ids)
     return live, dict(f.split(": ", 1) for f in failures)
 
 
@@ -89,29 +82,18 @@ def forget_rows(choice, provider: str) -> list[str]:
     ]
 
 
-def deleted_mail(folder: Path, account: str, config: Path):
+def listing(account: str, config: Path) -> tuple[frozenset[str], tuple[str, ...], str]:
     """
-    (the backup's messages its mailbox no longer has and that were never
-    offloaded, the backup's size with offloaded mail apart, the folders the
-    mailbox couldn't read, its provider): the mailbox listed now, Trash and
-    Spam included, as backup --prune lists it. Read-only; PruneAborted if
-    the mailbox lists nothing at all.
+    (every message the mailbox has, Trash and Spam included; the folders it
+    couldn't read, an IMAP server's; its provider), from one sign-in.
+    Read-only. Raises GmailError when the mailbox can't be reached.
     """
     from mailcellar import mailbox
 
-    mcon = sidecar.open_meta(folder)
-    try:
-        kept = sidecar.kept_ids(mcon)  # ever offloaded, restored or not: --batch and --rule's
-    finally:
-        mcon.close()
-    con = sqlite3.connect(f"file:{folder / 'msg-db.sqlite'}?mode=ro", uri=True)
-    try:
-        with closing(mailbox.opener(config)(account, "readonly")) as box:
-            logger.info(f"{account}: listing {mailbox_name(box.provider)}")
-            gone, total, _offloaded = gone_from_server(box, con, kept)
-            return gone, total, box.unread(), box.provider
-    finally:
-        con.close()
+    with closing(mailbox.opener(config)(account, "readonly")) as box:
+        logger.info(f"{account}: listing {mailbox_name(box.provider)}")
+        listed = frozenset(box.list_message_ids(include_spam_trash=True))
+        return listed, box.unread(), box.provider
 
 
 @dataclass(frozen=True)
@@ -123,39 +105,32 @@ class DeletedPart:
     refusal: str = ""  # why none of it may be forgotten; "" if it may
 
 
-def deleted_part(folder: Path, account: str, config: Path, provider: str, force: bool):
+def deleted_part(
+    folder: Path, listed: frozenset[str], unread: tuple[str, ...], provider: str, force: bool
+) -> DeletedPart:
     """
-    forget --deleted's selection for one backup, and the mailbox's provider:
-    the mailbox listed (deleted_mail), then prune's guard and the legal holds
-    (prune_decision). A mailbox that can't be listed, or read in full, is a
-    refusal, not an error, so the run's other parts and accounts go on.
+    forget --deleted's selection for one backup, from its mailbox's listing:
+    gone_from, then deleted_decision's guards and the legal holds. Reads the
+    backup; a refusal rather than an error, so the run's other parts and
+    accounts go on.
     """
+    mcon = sidecar.open_meta(folder)
     try:
-        gone_ids, total, unread, provider = deleted_mail(folder, account, config)
-    except PruneAborted:
-        why = f"{mailbox_name(provider, start=True)} listed no messages at all"
-        return DeletedPart(refusal=why), provider
-    except gmailapi.GmailError as exc:
-        return DeletedPart(refusal=f"listing {mailbox_name(provider)}: {exc}"), provider
-    if unread:
-        why = (
-            f"{len(unread):,} folders couldn't be read ({', '.join(unread)}), so their mail "
-            "would look deleted"
-        )
-        return DeletedPart(refusal=why), provider
-    decision = prune_decision(
-        gone_ids,
-        total,
-        holds.held(folder, int(time.time() * 1000), gone_ids),
+        kept = sidecar.kept_ids(mcon)  # ever offloaded, restored or not: --batch and --rule's
+    finally:
+        mcon.close()
+    gone = forget.gone_from(forget.index_ids(folder), listed, kept)
+    decision = forget.deleted_decision(
+        gone,
+        unread,
+        holds.held(folder, int(time.time() * 1000), list(gone.deleted)),
         force=force,
-        max_fraction=PRUNE_MAX_FRACTION,
         where=mailbox_name(provider),
     )
     if decision.refusal:
-        return DeletedPart(held=decision.held, refusal=decision.refusal), provider
+        return DeletedPart(held=decision.held, refusal=decision.refusal)
     move = list(decision.move)
-    chosen = tuple(forget.deleted(move, forget.details(folder, move)))
-    return DeletedPart(chosen, decision.held), provider
+    return DeletedPart(tuple(forget.deleted(move, forget.details(folder, move))), decision.held)
 
 
 def deleted_rows(chosen: list, held: tuple) -> list[str]:
@@ -185,7 +160,9 @@ def cmd_forget(args) -> int:
     except AnalyticsError as exc:
         sys.exit(f"error: {exc}")
     if args.force and not args.deleted:
-        sys.exit("error: --force only applies with --deleted (the 10% guard)")
+        sys.exit(
+            f"error: --force only applies with --deleted (the {forget.MAX_DELETED_SHARE:.0%} guard)"
+        )
     if args.undo:
         forget_undo(folders, args.undo)
         return 0
@@ -209,9 +186,15 @@ def cmd_forget(args) -> int:
         except sidecar.MetaError as exc:
             sys.exit(f"error: {exc}")
         found = select_offloaded(folder, args, retain) if offloaded else []
+        listed = None  # (IDs, unreadable folders), once --deleted has listed the mailbox
         part = None  # the --deleted part, unless not asked for or refused
         if args.deleted:
-            part, provider = deleted_part(folder, account, Path(args.config), provider, args.force)
+            try:
+                ids, skipped, provider = listing(account, Path(args.config))
+                listed = (ids, skipped)
+                part = deleted_part(folder, ids, skipped, provider, args.force)
+            except gmailapi.GmailError as exc:
+                part = DeletedPart(refusal=f"listing {mailbox_name(provider)}: {exc}")
             if part.refusal:
                 logger.error(
                     f"{account}: {part.refusal}; "
@@ -231,7 +214,10 @@ def cmd_forget(args) -> int:
             continue
         gone = [c.gmail_id for c in found if c.gone_ms is not None and c.gmail_id not in held]
         try:
-            live, unread = gmail_state(account, Path(args.config), gone) if gone else ({}, {})
+            if listed is not None:  # the listing answers it: no second sign-in
+                live, unread = forget.presence(*listed, gone)
+            else:
+                live, unread = gmail_state(account, Path(args.config), gone) if gone else ({}, {})
         except gmailapi.GmailError as exc:
             logger.error(f"{account}: asking {mailbox_name(provider)}: {exc}; nothing is forgotten")
             status = 1
@@ -413,7 +399,7 @@ def main(argv=None, prog: str | None = None) -> int:
         "--force",
         action="store_true",
         help="With --deleted: go ahead although more than "
-        f"{PRUNE_MAX_FRACTION:.0%}% of the backup's messages are deleted in its mailbox",
+        f"{forget.MAX_DELETED_SHARE:.0%}% of the backup's messages are deleted in its mailbox",
     )
     fg.add_argument("--rules", default=str(rules), help=f"Rules file, for --due (default: {rules})")
     fg.add_argument(

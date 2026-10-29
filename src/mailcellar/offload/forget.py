@@ -9,8 +9,9 @@ one irreversible thing mailcellar does, so:
       --yes, and then the count must be typed.
   forget --deleted
       Mail deleted in its mailbox, never offloaded (B40: what backup --prune
-      took): the mailbox is listed now, as prune does, and more than a tenth
-      of the backup needs --force. Recorded with batch "" and rule DELETED.
+      took): the mailbox is listed now (gone_from, deleted_decision), and
+      more than MAX_DELETED_SHARE of the backup needs --force. Recorded
+      with batch "" and rule DELETED.
   … --yes
       Moves their files to <data root>/_forgotten/<email>/<run>/ (with a
       manifest for --undo), deletes their rows from msg-db.sqlite and
@@ -40,6 +41,7 @@ import logging
 import os
 import shutil
 import sqlite3
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -55,6 +57,7 @@ FORGOTTEN_DIR = "_forgotten"  # <data root>/_forgotten/<email>/<run>/
 MANIFEST = "forgotten.csv"
 RUN_FORMAT = "%Y-%m-%d-%H%M%S"
 DELETED = "(deleted)"  # forgotten.rule for mail deleted in its mailbox, never offloaded
+MAX_DELETED_SHARE = 0.10  # --deleted stops without --force if more of the backup would go
 SCRUBBED = ("sender", "subject")  # blanked in the CSVs; IDs, dates, rules and sizes stay
 ROW_KEYS = (("account", "gmail_id"), ("keeper_account", "keeper_gmail_id"))
 
@@ -85,7 +88,92 @@ class Choice:
     held: tuple[tuple[Offloaded, str], ...] = ()  # under a legal hold: its name
 
 
+@dataclass(frozen=True)
+class Gone:
+    """What the backup's index holds that its mailbox no longer lists (gone_from)."""
+
+    deleted: tuple[str, ...]  # never offloaded: what --deleted may take
+    offloaded: tuple[str, ...]  # ever offloaded: --batch, --rule and --due's
+    total: int  # the index, offloaded mail apart: what MAX_DELETED_SHARE is of
+    listed_nothing: bool = False  # the mailbox listed no messages, though the backup has some
+
+
+@dataclass(frozen=True)
+class DeletedDecision:
+    """What --deleted takes out of the backup, and what it leaves."""
+
+    move: tuple[str, ...] = ()  # IDs to forget, in the order found
+    held: tuple[tuple[str, str], ...] = ()  # (ID, the hold keeping it in the backup)
+    refusal: str = ""  # why nothing may be taken although some could; "" if it may
+
+
 # ── decisions ────────────────────────────────────────────────────────────────
+
+
+def gone_from(indexed: Collection[str], listed: Collection[str], kept: Collection[str]) -> Gone:
+    """
+    The backup's indexed IDs its mailbox doesn't list (`listed`, Trash and
+    Spam included, so only mail deleted for good counts), split by whether
+    they were ever offloaded (`kept`, restored or not). Pure.
+    """
+    indexed, listed, kept = set(indexed), set(listed), set(kept)
+    gone = indexed - listed
+    return Gone(
+        tuple(sorted(gone - kept)),
+        tuple(sorted(gone & kept)),
+        len(indexed - kept),
+        bool(indexed) and not listed,
+    )
+
+
+def deleted_decision(
+    gone: Gone,
+    unread: Collection[str],
+    held: Mapping[str, str],
+    *,
+    force: bool,
+    where: str,
+    max_share: float = MAX_DELETED_SHARE,
+) -> DeletedDecision:
+    """
+    What --deleted may take: gone.deleted, less what holds keep (`held`, ID
+    → hold). Nothing at all when the mailbox (`where`) listed no messages,
+    or couldn't read some folders (`unread`), whose mail would look deleted;
+    nor when more than `max_share` of the backup would go and it isn't
+    `force`d. Pure.
+    """
+    if gone.listed_nothing:
+        return DeletedDecision(refusal=f"{where} listed no messages at all")
+    if unread:
+        return DeletedDecision(
+            refusal=f"{len(unread):,} folders couldn't be read ({', '.join(unread)}), so their "
+            "mail would look deleted"
+        )
+    kept = tuple((g, held[g]) for g in gone.deleted if g in held)
+    move = tuple(g for g in gone.deleted if g not in held)
+    if len(move) > max_share * gone.total and not force:
+        return DeletedDecision(
+            (),
+            kept,
+            f"{len(move):,} of {gone.total:,} backed-up messages are gone from {where}, "
+            f"more than {max_share:.0%}; re-run with --force if that is right",
+        )
+    return DeletedDecision(move, kept)
+
+
+def presence(
+    listed: Collection[str], unread: Collection[str], gmail_ids: list[str]
+) -> tuple[dict[str, set[str] | None], dict[str, str]]:
+    """
+    choose()'s `live` and `unread` from a listing of the mailbox rather than
+    a lookup per message: present (an empty label set) or gone (None), and
+    every ID unchecked when some folders couldn't be read. Pure.
+    """
+    if unread:
+        why = f"{len(unread):,} folders couldn't be read"
+        return {}, dict.fromkeys(gmail_ids, why)
+    listed = set(listed)
+    return {g: (set() if g in listed else None) for g in gmail_ids}, {}
 
 
 def choose(
@@ -334,6 +422,15 @@ def candidates(folder: Path, batches=(), rules=()) -> list[Offloaded]:
         for row in rows
         if (not batches or row[1] in batches) and (not rules or row[2] in rules)
     ]
+
+
+def index_ids(folder: Path) -> set[str]:
+    """The Gmail IDs in the backup's index (msg-db.sqlite). Read-only."""
+    con = sqlite3.connect(f"file:{folder / gyb.DB_NAME}?mode=ro", uri=True)
+    try:
+        return {uid for (uid,) in con.execute("SELECT uid FROM uids")}
+    finally:
+        con.close()
 
 
 def details(folder: Path, gmail_ids: list[str], chunk: int = 500) -> dict:
