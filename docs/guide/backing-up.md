@@ -15,15 +15,13 @@ second copy of it. The README has the reference for each command
 - **It only adds.** `backup`, `count` and `meta` never delete anything from
   the backup. Mail you delete from Gmail stays in the backup, and
   `backup` says how many such messages there are.
-- **It can move, never delete, with `--prune`.** `backup --prune` moves mail
-  that is permanently gone from Gmail out of the backup into
-  `<data root>/_pruned/<email>/<batch>/`. It asks first, refuses to move
-  more than a tenth of the backup unless you add `--force`, and never
-  touches mail you have offloaded. The files move; nothing is erased.
-- **One command deletes, on purpose.** `forget` deletes offloaded
-  mail that Gmail has deleted too, for mail you shouldn't keep at all. It
-  asks you to type the count, and holds the files 30 days before
-  `--empty` deletes them; see [Offloading](offloading.md#deleting-offloaded-mail-for-good).
+- **One command deletes, on purpose.** `forget` deletes mail from the
+  backup once Gmail has deleted it too: offloaded mail you shouldn't keep
+  at all ([Offloading](offloading.md#deleting-offloaded-mail-for-good)),
+  or, with `--deleted`, mail you deleted in Gmail yourself (below). It
+  asks you to type the count, and holds the files: `--undo` can put them
+  back until `--empty` deletes them, which it does only once they have
+  been held 30 days.
 - **It reads Gmail, never changes it.** A backup needs read-only access.
 
 Once you offload mail and Gmail empties its Trash (30 days later), the
@@ -58,7 +56,7 @@ delete. Run the full `mailcellar verify` occasionally: it parses every
 message, so on a large backup it takes a while.
 
 `verify --chain` also catches a change made on purpose. Every `backup`,
-`restore`, `--prune` and `forget` records what it added or removed,
+`restore` and `forget` records what it added or removed,
 with a hash of each file, in a chain whose latest link is also kept in
 the config folder; the check fails on anything changed, missing or added
 outside those commands, even if `meta.sqlite` was changed to agree. Note
@@ -73,8 +71,9 @@ folder `mailcellar config` shows. It holds:
 
 - one folder per account, with the `.eml` files and the two databases,
   `msg-db.sqlite` and `meta.sqlite`;
-- `offload/` (rules, plans and the batch manifests), `restore/`, `_pruned/`
-  and `logs/`.
+- `offload/` (rules, plans and the batch manifests), `restore/`,
+  `_forgotten/` (mail `forget` holds for 30 days), `logs/`, and `_pruned/`
+  if an older `backup --prune` made it.
 
 `meta.sqlite` records which mail was offloaded and which was restored, and
 nothing rebuilds that from the `.eml` files. Copy the whole folder, not just
@@ -154,31 +153,38 @@ is stored on:
 Exports are copies outside all of this: see
 [Exporting mail](exporting.md).
 
-## Mail deleted from Gmail: `--prune`
+<a id="mail-deleted-from-gmail-prune"></a>
+
+## Mail deleted from Gmail: `forget --deleted`
 
 Mail you delete in Gmail and then empty from Trash is permanently gone from
 Gmail but stays in the backup, so you can undo a mistake. `backup` counts
-those messages. To tidy them out of the backup:
+those messages. To take them out of the backup too:
 
 ```bash
-mailcellar backup work --prune
+mailcellar forget work --deleted         # dry run: how many, by year
+mailcellar forget work --deleted --yes   # asks you to type the count
 ```
 
-It lists how many messages it would move and asks. It stops at 10% of the
-backup unless you add `--force`, because a large number usually means
-something else is wrong: the wrong account, or an old copy of the data root
-that does not know about your offloads.
+It lists Gmail first (read-only), so only mail Gmail no longer has counts,
+and never mail you offloaded. It stops at 10% of the backup unless you add
+`--force`, because a large number usually means something else is wrong:
+the wrong account, or an old copy of the data root that does not know about
+your offloads.
 
-The moved mail is in `<data root>/_pruned/<email>/<batch>/`, with a
-`pruned.csv` of its labels. To put it back into Gmail:
+The mail is held in `<data root>/_forgotten/<email>/<run>/`.
+`mailcellar forget work --undo RUN` puts a run back into the backup, and
+`mailcellar forget --empty --yes` deletes runs held 30 days or more for
+good; until you run that, `--undo` still works. See [Forgetting mail](../reference/forget.md#mail-deleted-in-the-mailbox-deleted).
 
-```bash
-mailcellar restore work --from-pruned 2026-03-01-120000        # dry run
-mailcellar restore work --from-pruned 2026-03-01-120000 --yes
-```
+`backup --prune` runs the same thing after a backup, for one release.
+Before that it moved this mail into `<data root>/_pruned/<email>/<batch>/`
+and kept it there; those batches stay where they are until you delete
+them, and for this release `restore --from-pruned` can still put them
+back into Gmail.
 
-Most people never need `--prune`. Mail stays in the backup if you leave it
-alone, at the cost of disk space.
+Most people never need `--deleted`. Mail stays in the backup if you leave
+it alone, at the cost of disk space.
 
 ## Adding an account, or moving the backup
 

@@ -189,7 +189,7 @@ The [documentation site](https://mailcellar.github.io/mailcellar/) has the guide
 - [Workspace: backing up through a service account](https://mailcellar.github.io/mailcellar/guide/workspace-service-account/):
   unattended, read-only backups of a domain's mailboxes without each person signing in.
 - [Backing up, and keeping the backup safe](https://mailcellar.github.io/mailcellar/guide/backing-up/): the
-  routine, a second copy of the data root and checking it, `backup --prune`.
+  routine, a second copy of the data root and checking it, `forget --deleted`.
 - [Scheduled backups](https://mailcellar.github.io/mailcellar/guide/scheduling/): run backups unattended, and
   what happens when a token needs signing in.
 - [Migrating from gyb](https://mailcellar.github.io/mailcellar/guide/from-gyb/): continue an existing Got Your

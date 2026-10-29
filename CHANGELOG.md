@@ -7,10 +7,19 @@ in beta, so commands and options may still change before 1.0.
 
 ## Unreleased
 
+**Upgrading from 0.18.0:** no database's schema changes. `backup --prune`
+now runs `forget --deleted` (below): without `--yes` it is a dry run, and
+with it you type the count. Batches an earlier `--prune` moved into
+`<data root>/_pruned/` are left where they are, not moved into
+`_forgotten/`: `restore --from-pruned` still reads them in this release,
+and once you no longer need them, delete the folder yourself. Scripts
+that run `offload forget` keep working, with a warning; change them to
+`mailcellar forget`.
+
 ### Added
 - `forget --deleted` takes out of the backup mail its mailbox has
   permanently deleted and that was never offloaded, what `backup --prune`
-  moves to `_pruned/`, but as forget does: held 30 days, with `--undo`
+  used to move into `_pruned/`, but as forget does: held 30 days, with `--undo`
   and `--empty`, and taken out of the search index, the dedup catalogue,
   plans and logs. It lists the mailbox itself, keeps prune's 10% guard
   (`--force`) and legal holds, and combines with `--batch`, `--rule` and

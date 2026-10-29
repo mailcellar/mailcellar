@@ -131,10 +131,10 @@ rebuilds it from the backups.
 One thing an older copy cannot know: mail you offloaded **after** the copy
 was made. Those messages are in the backup (they were downloaded earlier)
 but not recorded as offloaded, so once Gmail has emptied its Trash,
-`backup --prune` would offer to move them out of the backup as if Gmail had
-lost them. Do not confirm that. Read what
+`forget --deleted` would offer to take them out of the backup as if you had
+deleted them. Do not confirm that. Read what
 `backup` and `count` say, and compare against the batch manifests if you
-kept them, before using `--prune`.
+kept them, before using `--deleted`.
 
 **Only some files are damaged.** `mailcellar verify` lists them: files that
 are missing, do not parse or no longer match their recorded content hash,
@@ -151,10 +151,13 @@ mail, which has no other source). It changes nothing.
   the file from a copy if you have one.
 - A damaged `msg-db.sqlite`, the gyb index, is the hardest case. Restore it
   from a copy together with its `.eml` files.
-- Mail that `backup --prune` moved out is in `<data root>/_pruned/`, one
-  folder per run; `mailcellar restore ACCOUNT --from-pruned BATCH` puts it
-  back into Gmail. A Google Takeout export, or another gyb folder, can be
-  restored the same way with `--from-mbox` or `--from-folder` (see
+- Mail that `forget` took out is held in `<data root>/_forgotten/` until
+  `forget --empty` deletes it, at least 30 days later;
+  `mailcellar forget ACCOUNT --undo RUN` puts a run back into the backup. Mail an older `backup --prune` moved out is in
+  `<data root>/_pruned/`, one folder per run; for this release,
+  `mailcellar restore ACCOUNT --from-pruned BATCH` puts it back into Gmail.
+  A Google Takeout export, or another gyb folder, can be restored with
+  `--from-mbox` or `--from-folder` (see
   [Restoring mail](../reference/restore.md)).
 - Plans and logs are only working files. Make a new plan with `dedup plan`
   or `offload plan`.
