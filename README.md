@@ -74,6 +74,12 @@ on real mailboxes, and its backups are in gyb's fixed format, but commands
 and options may still change before 1.0. It runs on macOS and Linux and
 needs Python 3.14, which uv installs for you.
 
+**Not the Mac app of the same name.** mailcellar is free and open source,
+installed from PyPI, with no paid edition and nothing else to download. A
+paid macOS app sold as "Mailcellar" on newmac.app is unrelated to this
+project
+([how to tell](https://mailcellar.github.io/mailcellar/guide/troubleshooting/#is-this-the-mac-app-called-mailcellar)).
+
 ## Commands
 
 ```
