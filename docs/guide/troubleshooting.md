@@ -1,5 +1,5 @@
 ---
-description: "Answers to common questions about mailcellar: slow runs, mail missing from the backup, storage still full, weekly sign-ins, deletion, and the Mac app of the same name."
+description: "Answers to common questions about mailcellar: slow runs, mail missing from the backup, storage still full, weekly sign-ins, deletion, how it compares with other tools, and the Mac app of the same name."
 ---
 
 # Troubleshooting and FAQ
@@ -99,6 +99,50 @@ check a backup against Gmail, and put mail back with its labels.
 
 That is about Gmail. Another provider's mailbox, which has only IMAP, is
 backed up over IMAP: [Backing up an IMAP account](imap.md).
+
+## How does it compare with other tools?
+
+Other tools back up, sync or archive mail. Some do a job mailcellar
+doesn't, and some can run alongside it. As each describes itself, in its
+README or on its site, in October 2026:
+
+- **[Got Your Back](https://github.com/GAM-team/got-your-back) (gyb)**
+  backs up Gmail over the Gmail API and restores it, also into a Google
+  Group, and works with Workspace service accounts. mailcellar reads and
+  writes gyb's format byte for byte, so it continues a gyb backup, and gyb
+  can still read it: see [Migrating from gyb](from-gyb.md).
+- **[Gmvault](https://github.com/gaubert/gmvault)** backs up a Gmail
+  account, in full or incrementally, and restores it to Gmail. Its
+  repository was last changed in May 2022. Its backup is a folder of its
+  own (`gmvault-db`), which mailcellar doesn't read.
+- **[mbsync](https://isync.sourceforge.io/) (isync) and
+  [OfflineIMAP](https://github.com/OfflineIMAP/offlineimap3)** keep an IMAP
+  mailbox and a local Maildir in step, so a Maildir mail client can read
+  the mail offline. Changes go both ways, deletions included (as mbsync's
+  page puts it), which suits reading mail; mailcellar keeps what the
+  mailbox deletes until you forget it. Over IMAP, Gmail's labels are
+  folders (see the answer above). Either can run alongside mailcellar.
+- **[imapsync](https://github.com/imapsync/imapsync)** copies one IMAP
+  account to another, one way and without duplicates, with an option for
+  Gmail: the tool for moving to a new provider. It works server to server
+  rather than keeping a copy of its own. mailcellar's `restore --to` also
+  copies between accounts, but from the backup.
+- **[MailStore Home](https://www.mailstore.com/en/products/mailstore-home/)**
+  is a Windows program, free for private use, that archives mail from
+  Gmail, other IMAP or POP3 accounts, Outlook, Exchange and Thunderbird
+  into one searchable archive; MailStore Server is its edition for
+  businesses. It reads far more sources than mailcellar does.
+- **[piler](https://github.com/jsuto/piler)**
+  ([mailpiler.org](https://www.mailpiler.org/)) is an open-source (GPLv3)
+  email archive for a whole organization: mail comes in through its own
+  SMTP server, and it has a web interface, AD/LDAP and single sign-on,
+  archival and retention rules, legal hold and audit logs. It is a server
+  an organization runs for everyone's mail, where mailcellar is one
+  person's command-line backup. Its importer reads EML, Maildir and mbox
+  files, and `mailcellar export` writes mbox or a zip of `.eml` files; that
+  route hasn't been tried.
+- **Google Takeout:** see [Why not IMAP, or Google
+  Takeout?](#why-not-imap-or-google-takeout) above.
 
 ## Is anything ever deleted?
 
