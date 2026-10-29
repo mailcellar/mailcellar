@@ -121,7 +121,7 @@ def test_backup_checks(env, capsys):
         "w2": ("skipped", "sidecar row is stale; run mailcellar meta"),
         "w4": ("would label or trash", ""),
     }
-    assert "1 plan rows left out, not read: offloaded" in capsys.readouterr().err
+    assert "1 plan row left out, not read: offloaded" in capsys.readouterr().err
     # offloaded by another run after this one read the plan: the check still catches it
     assert backup_checks(env)({"account": A, "gmail_id": "w3", "path": ""}) == ("already offloaded")
 
