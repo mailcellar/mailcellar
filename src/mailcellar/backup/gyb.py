@@ -256,6 +256,17 @@ def earlier_copy(dest: Path, rel: str) -> Path | None:
     return None
 
 
+def interrupted(run: Path, manifest_name: str) -> bool:
+    """Whether `run` is a run's folder that was stopped before writing its manifest."""
+    return not (run / manifest_name).is_file()
+
+
+def remove_if_empty(run: Path) -> None:
+    """Remove an interrupted run's folder once a later run has moved every file out of it."""
+    if run.is_dir() and not any(p.is_file() for p in run.rglob("*")):
+        shutil.rmtree(run)
+
+
 def prune(
     con: sqlite3.Connection,
     folder: Path,
@@ -269,11 +280,15 @@ def prune(
     entries whose file is already missing just lose their rows. Commits once,
     at the end, then writes dest/<manifest_name>: stopped part-way (Ctrl-C, a
     crash), the index is as it was, so it still agrees with meta.sqlite, and
-    the files already moved are picked up by the next run, which links each
+    the files already moved are picked up by the next run, which moves each
     into its own folder (earlier_copy) so its manifest lists it as moved and
-    `restore` finds it. Returns the manifest rows.
+    `restore` finds it, leaving one copy under one manifest; the stopped
+    run's folder goes once it is empty. A file in a finished run's folder
+    is linked instead, as that run's manifest still lists it. Returns the
+    manifest rows.
     """
     manifest = []
+    emptied = set()
     for gmail_id in gmail_ids:
         row = con.execute(
             """SELECT message_num, message_filename, message_internaldate
@@ -295,10 +310,15 @@ def prune(
             shutil.move(src, target)
         elif target is not None and (earlier := earlier_copy(dest, rel)) is not None:
             target.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                os.link(earlier, target)
-            except OSError:
-                shutil.copy2(earlier, target)
+            run = dest.parent / earlier.relative_to(dest.parent).parts[0]
+            if interrupted(run, manifest_name):
+                shutil.move(earlier, target)
+                emptied.add(run)
+            else:
+                try:
+                    os.link(earlier, target)
+                except OSError:
+                    shutil.copy2(earlier, target)
             moved = True
         con.execute("DELETE FROM labels WHERE message_num = ?", (num,))
         con.execute("DELETE FROM uids WHERE message_num = ?", (num,))
@@ -320,6 +340,8 @@ def prune(
             w = csv.DictWriter(fh, fieldnames=list(manifest[0]))
             w.writeheader()
             w.writerows(manifest)
+    for run in emptied:
+        remove_if_empty(run)
     return manifest
 
 

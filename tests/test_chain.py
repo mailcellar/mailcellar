@@ -340,6 +340,7 @@ def test_an_interrupted_prune_leaves_the_index_as_it_was(backed_up, monkeypatch)
     manifest = gyb.prune(con, folder, ["g1", "g2"], folder.parent / "_pruned" / "run2")
     con.close()
     assert [(m["gmail_id"], m["file"]) for m in manifest] == [("g1", "moved"), ("g2", "moved")]
+    assert not dest.exists()  # its one file moved on: no folder left that nothing lists
 
 
 def test_a_prune_run_again_after_a_crash_finds_the_file_the_first_moved(backed_up):
@@ -353,8 +354,36 @@ def test_a_prune_run_again_after_a_crash_finds_the_file_the_first_moved(backed_u
     manifest = gyb.prune(con, folder, ["g1"], second)
     con.close()
     assert [(m["gmail_id"], m["file"]) for m in manifest] == [("g1", "moved")]
-    assert (second / rel).is_file() and (first / rel).is_file()  # restorable from either run
+    assert (second / rel).stat().st_nlink == 1  # one copy, under the one manifest
+    assert not first.exists()
     assert "g1" not in pruned_rows(folder)
+
+
+def test_a_rerun_keeps_what_an_interrupted_run_holds_for_other_messages(backed_up):
+    _gmail, folder = backed_up
+    first, second = folder.parent / "_pruned" / "run1", folder.parent / "_pruned" / "run2"
+    for gid in ("g1", "g2"):  # both moved, then the process died
+        src = eml(folder, gid)
+        (first / src.relative_to(folder)).parent.mkdir(parents=True, exist_ok=True)
+        src.rename(first / src.relative_to(folder))
+    con = gyb.open_backup(folder, ACCOUNT)
+    gyb.prune(con, folder, ["g1"], second)  # this run is asked for g1 only
+    con.close()
+    assert [p.name for p in first.rglob("*.eml")] == ["g2.eml"]  # still there for g2's run
+
+
+def test_a_file_a_finished_run_still_lists_is_linked_not_moved(backed_up):
+    _gmail, folder = backed_up
+    first, second = folder.parent / "_pruned" / "run1", folder.parent / "_pruned" / "run2"
+    src = eml(folder, "g1")
+    rel = src.relative_to(folder)
+    (first / rel).parent.mkdir(parents=True)
+    src.rename(first / rel)
+    (first / gyb.PRUNE_MANIFEST).write_text("gmail_id,path,internal_date,labels,file\n")
+    con = gyb.open_backup(folder, ACCOUNT)
+    gyb.prune(con, folder, ["g1"], second)
+    con.close()
+    assert (first / rel).is_file() and (second / rel).is_file()  # the finished run keeps it
 
 
 def test_a_missing_file_with_no_earlier_copy_is_still_reported_missing(backed_up):
