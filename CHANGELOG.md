@@ -12,8 +12,8 @@ in beta, so commands and options may still change before 1.0.
   `--label` run labelled with that label, and not those a trash run found
   vetoed or trashed, as `offload apply --trash` does: the rest of the plan
   isn't looked up in the mailbox, and `--limit` counts labelled removals
-  still to trash. A removal taken out of Trash by hand after a trash run
-  isn't trashed again.
+  still to trash. A removal taken out of Trash by hand after a trash run,
+  or vetoed, isn't trashed again until a `--label` run labels it again.
   A message labelled by hand, without a label run, is no longer trashed.
   Removals labelled by a version before the log named the label aren't
   trashed either until `dedup apply --label` runs again, which logs them.

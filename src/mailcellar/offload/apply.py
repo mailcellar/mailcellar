@@ -342,11 +342,11 @@ def remaining(
     rows = [r for r in rows if r["gmail_id"] not in done.get(r["account"], set())]
     restored = restored_by_account(folders)
     rows = [r for r in rows if not restored_since_planned(r, restored)]
-    labelled, vetoed, _trashed = log_state(log_path, label)  # trashed ones are offloaded
+    state = log_state(log_path, label)  # trashed ones are offloaded, so left out above
     if mode == "label":
-        rows = [r for r in rows if (r["account"], r["gmail_id"]) not in labelled]
+        rows = [r for r in rows if (r["account"], r["gmail_id"]) not in state.labelled]
     elif mode == "trash":
-        rows = list(labelled_rows(rows, labelled, vetoed))
+        rows = list(labelled_rows(rows, state.labelled, state.vetoed))
     return rows
 
 

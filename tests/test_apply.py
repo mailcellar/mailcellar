@@ -386,6 +386,21 @@ def test_cli_trash_leaves_out_removals_an_earlier_trash_run_trashed(cli):
     assert gmail[B].lookups == []
 
 
+def test_cli_a_label_run_after_a_trash_run_makes_the_removal_trashable_again(cli):
+    gmail, run = cli
+    run("--label")
+    run("--trash", "--limit", "1")  # b0
+    gmail[B].set_labels("b0", gmail[B].labels_of("b0") - {"TRASH"})  # taken out of Trash by hand
+    gmail[B].set_labels("b1", gmail[B].labels_of("b1") - {DEDUP_LABEL})  # vetoed
+    run("--trash")
+    run("--label")  # labels both again
+    logged = run("--trash")
+    assert logged[-2:] == [
+        ("trash (dedup-redundant)", "b0", "trashed"),
+        ("trash (dedup-redundant)", "b1", "trashed"),
+    ]
+
+
 def test_removals_an_older_version_labelled_are_trashed_after_labelling_again(cli, tmp_path):
     gmail, run = cli
     run("--label")

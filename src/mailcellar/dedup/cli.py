@@ -121,11 +121,11 @@ def cmd_apply(args) -> None:
     mode = "label" if args.label is not None else "trash" if args.trash is not None else "dry-run"
     dedup_label = args.label or args.trash or DEDUP_LABEL
     rows = read_removals(Path(args.plan))
-    labelled, vetoed, trashed = log_state(Path(args.log), dedup_label)
+    state = log_state(Path(args.log), dedup_label)
     if mode == "trash":
         before = len(rows)
         # Trashed by an earlier run: reading it again only finds it in Trash.
-        rows = list(labelled_rows(rows, labelled, vetoed | trashed))
+        rows = list(labelled_rows(rows, state.labelled, state.vetoed | state.trashed))
         if len(rows) < before:
             logger.info(
                 f"{before - len(rows):,} removals not labelled by a label run, vetoed "
@@ -145,7 +145,7 @@ def cmd_apply(args) -> None:
     # Messages a label run labelled carry the label in a plan made after the
     # next backup; only a label already there for other reasons makes it unusable.
     problem = unusable_label(
-        [r for r in rows if (r["account"], r["gmail_id"]) not in labelled], dedup_label
+        [r for r in rows if (r["account"], r["gmail_id"]) not in state.labelled], dedup_label
     )
     if problem:
         sys.exit(f"error: can't use {dedup_label!r} as the apply label: {problem}.")

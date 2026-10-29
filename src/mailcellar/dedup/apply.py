@@ -123,29 +123,44 @@ def read_removals(plan_path: Path) -> list[dict]:
     return [r for r in rows if r["action"] == "remove"]
 
 
-def log_state(log_path: Path, label: str) -> tuple[set[tuple], set[tuple], set[tuple]]:
+@dataclass(frozen=True)
+class LogState:
     """
-    From earlier runs with this label: (account, gmail_id) of the messages
-    labelled, of those vetoed (a trash run found the label removed), and of
-    those a trash run trashed.
+    From earlier runs with one label, (account, gmail_id) of the messages a
+    label run labelled, and of those whose latest run since vetoed them (a
+    trash run found the label removed) or trashed them. A later label run
+    makes a vetoed or trashed message labelled again.
     """
-    labelled, vetoed, trashed = set(), set(), set()
+
+    labelled: frozenset[tuple] = frozenset()
+    vetoed: frozenset[tuple] = frozenset()
+    trashed: frozenset[tuple] = frozenset()
+
+
+def log_state(log_path: Path, label: str) -> LogState:
+    """The apply log's LogState for `label`; each message's last row counts."""
     if not log_path.is_file():
-        return labelled, vetoed, trashed
+        return LogState()
+    labelled, last = set(), {}
     with log_path.open(newline="", encoding="utf-8") as fh:
         for e in csv.DictReader(fh):
             key = (e["account"], e["gmail_id"])
             if e["mode"] == f"label ({label})" and e["outcome"] == "labelled":
                 labelled.add(key)
+                last[key] = "labelled"
             elif e["mode"] == f"trash ({label})" and e["outcome"] == "trashed":
-                trashed.add(key)
+                last[key] = "trashed"
             elif (
                 e["mode"] == f"trash ({label})"
                 and e["outcome"] == "skipped"
                 and e["detail"] == f"not labelled {label}"
             ):
-                vetoed.add(key)
-    return labelled, vetoed, trashed
+                last[key] = "vetoed"
+    return LogState(
+        frozenset(labelled),
+        frozenset(k for k, v in last.items() if v == "vetoed"),
+        frozenset(k for k, v in last.items() if v == "trashed"),
+    )
 
 
 def labelled_rows(
