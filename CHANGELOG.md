@@ -43,6 +43,10 @@ delete the folder once you no longer need them.
   `--folder`.
 - `backup` and `count`, when they find mail deleted in the mailbox, now
   point to `forget --deleted` rather than `backup --prune`.
+- `forget` and `report health` no longer say a forget run is held "until"
+  a date: `--undo` works until `--empty` deletes the run, and the date is
+  the first day `--empty` can. `report health`'s column for it is now
+  "Can be emptied from" (it was "Held until").
 - The documentation site is built with Zensical, Material for MkDocs's
   successor, and has its new look: a plain header and other fonts. The
   addresses of its pages are unchanged.

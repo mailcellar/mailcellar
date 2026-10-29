@@ -277,7 +277,7 @@ def test_empty_deletes_runs_after_the_hold_for_good(env, monkeypatch, capsys):
     folder, _gmail = env
     run("--batch", BATCH, "--yes", typed="2", monkeypatch=monkeypatch)
     run("--empty")
-    assert "is held until" in capsys.readouterr().out  # not yet: nothing to delete
+    assert "can be emptied from" in capsys.readouterr().out  # not yet: nothing to delete
     monkeypatch.setattr(forget, "HOLD_DAYS", 0)
     run("--empty")
     assert "Dry run: nothing deleted" in capsys.readouterr().out
@@ -313,6 +313,15 @@ def test_offload_forget_is_handed_on_to_forget_and_says_so(env, monkeypatch, cap
 def test_offload_forget_past_the_hand_on_is_an_error_not_a_traceback(env):
     with pytest.raises(SystemExit, match="is now 'mailcellar forget'"):
         cli.main(["offload", "--", "forget"])
+
+
+def test_forget_says_undo_works_until_empty_not_for_a_fixed_time(env, monkeypatch, capsys):
+    run("--batch", BATCH, "--yes", typed="2", monkeypatch=monkeypatch)
+    out = capsys.readouterr().out
+    (run_dir,) = forget.runs_dir(A).iterdir()
+    assert "where --undo puts them back until --empty deletes them, 30 days later" in out
+    assert f"'mailcellar forget --undo {run_dir.name}' puts them back until" in out
+    assert f"which it can from {forget.held_until(run_dir.name):%Y-%m-%d}" in out
 
 
 def test_runs_past_their_hold_are_mentioned_until_emptied(env, monkeypatch, capsys):

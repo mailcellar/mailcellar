@@ -378,14 +378,15 @@ def forgotten(folders: list[Path], now: int) -> Table:
             ("Account", "text"),
             ("Run", "text"),
             ("Messages", "int"),
-            ("Held until", "text"),
+            ("Can be emptied from", "text"),
             ("Due", "text"),
         ],
         rows,
         notes=[
-            f"Mail 'mailcellar forget' took out of the backup, held {forget.HOLD_DAYS} days so "
-            "'mailcellar forget --undo RUN' can put it back. Due: held that long; "
-            "'mailcellar forget --empty --yes' deletes it for good."
+            "Mail 'mailcellar forget' took out of the backup, held so 'mailcellar forget "
+            "--undo RUN' can put it back until 'mailcellar forget --empty --yes' deletes it "
+            f"for good, which it does only once a run has been held {forget.HOLD_DAYS} days. "
+            "Due: held that long."
         ],
         limit=False,
     )
@@ -413,7 +414,7 @@ def retention_table(folders: list[Path], now: int) -> Table:
         notes=[
             "Mail a rule offloaded that is older than its forget_after. Due: its mailbox has "
             "deleted it, as last seen by a backup or count; 'mailcellar forget --due' "
-            "checks with the mailbox again, then deletes it from the backup, held "
+            "checks with the mailbox again, then deletes it from the backup, held at least "
             f"{forget.HOLD_DAYS} days first. Held: a legal hold keeps it."
         ],
         limit=False,
