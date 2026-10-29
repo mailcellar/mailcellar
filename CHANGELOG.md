@@ -19,6 +19,11 @@ in beta, so commands and options may still change before 1.0.
   "Importing" line counts each message as it is appended, and the folder
   reads around each batch keep that line moving rather than replacing it
   with their own, which looked stalled.
+- `offload apply --label` and the dry run no longer warn that "the last
+  backup ran before the plan was made": that is the normal order (backup,
+  plan, label), and only `--trash` needs a backup newer than the plan.
+  Both now name the accounts to back up before `--trash` instead; a failed
+  or missing backup is still a warning at every step.
 
 ## 0.17.0 (2026-10-28)
 

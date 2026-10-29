@@ -15,6 +15,8 @@ from mailcellar.offload import cli
 from mailcellar.offload.apply import OFFLOAD_LABEL, second_copy_report
 
 A = "a@x.com"
+B = "b@example.com"
+C = "c@example.com"
 OLD = 1_300_000_000_000  # 2011-03-13
 LABELS = {"INBOX": "INBOX", "Label_1": "work"}
 RULES = '[[rule]]\nname = "work"\nlabel = "work"\nbefore = "2020-01-01"\n'
@@ -53,7 +55,7 @@ def env(tmp_path, monkeypatch):
         return live
 
     monkeypatch.setattr(gmailapi, "GmailAccount", account)
-    monkeypatch.setattr(cli, "second_copy_report", lambda d, ms: ["(report)"])
+    monkeypatch.setattr(cli, "second_copy_report", lambda d, ms: [f"(report, last backup {ms})"])
 
     class Env:
         pass
@@ -139,7 +141,9 @@ def test_label_then_trash_records_offloaded(env, capsys):
     }
     assert offloaded(env.folder) == {"w2": "work", "w3": "work", "w4": "work"}
     out = capsys.readouterr().out
-    assert "the only copy" in out and "(report)" in out and "Recorded 3 offloaded" in out
+    (backed_up, _status) = offload_apply.last_backups({A: env.folder}, [A])[A]
+    assert f"(report, last backup {backed_up})" in out
+    assert "the only copy" in out and "Recorded 3 offloaded" in out
 
     # the batch manifest lists what was trashed, as recorded in the sidecar
     batch, rows = manifest_rows(env)
@@ -168,12 +172,16 @@ def test_trash_declined_records_nothing(env, monkeypatch):
 
 
 def test_trash_needs_a_good_backup_after_the_plan(env, capsys):
-    set_planned("2999-01-01 00:00:00")
-    log = apply("--label")  # labelling only warns
+    set_planned("2999-01-01 00:00:00")  # backup, plan, label: the normal order
+    apply()  # the dry run and labelling say what --trash will need, without a warning
+    log = apply("--label")
     assert {o for o, _d in last(log).values()} == {"labelled"}
-    assert "before the plan was made" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "before the plan was made" not in err and "warning:" not in err
+    assert err.count(f"Before --trash, run a backup of {A}:") == 2
     with pytest.raises(SystemExit, match="run a backup"):
         apply("--trash", "--yes")
+    assert "before the plan was made" in capsys.readouterr().err
     assert offloaded(env.folder) == {}
 
     # a newer backup that failed doesn't count either
@@ -186,6 +194,11 @@ def test_trash_needs_a_good_backup_after_the_plan(env, capsys):
     with pytest.raises(SystemExit, match="run a backup"):
         apply("--trash", "--yes")
     assert offloaded(env.folder) == {}
+
+
+def test_labelling_after_a_newer_backup_says_nothing_of_one(env, capsys):
+    apply("--label")
+    assert "Before --trash" not in capsys.readouterr().err
 
 
 def test_filters(env):
@@ -429,12 +442,43 @@ def test_an_account_whose_backup_was_not_chosen_is_refused():
 
 
 def test_an_account_with_no_backup_run_recorded_is_stale(env):
-    assert offload_apply.stale_backups({A: env.folder}, [A], 0) == {}
+    last = offload_apply.last_backups({A: env.folder}, [A])
+    assert last[A][1] == "ok" and offload_apply.stale_backups(last, 0) == {}
     con = sidecar.open_meta(env.folder)
     con.execute("DELETE FROM runs")
     con.commit()
     con.close()
-    assert offload_apply.stale_backups({A: env.folder}, [A], 0) == {A: "no backup run recorded"}
+    last = offload_apply.last_backups({A: env.folder}, [A])
+    assert offload_apply.stale_backups(last, 0) == {A: "no backup run recorded"}
+
+
+@pytest.mark.parametrize(
+    "run, since_ms, why",
+    [
+        ((5, "ok"), None, None),
+        ((5, "ok"), 5, None),
+        ((5, "ok"), 6, "the last backup ran before the plan was made"),
+        ((9, "failures"), None, "the last backup ended with 'failures'"),
+        (None, None, "no backup run recorded"),
+    ],
+)
+def test_stale_backups_checks_the_plan_time_only_when_given(run, since_ms, why):
+    got = offload_apply.stale_backups({A: run}, since_ms)
+    assert got == ({} if why is None else {A: why})
+
+
+LAST = {A: (5, "ok"), B: (9, "ok"), C: (9, "failures")}  # planned at 7: A is behind
+
+
+@pytest.mark.parametrize("mode", ["dry-run", "label"])
+def test_before_trash_a_backup_older_than_the_plan_is_named_not_warned(mode):
+    problems, behind = offload_apply.backup_problems(LAST, 7, mode)
+    assert problems == {C: "the last backup ended with 'failures'"} and behind == (A,)
+
+
+def test_trash_counts_a_backup_older_than_the_plan_as_a_problem():
+    problems, behind = offload_apply.backup_problems(LAST, 7, "trash")
+    assert set(problems) == {A, C} and behind == ()
 
 
 def test_trashing_is_refused_when_no_backup_run_is_recorded(env, capsys):
@@ -454,20 +498,6 @@ def test_a_file_that_is_not_an_offload_plan_is_refused(tmp_path):
     path.write_text("account,gmail_id\na@x.com,w0\n")
     with pytest.raises(SystemExit, match=r"is not an offload plan \(missing \["):
         offload_apply.read_plan(path)
-
-
-def test_last_backup_is_the_newest_successful_run_of_any_account(env, tmp_path):
-    other = tmp_path / "data" / "b@y.com"
-    commands.backup(FakeMailbox({"b1": message("b1")}), "b@y.com", other)
-    folders = {A: env.folder, "b@y.com": other}
-    newest = offload_apply.last_backup_ms(folders, ["b@y.com", A])  # the older one comes second
-    assert newest == offload_apply.last_backup_ms({"b@y.com": other}, ["b@y.com"])
-    assert newest >= offload_apply.last_backup_ms({A: env.folder}, [A])
-    con = sidecar.open_meta(other)
-    con.execute("DELETE FROM runs")
-    con.commit()
-    con.close()
-    assert offload_apply.last_backup_ms(folders, ["b@y.com"]) is None  # no successful run
 
 
 def test_recording_nothing_writes_no_manifest(env, tmp_path):

@@ -22,6 +22,7 @@ import subprocess
 import sys
 import time
 from calendar import timegm
+from collections.abc import Mapping
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -110,26 +111,56 @@ class BackupChecks:
         return ""
 
 
-def stale_backups(folders: dict[str, Path], accounts, since_ms: int) -> dict[str, str]:
-    """Accounts whose last backup failed or ran before since_ms → why."""
-    problems = {}
+def last_backups(folders: dict[str, Path], accounts) -> dict[str, tuple[int, str] | None]:
+    """Each account's last backup run, (finished_ms, status), or None if none is recorded."""
+    out = {}
     for account in sorted(accounts):
         path = sidecar.meta_path(folders[account])
         con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
         try:
-            row = con.execute(
+            out[account] = con.execute(
                 """SELECT finished_ms, status FROM runs WHERE command = 'backup'
                    ORDER BY finished_ms DESC LIMIT 1"""
             ).fetchone()
         finally:
             con.close()
-        if row is None:
+    return out
+
+
+def stale_backups(
+    last: Mapping[str, tuple[int, str] | None], since_ms: int | None
+) -> dict[str, str]:
+    """
+    Accounts whose last backup (from last_backups) failed, or ran before
+    since_ms if given → why. Pure.
+    """
+    problems = {}
+    for account, run in sorted(last.items()):
+        if run is None:
             problems[account] = "no backup run recorded"
-        elif row[1] != "ok":
-            problems[account] = f"the last backup ended with {row[1]!r}"
-        elif row[0] < since_ms:
+        elif run[1] != "ok":
+            problems[account] = f"the last backup ended with {run[1]!r}"
+        elif since_ms is not None and run[0] < since_ms:
             problems[account] = "the last backup ran before the plan was made"
     return problems
+
+
+def backup_problems(
+    last: Mapping[str, tuple[int, str] | None], planned_ms: int, mode: str
+) -> tuple[dict[str, str], tuple[str, ...]]:
+    """
+    What apply says of each account's last backup (from last_backups). Pure.
+    Problems (account → why) warn in every mode and stop --trash, which also
+    counts a backup older than the plan as one. Outside --trash that is the
+    normal order, so those accounts are returned separately, to back up
+    before --trash.
+    """
+    if mode == "trash":
+        return stale_backups(last, planned_ms), ()
+    behind = tuple(
+        a for a, run in sorted(last.items()) if run and run[1] == "ok" and run[0] < planned_ms
+    )
+    return stale_backups(last, None), behind
 
 
 def _tmutil(*args: str) -> tuple[int, str]:
@@ -179,22 +210,6 @@ def second_copy_report(data_dir: Path, last_backup_ms: int | None) -> list[str]:
             "Run Time Machine first to have every offloaded message twice."
         )
     return lines
-
-
-def last_backup_ms(folders: dict[str, Path], accounts) -> int | None:
-    latest = None
-    for account in accounts:
-        path = sidecar.meta_path(folders[account])
-        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-        try:
-            (ms,) = con.execute(
-                "SELECT max(finished_ms) FROM runs WHERE command = 'backup' AND status = 'ok'"
-            ).fetchone()
-        finally:
-            con.close()
-        if ms is not None and (latest is None or ms > latest):
-            latest = ms
-    return latest
 
 
 MANIFEST_NAME = "offloaded.csv"

@@ -25,7 +25,8 @@ from mailcellar.offload.apply import (
     APPLY_LOG_COLUMNS,
     OFFLOAD_LABEL,
     BackupChecks,
-    last_backup_ms,
+    backup_problems,
+    last_backups,
     log_state,
     manifest_path,
     planned_ms,
@@ -34,7 +35,6 @@ from mailcellar.offload.apply import (
     recover_trashed,
     remaining,
     second_copy_report,
-    stale_backups,
     upgrade_log,
 )
 from mailcellar.offload.plan import (
@@ -319,9 +319,15 @@ def cmd_apply(args) -> None:
 
     accounts = sorted({r["account"] for r in rows})
     folders = {a: backup_folder(a) for a in accounts}
-    stale = stale_backups(folders, accounts, planned_ms(rows))
+    backups = last_backups(folders, accounts)
+    stale, behind = backup_problems(backups, planned_ms(rows), mode)
     for account, why in stale.items():
         logger.warning(f"{account}: {why}.")
+    if behind:
+        logger.info(
+            f"Before --trash, run a backup of {', '.join(behind)}: trashing needs one newer "
+            "than the plan."
+        )
     if mode == "trash":
         if stale:
             sys.exit(
@@ -334,7 +340,9 @@ def cmd_apply(args) -> None:
             f"The backup in {data_root()} then holds the only copy, unless it is copied "
             "elsewhere:"
         )
-        for line in second_copy_report(data_root(), last_backup_ms(folders, accounts)):
+        # Every last backup is good here, or trashing has stopped above.
+        newest = max(run[0] for run in backups.values())
+        for line in second_copy_report(data_root(), newest):
             print(f"  {line}")
 
     from mailcellar import gmailapi, mailbox
