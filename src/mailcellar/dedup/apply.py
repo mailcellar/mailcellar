@@ -12,6 +12,7 @@ returns new frozen Results rather than changing the ones it was given.
 import csv
 import logging
 import sys
+from collections.abc import Collection, Mapping, Sequence
 from contextlib import ExitStack, closing
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -120,6 +121,44 @@ def read_removals(plan_path: Path) -> list[dict]:
     if missing:
         sys.exit(f"error: {plan_path} is not a plan file (missing {sorted(missing)}).")
     return [r for r in rows if r["action"] == "remove"]
+
+
+def log_state(log_path: Path, label: str) -> tuple[set[tuple], set[tuple]]:
+    """
+    From earlier runs with this label: (account, gmail_id) of the messages
+    labelled, and of those vetoed (a trash run found the label removed).
+    """
+    labelled, vetoed = set(), set()
+    if not log_path.is_file():
+        return labelled, vetoed
+    with log_path.open(newline="", encoding="utf-8") as fh:
+        for e in csv.DictReader(fh):
+            key = (e["account"], e["gmail_id"])
+            if e["mode"] == f"label ({label})" and e["outcome"] == "labelled":
+                labelled.add(key)
+            elif (
+                e["mode"] == f"trash ({label})"
+                and e["outcome"] == "skipped"
+                and e["detail"] == f"not labelled {label}"
+            ):
+                vetoed.add(key)
+    return labelled, vetoed
+
+
+def labelled_rows(
+    rows: Sequence[Mapping], labelled: Collection[tuple], vetoed: Collection[tuple]
+) -> tuple[Mapping, ...]:
+    """
+    The rows a trash run can act on: those a label run labelled (from
+    log_state) and no trash run found vetoed since. --trash acts only on
+    labelled messages, so reading the mailbox for the rest only costs time.
+    Pure.
+    """
+    return tuple(
+        r
+        for r in rows
+        if (r["account"], r["gmail_id"]) in labelled and (r["account"], r["gmail_id"]) not in vetoed
+    )
 
 
 @dataclass(frozen=True)

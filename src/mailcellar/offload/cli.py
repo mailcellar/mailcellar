@@ -15,7 +15,7 @@ from pathlib import Path
 
 from mailcellar.backup import sidecar
 from mailcellar.backup.gyb import backup_account
-from mailcellar.dedup.apply import apply_plan, unusable_label, write_apply_log
+from mailcellar.dedup.apply import apply_plan, log_state, unusable_label, write_apply_log
 from mailcellar.dedup.report import report_apply
 from mailcellar.hold import holds
 from mailcellar.hold.holds import HoldCheck
@@ -27,7 +27,6 @@ from mailcellar.offload.apply import (
     BackupChecks,
     backup_problems,
     last_backups,
-    log_state,
     manifest_path,
     planned_ms,
     read_plan,

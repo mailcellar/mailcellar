@@ -28,7 +28,7 @@ from datetime import datetime
 from pathlib import Path
 
 from mailcellar.backup import sidecar
-from mailcellar.dedup.apply import Result
+from mailcellar.dedup.apply import Result, labelled_rows, log_state
 from mailcellar.message import PARSER_VERSION, parse_eml
 from mailcellar.offload.plan import PLAN_COLUMNS, PLANNED_FORMAT
 
@@ -296,28 +296,6 @@ def offloaded_by_account(folders: dict[str, Path]) -> dict[str, set[str]]:
     return out
 
 
-def log_state(log_path: Path, label: str) -> tuple[set[tuple], set[tuple]]:
-    """
-    From earlier runs with this label: (account, gmail_id) of the messages
-    labelled, and of those vetoed (a trash run found the label removed).
-    """
-    labelled, vetoed = set(), set()
-    if not log_path.is_file():
-        return labelled, vetoed
-    with log_path.open(newline="", encoding="utf-8") as fh:
-        for e in csv.DictReader(fh):
-            key = (e["account"], e["gmail_id"])
-            if e["mode"] == f"label ({label})" and e["outcome"] == "labelled":
-                labelled.add(key)
-            elif (
-                e["mode"] == f"trash ({label})"
-                and e["outcome"] == "skipped"
-                and e["detail"] == f"not labelled {label}"
-            ):
-                vetoed.add(key)
-    return labelled, vetoed
-
-
 def remaining(
     rows: list[dict], mode: str, label: str, folders: dict[str, Path], log_path: Path
 ) -> list[dict]:
@@ -336,12 +314,7 @@ def remaining(
     if mode == "label":
         rows = [r for r in rows if (r["account"], r["gmail_id"]) not in labelled]
     elif mode == "trash":
-        rows = [
-            r
-            for r in rows
-            if (r["account"], r["gmail_id"]) in labelled
-            and (r["account"], r["gmail_id"]) not in vetoed
-        ]
+        rows = list(labelled_rows(rows, labelled, vetoed))
     return rows
 
 
