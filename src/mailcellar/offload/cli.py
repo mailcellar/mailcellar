@@ -302,8 +302,9 @@ def cmd_apply(args) -> None:
             "label": ["labelled before"],
             "trash": ["not labelled by a label run", "vetoed before"],
         }.get(mode, [])
+        n = before - len(rows)
         logger.info(
-            f"{before - len(rows):,} plan rows left out, not read: "
+            f"{n:,} plan row{'' if n == 1 else 's'} left out, not read: "
             f"{', '.join(why[:-1])}, or {why[-1]}."
         )
     chosen = {resolve_account(a) for a in args.accounts or ()}
