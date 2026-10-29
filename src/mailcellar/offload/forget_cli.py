@@ -244,7 +244,8 @@ def cmd_forget(args) -> int:
             continue
         print(
             "\nForgetting deletes them from this backup: their files move to "
-            f"{forget.runs_dir(account)}/ for {forget.HOLD_DAYS} days (undo with --undo), and "
+            f"{forget.runs_dir(account)}/, where --undo puts them back until --empty deletes "
+            f"them, {forget.HOLD_DAYS} days later at the earliest, and "
             "their sender, subject and text leave the indexes, plans, logs and manifests. "
             "Copies elsewhere keep them, and mailcellar can't reach those: any export you made, "
             "any second copy of the data root, and backups of this computer:"
@@ -266,8 +267,10 @@ def cmd_forget(args) -> int:
         files = forget.scrub_files({(account, g) for g in ids})
         until = forget.held_until(run)
         print(
-            f"Forgot {moved:,} messages (run {run}): held in {forget.runs_dir(account) / run} "
-            f"until {until:%Y-%m-%d}, then 'mailcellar forget --empty' deletes them for good. "
+            f"Forgot {moved:,} messages (run {run}): held in {forget.runs_dir(account) / run}, "
+            f"where 'mailcellar forget --undo {run}' puts them back until "
+            f"'mailcellar forget --empty' deletes them for good, which it can from "
+            f"{until:%Y-%m-%d}. "
             f"Taken out of the search index ({indexes['search']:,}) and the dedup catalogue "
             f"({indexes['dedup']:,}); sender and subject blanked in {len(files):,} files"
             + (
@@ -328,7 +331,7 @@ def forget_empty(folders: list[Path], yes: bool) -> None:
         due = forget.due(runs, now)
         waiting = [r for r in runs if r not in due]
         for run in waiting:
-            print(f"{account}: run {run} is held until {forget.held_until(run):%Y-%m-%d}")
+            print(f"{account}: run {run} can be emptied from {forget.held_until(run):%Y-%m-%d}")
         under_hold = forget.runs_under_hold(folder, account, due, int(now.timestamp() * 1000))
         for run, names in under_hold.items():
             print(
@@ -372,7 +375,7 @@ def main(argv=None, prog: str | None = None) -> int:
     rules = rules_file()
     fg = argparse.ArgumentParser(
         prog=prog or "mailcellar forget",
-        description="Delete mail its mailbox no longer has from the backup, held "
+        description="Delete mail its mailbox no longer has from the backup, held at least "
         f"{forget.HOLD_DAYS} days first: offloaded mail (--batch, --rule, --due), mail "
         "deleted in the mailbox (--deleted), or both. A dry run unless --yes.",
     )
