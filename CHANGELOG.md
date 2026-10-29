@@ -7,40 +7,45 @@ in beta, so commands and options may still change before 1.0.
 
 ## Unreleased
 
-**Upgrading from 0.18.0:** no database's schema changes. `backup --prune`
-now runs `forget --deleted` (below): without `--yes` it is a dry run, and
-with it you type the count. Batches an earlier `--prune` moved into
-`<data root>/_pruned/` are left where they are, not moved into
-`_forgotten/`: `restore --from-pruned` still reads them in this release,
-and once you no longer need them, delete the folder yourself. Scripts
-that run `offload forget` keep working, with a warning; change them to
-`mailcellar forget`.
+**Upgrading from 0.18.0:** no database's schema changes. A script that
+runs `backup --prune --yes` now forgets nothing, since forget asks for
+the count to be typed and a script has no terminal to type it in: run
+`mailcellar forget --deleted` at a terminal when you want that mail
+gone. Scripts that run `offload forget` still work, with a
+warning; change them to `mailcellar forget`. Batches an earlier
+`--prune` moved into `<data root>/_pruned/` are left where they are;
+delete the folder once you no longer need them.
 
 ### Added
 - `forget --deleted` takes out of the backup mail its mailbox has
-  permanently deleted and that was never offloaded, what `backup --prune`
-  used to move into `_pruned/`, but as forget does: held 30 days, with `--undo`
-  and `--empty`, and taken out of the search index, the dedup catalogue,
-  plans and logs. It lists the mailbox itself, keeps prune's 10% guard
-  (`--force`) and legal holds, and combines with `--batch`, `--rule` and
-  `--due` in one run.
+  permanently deleted and that was never offloaded, as forget does with
+  offloaded mail: it is held in `_forgotten/`, `--undo` puts it back
+  until `--empty` deletes it (which waits 30 days), and it leaves the
+  search index, the dedup catalogue, plans and logs. It lists the
+  mailbox itself, stops if more than 10% of the backup would go unless
+  `--force`, keeps mail under a legal hold, and combines with `--batch`,
+  `--rule` and `--due` in one run.
 
 ### Changed
-- `backup --prune` now runs `mailcellar forget --deleted` on the account
-  after its backup, in place of moving mail into `<data root>/_pruned/`:
-  the mail is held 30 days in `_forgotten/`, with `forget --undo` and
-  `--empty`, and taken out of the indexes, plans and logs. Without `--yes`
-  that is forget's dry run, where `--prune` used to ask; with `--yes`, you
-  type the count, and with no terminal to type it in (a script) nothing is
-  forgotten. `--prune` can't take `--folder`. It goes in a later
-  release: use `forget --deleted`. `backup` and `count`, counting mail
-  deleted in the mailbox, now point to `forget --deleted`.
-- `restore --from-pruned` reads the batches `backup --prune` made before;
-  it goes in a later release, and nothing moves them into `_forgotten/`.
-- `offload forget` is now `mailcellar forget`, a command of its own, since
-  it acts on the backup rather than the mailbox; its options are
+- `offload forget` is now `mailcellar forget`, a command of its own,
+  since it acts on the backup rather than the mailbox. Its options are
   unchanged, and its reference is a page of its own (Forgetting mail).
-  `offload forget` still works for this release, with a warning.
+- `backup --prune` now runs `mailcellar forget --deleted` on the account
+  after its backup, in place of moving mail into `<data root>/_pruned/`
+  for good. Without `--yes` that is forget's dry run, where `--prune`
+  used to ask; with `--yes` you type the count, and with no terminal to
+  type it in nothing is forgotten. `--prune` can no longer take
+  `--folder`.
+- `backup` and `count`, when they find mail deleted in the mailbox, now
+  point to `forget --deleted` rather than `backup --prune`.
+
+### Deprecated
+These go in a later release:
+- `backup --prune`: use `mailcellar forget --deleted`.
+- `restore --from-pruned`, which reads the batches `backup --prune` made
+  in 0.18.0 and earlier. Mail `forget` takes comes back with
+  `forget --undo` while it is held.
+- `offload forget`: use `mailcellar forget`.
 
 ### Fixed
 - `forget --batch`, `--rule` and `--due` took an IMAP account's offloaded
