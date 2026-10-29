@@ -6,13 +6,22 @@ the old name: cli.py hands it on here for a release.
 
 import argparse
 import logging
+import sqlite3
 import sys
 import time
 from contextlib import closing
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from mailcellar import gmailapi
 from mailcellar.backup import sidecar
+from mailcellar.backup.commands import (
+    PRUNE_MAX_FRACTION,
+    PruneAborted,
+    gone_from_server,
+    prune_decision,
+)
 from mailcellar.backup.gyb import backup_account
 from mailcellar.hold import holds
 from mailcellar.mailbox import mailbox_name
@@ -77,51 +86,172 @@ def forget_rows(choice, provider: str) -> list[str]:
     ]
 
 
-def cmd_forget(args) -> None:
+def deleted_mail(folder: Path, account: str, config: Path):
+    """
+    (the backup's messages its mailbox no longer has and that were never
+    offloaded, the backup's size with offloaded mail apart, the folders the
+    mailbox couldn't read, its provider): the mailbox listed now, Trash and
+    Spam included, as backup --prune lists it. Read-only; PruneAborted if
+    the mailbox lists nothing at all.
+    """
+    from mailcellar import mailbox
+
+    mcon = sidecar.open_meta(folder)
+    try:
+        kept = sidecar.kept_ids(mcon)  # ever offloaded, restored or not: --batch and --rule's
+    finally:
+        mcon.close()
+    con = sqlite3.connect(f"file:{folder / 'msg-db.sqlite'}?mode=ro", uri=True)
+    try:
+        with closing(mailbox.opener(config)(account, "readonly")) as box:
+            logger.info(f"{account}: listing {mailbox_name(box.provider)}")
+            gone, total, _offloaded = gone_from_server(box, con, kept)
+            return gone, total, box.unread(), box.provider
+    finally:
+        con.close()
+
+
+@dataclass(frozen=True)
+class DeletedPart:
+    """What forget --deleted would take from one backup, or why it may take nothing."""
+
+    chosen: tuple[forget.Offloaded, ...] = ()
+    held: tuple[tuple[str, str], ...] = ()  # (ID, the hold keeping it)
+    refusal: str = ""  # why none of it may be forgotten; "" if it may
+
+
+def deleted_part(folder: Path, account: str, config: Path, provider: str, force: bool):
+    """
+    forget --deleted's selection for one backup, and the mailbox's provider:
+    the mailbox listed (deleted_mail), then prune's guard and the legal holds
+    (prune_decision). A mailbox that can't be listed, or read in full, is a
+    refusal, not an error, so the run's other parts and accounts go on.
+    """
+    try:
+        gone_ids, total, unread, provider = deleted_mail(folder, account, config)
+    except PruneAborted:
+        why = f"{mailbox_name(provider, start=True)} listed no messages at all"
+        return DeletedPart(refusal=why), provider
+    except gmailapi.GmailError as exc:
+        return DeletedPart(refusal=f"listing {mailbox_name(provider)}: {exc}"), provider
+    if unread:
+        why = (
+            f"{len(unread):,} folders couldn't be read ({', '.join(unread)}), so their mail "
+            "would look deleted"
+        )
+        return DeletedPart(refusal=why), provider
+    decision = prune_decision(
+        gone_ids,
+        total,
+        holds.held(folder, int(time.time() * 1000), gone_ids),
+        force=force,
+        max_fraction=PRUNE_MAX_FRACTION,
+        where=mailbox_name(provider),
+    )
+    if decision.refusal:
+        return DeletedPart(held=decision.held, refusal=decision.refusal), provider
+    move = list(decision.move)
+    chosen = tuple(forget.deleted(move, forget.details(folder, move)))
+    return DeletedPart(chosen, decision.held), provider
+
+
+def deleted_rows(chosen: list, held: tuple) -> list[str]:
+    """
+    forget --deleted's count, as forget_rows: what can be forgotten, by
+    year, and what a hold keeps. Pure.
+    """
+    years = ", ".join(f"{year} {n:,}" for year, n in forget.by_year(chosen))
+    names = ", ".join(sorted({name for _id, name in held}))
+    rows = [f"  {'can be forgotten':<32}{len(chosen):>8,}" + (f"  ({years})" if years else "")]
+    if held:
+        rows.append(f"  {'held':<32}{len(held):>8,}  (hold {names}; left as they are)")
+    return rows
+
+
+def select_offloaded(folder: Path, args, retain) -> list:
+    """The offloaded mail --batch, --rule or --due selects. Read-only."""
+    if retain is None:
+        return forget.candidates(folder, set(args.batch or ()), set(args.rule or ()))
+    cutoffs = {name: rule.forget_ms for name, rule in retain.items()}
+    return forget.due_by_age(forget.candidates(folder, rules=set(retain)), cutoffs)
+
+
+def cmd_forget(args) -> int:
     try:
         folders = resolve_folders(args.accounts)
     except AnalyticsError as exc:
         sys.exit(f"error: {exc}")
+    if args.force and not args.deleted:
+        sys.exit("error: --force only applies with --deleted (the 10% guard)")
     if args.undo:
-        return forget_undo(folders, args.undo)
+        forget_undo(folders, args.undo)
+        return 0
     if args.empty:
-        return forget_empty(folders, args.yes)
+        forget_empty(folders, args.yes)
+        return 0
     remind_due(folders)
-    if not (args.batch or args.rule or args.due):
+    offloaded = bool(args.batch or args.rule or args.due)
+    if not (offloaded or args.deleted):
         sys.exit(
-            "error: say which offloaded mail: --batch, --rule or --due (or --empty, --undo RUN)"
+            "error: say which mail: --batch, --rule, --due or --deleted (or --empty, --undo RUN)"
         )
     retain = retention_policy(args) if args.due else None
     run = datetime.now().strftime(forget.RUN_FORMAT)
+    status = 0
     for folder in folders:
         account = backup_account(folder)
         sidecar.open_meta(folder).close()  # brings an older meta.sqlite up to date
-        if retain is None:
-            found = forget.candidates(folder, set(args.batch or ()), set(args.rule or ()))
-        else:
-            cutoffs = {name: rule.forget_ms for name, rule in retain.items()}
-            found = forget.due_by_age(forget.candidates(folder, rules=set(retain)), cutoffs)
-        if not found:
-            if retain is not None:
-                print(f"Forget — {account}: nothing due under retention")
-            continue
-        held = holds.held(folder, int(time.time() * 1000), [c.gmail_id for c in found])
-        gone = [c.gmail_id for c in found if c.gone_ms is not None and c.gmail_id not in held]
         try:
             provider = sidecar.provider(folder)
         except sidecar.MetaError as exc:
             sys.exit(f"error: {exc}")
-        live, unread = gmail_state(account, Path(args.config), gone) if gone else ({}, {})
+        found = select_offloaded(folder, args, retain) if offloaded else []
+        part = None  # the --deleted part, unless not asked for or refused
+        if args.deleted:
+            part, provider = deleted_part(folder, account, Path(args.config), provider, args.force)
+            if part.refusal:
+                logger.error(
+                    f"{account}: {part.refusal}; "
+                    + ("--deleted is skipped" if found else "nothing is forgotten")
+                )
+                status = 1
+                part = None
+                if not found:
+                    continue
+        deleted = list(part.chosen) if part else []
+        held = holds.held(folder, int(time.time() * 1000), [c.gmail_id for c in found])
+        if not found and not deleted and not (part and part.held):
+            if retain is not None:
+                print(f"Forget — {account}: nothing due under retention")
+            if part is not None:
+                print(f"Forget — {account}: nothing gone from {mailbox_name(provider)} to forget")
+            continue
+        gone = [c.gmail_id for c in found if c.gone_ms is not None and c.gmail_id not in held]
+        try:
+            live, unread = gmail_state(account, Path(args.config), gone) if gone else ({}, {})
+        except gmailapi.GmailError as exc:
+            logger.error(f"{account}: asking {mailbox_name(provider)}: {exc}; nothing is forgotten")
+            status = 1
+            continue
         choice = forget.choose(found, live, unread, held)
-        if retain is None:
+        if offloaded and retain is None:
             print(f"Forget — {account}: {len(found):,} offloaded messages selected")
-        else:
+        elif offloaded:
             print(f"Forget — {account}: {len(found):,} offloaded messages due under retention")
             for rule, year, n in forget.by_rule_and_year(found):
                 print(f"  {rule} ({years_text(retain[rule].forget_after)}), {year}  {n:>8,}")
-        for row in forget_rows(choice, provider):
-            print(row)
-        if not choice.forget:
+        if offloaded:
+            for row in forget_rows(choice, provider):
+                print(row)
+        if part is not None:
+            print(
+                f"Forget — {account}: {len(deleted) + len(part.held):,} messages gone "
+                f"from {mailbox_name(provider)}, never offloaded"
+            )
+            for row in deleted_rows(deleted, part.held):
+                print(row)
+        chosen = [*choice.forget, *deleted]
+        if not chosen:
             continue
         print(
             "\nForgetting deletes them from this backup: their files move to "
@@ -135,17 +265,14 @@ def cmd_forget(args) -> None:
         if not args.yes:
             print("\nDry run: nothing was changed. Run again with --yes to forget them.")
             continue
-        if not confirm_count(len(choice.forget), f"Forget {len(choice.forget):,} messages?"):
+        if not confirm_count(len(chosen), f"Forget {len(chosen):,} messages?"):
             print("Nothing forgotten.")
             continue
         why = forget.note(
-            list(choice.forget),
-            None if retain is None else {n: r.forget_after for n, r in retain.items()},
+            chosen, None if retain is None else {n: r.forget_after for n, r in retain.items()}
         )
-        moved = forget.forget(
-            folder, account, list(choice.forget), run, int(time.time() * 1000), why
-        )
-        ids = [c.gmail_id for c in choice.forget]
+        moved = forget.forget(folder, account, chosen, run, int(time.time() * 1000), why)
+        ids = [c.gmail_id for c in chosen]
         indexes = forget.scrub_indexes(account, ids)
         files = forget.scrub_files({(account, g) for g in ids})
         until = forget.held_until(run)
@@ -161,6 +288,7 @@ def cmd_forget(args) -> None:
             )
             + "."
         )
+    return status
 
 
 def retention_policy(args) -> dict:
@@ -255,8 +383,9 @@ def main(argv=None, prog: str | None = None) -> int:
     rules = rules_file()
     fg = argparse.ArgumentParser(
         prog=prog or "mailcellar forget",
-        description="Delete offloaded mail its mailbox no longer has from the backup, held "
-        f"{forget.HOLD_DAYS} days first. A dry run unless --yes.",
+        description="Delete mail its mailbox no longer has from the backup, held "
+        f"{forget.HOLD_DAYS} days first: offloaded mail (--batch, --rule, --due), mail "
+        "deleted in the mailbox (--deleted), or both. A dry run unless --yes.",
     )
     fg.add_argument(
         "accounts", nargs="*", help="Only these accounts' backups (default: all of them)"
@@ -270,6 +399,18 @@ def main(argv=None, prog: str | None = None) -> int:
         action="store_true",
         help="Offloaded mail the rules' forget_after makes due: older than that many years "
         "(with --rule, only those rules)",
+    )
+    fg.add_argument(
+        "--deleted",
+        action="store_true",
+        help="Mail its mailbox has deleted, never offloaded (what backup --prune took): the "
+        "mailbox is listed now, read-only",
+    )
+    fg.add_argument(
+        "--force",
+        action="store_true",
+        help="With --deleted: go ahead although more than "
+        f"{PRUNE_MAX_FRACTION:.0%}% of the backup's messages are deleted in its mailbox",
     )
     fg.add_argument("--rules", default=str(rules), help=f"Rules file, for --due (default: {rules})")
     fg.add_argument(
@@ -292,7 +433,6 @@ def main(argv=None, prog: str | None = None) -> int:
 
     args = fg.parse_args(argv)
     try:
-        cmd_forget(args)
+        return cmd_forget(args)
     except (AnalyticsError, RuleError) as exc:
         sys.exit(f"error: {exc}")
-    return 0

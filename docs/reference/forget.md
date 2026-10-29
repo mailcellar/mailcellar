@@ -36,6 +36,30 @@ mailcellar forget --empty --yes                      # delete runs held 30 days
   Mac whether Time Machine covers the data root.
 - **Legal holds win.** Mail a [hold](hold.md) covers is never forgotten.
 
+## Mail deleted in the mailbox: `--deleted`
+
+Mail you deleted in the mailbox yourself, never offloaded, stays in the
+backup until you forget it too. `forget --deleted` takes it out the same
+way, through every stage above:
+
+```bash
+mailcellar forget --deleted                 # dry run: lists the mailbox, counts by year
+mailcellar forget --deleted --yes           # asks you to type the count
+mailcellar forget --batch 2026-01-15-093000 --deleted --yes   # both, in one run
+```
+
+- **The mailbox is listed now**, read-only, Trash and Spam included, so
+  only mail permanently deleted there counts. Offloaded mail never does,
+  restored or not: that is `--batch`, `--rule` and `--due`'s.
+- **A guard.** If more than 10% of the backup's messages (offloaded mail
+  apart) are gone from the mailbox, nothing is forgotten unless you add
+  `--force`: a mailbox emptied by mistake, or the wrong account, shouldn't
+  empty the backup too. Nor is anything forgotten when the mailbox lists
+  no messages at all, or when an IMAP server couldn't read some folders,
+  whose mail would look deleted.
+- **What is left** is the same `forgotten` record, with no batch and the
+  rule `(deleted)`.
+
 ## Retention: `forget_after`
 
 A rule's `forget_after = N` (a whole number of years) is a standing policy:
@@ -68,6 +92,8 @@ A dry run unless `--yes`, which also asks you to type the count.
 | `--batch BATCH` | Offloaded messages of this batch (repeatable) |
 | `--rule RULE` | Offloaded messages of this rule (repeatable); with `--due`, only these rules |
 | `--due` | Offloaded mail the rules' `forget_after` makes due: older than that many years |
+| `--deleted` | Mail its mailbox has permanently deleted, never offloaded; the mailbox is listed now, read-only |
+| `--force` | With `--deleted`: go ahead although more than 10% of the backup's messages are gone from the mailbox |
 | `--rules RULES` | Rules file, for `--due` (default `<data root>/offload/rules.toml`) |
 | `--yes` | Forget them (with `--empty`: delete the runs) |
 | `--empty` | Delete forget runs held 30 days or more, for good |

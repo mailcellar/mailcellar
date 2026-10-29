@@ -1,12 +1,16 @@
 """
-forget: delete offloaded mail from the backup on purpose (#9), in stages.
-It is the one irreversible thing mailcellar does, so:
+forget: delete mail from the backup on purpose (#9), in stages. It is the
+one irreversible thing mailcellar does, so:
 
   forget --batch B | --rule R
-      Offloaded messages only. Each must be recorded gone from Gmail
+      Offloaded messages. Each must be recorded gone from Gmail
       (offloaded.gone_ms, set by a backup or count once Gmail emptied its
       Trash) and still gone when Gmail is asked again now. A dry run unless
       --yes, and then the count must be typed.
+  forget --deleted
+      Mail deleted in its mailbox, never offloaded (B40: what backup --prune
+      took): the mailbox is listed now, as prune does, and more than a tenth
+      of the backup needs --force. Recorded with batch "" and rule DELETED.
   … --yes
       Moves their files to <data root>/_forgotten/<email>/<run>/ (with a
       manifest for --undo), deletes their rows from msg-db.sqlite and
@@ -50,13 +54,17 @@ HOLD_DAYS = 30  # like Gmail's Trash
 FORGOTTEN_DIR = "_forgotten"  # <data root>/_forgotten/<email>/<run>/
 MANIFEST = "forgotten.csv"
 RUN_FORMAT = "%Y-%m-%d-%H%M%S"
+DELETED = "(deleted)"  # forgotten.rule for mail deleted in its mailbox, never offloaded
 SCRUBBED = ("sender", "subject")  # blanked in the CSVs; IDs, dates, rules and sizes stay
 ROW_KEYS = (("account", "gmail_id"), ("keeper_account", "keeper_gmail_id"))
 
 
 @dataclass(frozen=True)
 class Offloaded:
-    """An offloaded message that could be forgotten."""
+    """
+    A message that could be forgotten: offloaded, or deleted in its mailbox
+    and never offloaded (batch "", rule DELETED, gone_ms None; deleted()).
+    """
 
     gmail_id: str
     batch: str
@@ -108,6 +116,30 @@ def choose(
     return Choice(tuple(forget), tuple(not_gone), tuple(in_gmail), tuple(unchecked), tuple(kept))
 
 
+def deleted(gone: list[str], details: dict[str, tuple[int | None, int | None]]) -> list[Offloaded]:
+    """
+    The messages its mailbox deleted, never offloaded (`gone`), as forget
+    candidates, with each one's (internal_date, size_estimate) where
+    `details` has them. Pure.
+    """
+    return [Offloaded(g, "", DELETED, None, *details.get(g, (None, None))) for g in gone]
+
+
+def year(c: Offloaded) -> str:
+    """The year of the message's date (UTC), or "unknown" without one. Pure."""
+    if c.internal_date is None:
+        return "unknown"
+    return datetime.fromtimestamp(c.internal_date / 1000, UTC).strftime("%Y")
+
+
+def by_year(chosen: list[Offloaded]) -> list[tuple[str, int]]:
+    """(year of the message's date, messages), sorted. Pure."""
+    counts: dict[str, int] = {}
+    for c in chosen:
+        counts[year(c)] = counts.get(year(c), 0) + 1
+    return sorted(counts.items())
+
+
 def due(runs: list[str], now: datetime, hold_days: int | None = None) -> list[str]:
     """The runs (named RUN_FORMAT, local time) held hold_days (HOLD_DAYS) by `now`. Pure."""
     hold_days = HOLD_DAYS if hold_days is None else hold_days
@@ -139,8 +171,8 @@ def by_rule_and_year(chosen: list[Offloaded]) -> list[tuple[str, str, int]]:
     """(rule, year of the message's date, messages), sorted. Pure."""
     counts: dict[tuple[str, str], int] = {}
     for c in chosen:
-        year = datetime.fromtimestamp(c.internal_date / 1000, UTC).strftime("%Y")
-        counts[(c.rule, year)] = counts.get((c.rule, year), 0) + 1
+        key = (c.rule, year(c))
+        counts[key] = counts.get(key, 0) + 1
     return [(rule, year, n) for (rule, year), n in sorted(counts.items())]
 
 
@@ -164,7 +196,9 @@ def note(chosen: list[Offloaded], forget_after: dict[str, int] | None = None) ->
     rules = sorted({c.rule for c in chosen})
     if forget_after is None:
         return json.dumps({"rules": rules})
-    return json.dumps({"rules": rules, "forget_after": {r: forget_after[r] for r in rules}})
+    return json.dumps(
+        {"rules": rules, "forget_after": {r: forget_after[r] for r in rules if r in forget_after}}
+    )
 
 
 def held_until(run: str, hold_days: int | None = None) -> datetime:
@@ -300,6 +334,24 @@ def candidates(folder: Path, batches=(), rules=()) -> list[Offloaded]:
         for row in rows
         if (not batches or row[1] in batches) and (not rules or row[2] in rules)
     ]
+
+
+def details(folder: Path, gmail_ids: list[str], chunk: int = 500) -> dict:
+    """Gmail ID → (internal_date, size_estimate) from meta.sqlite, where it has them. Read-only."""
+    out = {}
+    con = sqlite3.connect(f"file:{sidecar.meta_path(folder)}?mode=ro", uri=True)
+    try:
+        for start in range(0, len(gmail_ids), chunk):
+            ids = gmail_ids[start : start + chunk]
+            for gid, date, size in con.execute(
+                f"""SELECT gmail_id, internal_date, size_estimate FROM messages
+                    WHERE gmail_id IN ({",".join("?" * len(ids))})""",
+                ids,
+            ):
+                out[gid] = (date, size)
+    finally:
+        con.close()
+    return out
 
 
 def derived_csvs() -> list[Path]:
