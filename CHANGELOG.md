@@ -41,6 +41,9 @@ in beta, so commands and options may still change before 1.0.
   made, which every run skips (their labels changed with the restore), so
   they took places from messages it could act on. Such messages are now
   left out before the limit, as offloaded ones are, and aren't read.
+- `offload apply` said the plan rows it leaves out were "already done",
+  which those never labelled or vetoed aren't: it now says they are left
+  out and not read, with the reasons as before.
 
 ## 0.17.0 (2026-10-28)
 

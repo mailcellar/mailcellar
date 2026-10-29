@@ -121,7 +121,7 @@ def test_backup_checks(env, capsys):
         "w2": ("skipped", "sidecar row is stale; run mailcellar meta"),
         "w4": ("would label or trash", ""),
     }
-    assert "1 plan rows already done" in capsys.readouterr().err
+    assert "1 plan rows left out, not read: offloaded" in capsys.readouterr().err
     # offloaded by another run after this one read the plan: the check still catches it
     assert backup_checks(env)({"account": A, "gmail_id": "w3", "path": ""}) == ("already offloaded")
 
@@ -274,7 +274,7 @@ def test_mail_restored_since_the_plan_takes_no_place_under_limit(env, capsys):
     second = apply("--trash", "--yes", "--limit", "2")[len(first) :]
     assert [r["gmail_id"] for r in second] == ["w2", "w3"]  # w0 isn't read, nor counted
     assert outcomes(second, "trashed") == ["w2", "w3"]
-    assert "2 plan rows already done" in capsys.readouterr().err  # w1 offloaded, w0 restored
+    assert "2 plan rows left out, not read:" in capsys.readouterr().err  # w1 offloaded, w0 restored
     assert "TRASH" not in env.live.labels_of("w0")
 
 
