@@ -7,6 +7,12 @@ in beta, so commands and options may still change before 1.0.
 
 ## Unreleased
 
+### Changed
+- `offload forget` is now `mailcellar forget`, a command of its own, since
+  it acts on the backup rather than the mailbox; its options are
+  unchanged, and its reference is a page of its own (Forgetting mail).
+  `offload forget` still works for this release, with a warning.
+
 ## 0.18.0 (2026-10-29)
 
 **Upgrading from 0.17.0:** no database's schema changes.

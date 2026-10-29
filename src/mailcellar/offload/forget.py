@@ -2,7 +2,7 @@
 forget: delete offloaded mail from the backup on purpose (#9), in stages.
 It is the one irreversible thing mailcellar does, so:
 
-  offload forget --batch B | --rule R
+  forget --batch B | --rule R
       Offloaded messages only. Each must be recorded gone from Gmail
       (offloaded.gone_ms, set by a backup or count once Gmail emptied its
       Trash) and still gone when Gmail is asked again now. A dry run unless
@@ -149,7 +149,7 @@ def retention_counts(
 ) -> dict[str, tuple[int, int, int]]:
     """
     Rule → (recorded gone, not yet gone from Gmail, under a legal hold) among
-    the messages due by age: what offload forget --due would take, before
+    the messages due by age: what forget --due would take, before
     Gmail is asked again. Pure.
     """
     out: dict[str, list[int]] = {}
@@ -242,7 +242,7 @@ def policies(path: Path | None = None) -> dict[str, tuple[int, int]]:
     """
     Rule → (forget_after years, cut-off ms) for the offload rules that have
     one; {} without a readable rules file. For the reports, which only say
-    what is due: offload forget --due reads the rules itself and stops on
+    what is due: forget --due reads the rules itself and stops on
     an error.
     """
     from mailcellar.offload.rules import RuleError, load_rules

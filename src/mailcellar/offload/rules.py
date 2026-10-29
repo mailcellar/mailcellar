@@ -12,7 +12,7 @@ mail to take out of Gmail.
     keep_if = [{ subject = "contract" }, { sender = "@a.example", larger_than_mb = 1 }]
                                        # optional: keep what matches any one table
     forget_after = 7                   # optional: years from a message's date after which
-                                       # offload forget --due deletes what this rule
+                                       # mailcellar forget --due deletes what this rule
                                        # offloaded from the backup, once Gmail has deleted it
 
 Scope keys take a string or a list (any value matches); different keys

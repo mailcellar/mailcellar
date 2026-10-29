@@ -20,7 +20,7 @@ second copy of it. The README has the reference for each command
   `<data root>/_pruned/<email>/<batch>/`. It asks first, refuses to move
   more than a tenth of the backup unless you add `--force`, and never
   touches mail you have offloaded. The files move; nothing is erased.
-- **One command deletes, on purpose.** `offload forget` deletes offloaded
+- **One command deletes, on purpose.** `forget` deletes offloaded
   mail that Gmail has deleted too, for mail you shouldn't keep at all. It
   asks you to type the count, and holds the files 30 days before
   `--empty` deletes them; see [Offloading](offloading.md#deleting-offloaded-mail-for-good).
@@ -58,7 +58,7 @@ delete. Run the full `mailcellar verify` occasionally: it parses every
 message, so on a large backup it takes a while.
 
 `verify --chain` also catches a change made on purpose. Every `backup`,
-`restore`, `--prune` and `offload forget` records what it added or removed,
+`restore`, `--prune` and `forget` records what it added or removed,
 with a hash of each file, in a chain whose latest link is also kept in
 the config folder; the check fails on anything changed, missing or added
 outside those commands, even if `meta.sqlite` was changed to agree. Note

@@ -273,7 +273,7 @@ def main(argv=None, prog: str | None = None) -> int:
     if gone_for_good and (args.batch or args.rule or args.id):
         logger.warning(
             f"{gone_for_good:,} selected messages were deleted from the backup by "
-            "'offload forget' and can't be restored from it."
+            "'mailcellar forget' and can't be restored from it."
         )
     if args.limit is not None:
         cands = cands[: args.limit]

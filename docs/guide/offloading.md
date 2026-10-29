@@ -307,23 +307,23 @@ find it. Restore only adds: it deletes nothing, in Gmail or the backup. See
 ## Deleting offloaded mail for good
 
 Offloading keeps everything in the backup. For mail you shouldn't keep at
-all, `offload forget` deletes it from the backup too, once Gmail has
+all, `forget` deletes it from the backup too, once Gmail has
 deleted it:
 
 ```bash
 mailcellar backup work                                     # records what Gmail has deleted
-mailcellar offload forget --batch 2026-01-15-093000        # dry run
-mailcellar offload forget --batch 2026-01-15-093000 --yes  # type the count to go ahead
+mailcellar forget --batch 2026-01-15-093000        # dry run
+mailcellar forget --batch 2026-01-15-093000 --yes  # type the count to go ahead
 ```
 
 Messages still in Gmail's Trash aren't touched, so run it after Gmail has
 emptied its Trash (30 days after the batch, or sooner if you empty it
 yourself) and a backup has run. Forgotten files are held for 30 days in
 `<data root>/_forgotten/`, where `--undo RUN` can still put them back;
-`offload forget --empty --yes` then deletes them; `report health` and the
-next `offload forget` say when a run is due. Copies outside the data
+`forget --empty --yes` then deletes them; `report health` and the
+next `forget` say when a run is due. Copies outside the data
 root, such as an export or Time Machine, keep the mail. The details are in
-the [reference](../reference/offload.md#forgetting-offloaded-mail).
+the [reference](../reference/forget.md).
 
 To make that a standing policy, give the rule a `forget_after`, in years
 from each message's date:
@@ -336,7 +336,7 @@ before = "1"
 forget_after = 2
 ```
 
-`mailcellar offload forget --due` then forgets what each rule's
+`mailcellar forget --due` then forgets what each rule's
 `forget_after` makes due, through the same checks and the same 30-day
 hold; `report health` shows how much is due. A legal hold always wins
 ([Keeping mail on hold](legal-holds.md)).

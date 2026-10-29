@@ -309,7 +309,7 @@ def holds_table(folders: list[Path], now: int) -> Table:
         ],
         rows,
         notes=[
-            "Mail a hold keeps is left alone by offload, dedup, backup --prune and offload "
+            "Mail a hold keeps is left alone by offload, dedup, backup --prune and "
             "forget, in its mailbox and in the backup; mail that matches later is kept too. "
             "Only in backup: its mailbox no longer has it, so the backup holds the only "
             "copy. A hold can only keep what has been backed up: run backups while one is in force "
@@ -376,9 +376,9 @@ def forgotten(folders: list[Path], now: int) -> Table:
         ],
         rows,
         notes=[
-            f"Mail offload forget took out of the backup, held {forget.HOLD_DAYS} days so "
-            "'offload forget --undo RUN' can put it back. Due: held that long; "
-            "'mailcellar offload forget --empty --yes' deletes it for good."
+            f"Mail 'mailcellar forget' took out of the backup, held {forget.HOLD_DAYS} days so "
+            "'mailcellar forget --undo RUN' can put it back. Due: held that long; "
+            "'mailcellar forget --empty --yes' deletes it for good."
         ],
         limit=False,
     )
@@ -405,7 +405,7 @@ def retention_table(folders: list[Path], now: int) -> Table:
         rows,
         notes=[
             "Mail a rule offloaded that is older than its forget_after. Due: its mailbox has "
-            "deleted it, as last seen by a backup or count; 'mailcellar offload forget --due' "
+            "deleted it, as last seen by a backup or count; 'mailcellar forget --due' "
             "checks with the mailbox again, then deletes it from the backup, held "
             f"{forget.HOLD_DAYS} days first. Held: a legal hold keeps it."
         ],

@@ -240,7 +240,7 @@ CREATE TABLE IF NOT EXISTS offloaded (
     restored_ms INTEGER                   -- put back into Gmail (see restored); NULL if not
 );
 
--- Offloaded messages deleted from the backup on purpose (offload forget):
+-- Offloaded messages deleted from the backup on purpose (forget):
 -- what is left of them, with no sender, subject or content.
 CREATE TABLE IF NOT EXISTS forgotten (
     gmail_id      TEXT PRIMARY KEY,
@@ -541,7 +541,7 @@ def replace_label_catalogue(con: sqlite3.Connection, labels: list[dict]) -> None
 
 
 def delete_messages(con: sqlite3.Connection, gmail_ids) -> None:
-    """Delete messages' rows: moved out of the backup by --prune or offload forget. No commit."""
+    """Delete messages' rows: moved out of the backup by --prune or forget. No commit."""
     ids = list(gmail_ids)
     for table in ("message_labels", "attachments", "recipients"):
         con.executemany(f"DELETE FROM {table} WHERE gmail_id = ?", ((g,) for g in ids))
@@ -843,7 +843,7 @@ def superseded(con: sqlite3.Connection) -> set[str]:
 
 
 def forgotten_ids(con: sqlite3.Connection) -> set[str]:
-    """Gmail IDs deleted from the backup by offload forget, held or emptied."""
+    """Gmail IDs deleted from the backup by forget, held or emptied."""
     return {gid for (gid,) in con.execute("SELECT gmail_id FROM forgotten")}
 
 

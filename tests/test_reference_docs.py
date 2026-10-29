@@ -26,7 +26,7 @@ COMMANDS = {
     ("offload", "plan"): "offload",
     ("offload", "suggest"): "offload",
     ("offload", "apply"): "offload",
-    ("offload", "forget"): "offload",
+    ("forget",): "forget",
     ("restore",): "restore",
     ("export",): "export",
     ("search",): "search",

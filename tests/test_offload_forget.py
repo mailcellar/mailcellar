@@ -1,4 +1,4 @@
-"""offload forget (#9): offloaded mail Gmail no longer has, deleted from the backup in stages."""
+"""mailcellar forget (#9): offloaded mail Gmail no longer has, deleted from the backup in stages."""
 
 import csv
 import sqlite3
@@ -13,7 +13,7 @@ from mailcellar.dedup import db as dedup_db
 from mailcellar.dedup import index as dedup_index
 from mailcellar.dedup.paths import default_db as dedup_path
 from mailcellar.offload import cli as offload_cli
-from mailcellar.offload import forget
+from mailcellar.offload import forget, forget_cli
 from mailcellar.offload.forget import Offloaded, choose, due, scrub_rows
 from mailcellar.paths import data_root
 from mailcellar.report.db import open_sidecars
@@ -113,15 +113,15 @@ def env(tmp_path, monkeypatch):
     def live(account, config, ids):
         return {g: (set() if g in gmail.messages else None) for g in ids}, {}
 
-    monkeypatch.setattr(offload_cli, "gmail_state", live)
-    monkeypatch.setattr(offload_cli, "second_copy_report", lambda d, ms: ["(report)"])
+    monkeypatch.setattr(forget_cli, "gmail_state", live)
+    monkeypatch.setattr(forget_cli, "second_copy_report", lambda d, ms: ["(report)"])
     return folder, gmail
 
 
 def run(*args, typed=None, monkeypatch=None):
     if typed is not None:
         monkeypatch.setattr("builtins.input", lambda prompt: typed)
-    cli.main(["offload", "forget", *args])
+    cli.main(["forget", *args])
 
 
 def files_with_marker(root, *gids, held_too=False):
@@ -292,6 +292,29 @@ def test_empty_deletes_runs_after_the_hold_for_good(env, monkeypatch, capsys):
     assert files_with_marker(data_root(), "p0", "p1", held_too=True) == []  # held copies too
 
 
+def test_offload_forget_is_handed_on_to_forget_and_says_so(env, monkeypatch, capsys):
+    assert cli.main(["offload", "forget", "--batch", BATCH]) == 0
+    captured = capsys.readouterr()
+    assert "'offload forget' is now 'mailcellar forget'" in captured.err
+    assert "Dry run: nothing was changed" in captured.out
+    monkeypatch.setattr("builtins.input", lambda prompt: "2")
+    assert cli.main(["offload", "forget", "--batch", BATCH, "--yes"]) == 0
+    assert "Forgot 2 messages" in capsys.readouterr().out
+    (run_dir,) = forget.runs_dir(A).iterdir()
+    assert cli.main(["offload", "forget", "--undo", run_dir.name]) == 0
+    assert "put 2 messages back" in capsys.readouterr().out
+    with pytest.raises(SystemExit):
+        cli.main(["offload", "--help"])
+    assert "Now 'mailcellar forget'" in capsys.readouterr().out
+    cli.main(["--help"])
+    assert "mailcellar forget" in capsys.readouterr().out
+
+
+def test_offload_forget_past_the_hand_on_is_an_error_not_a_traceback(env):
+    with pytest.raises(SystemExit, match="is now 'mailcellar forget'"):
+        cli.main(["offload", "--", "forget"])
+
+
 def test_runs_past_their_hold_are_mentioned_until_emptied(env, monkeypatch, capsys):
     run("--batch", BATCH, "--yes", typed="2", monkeypatch=monkeypatch)
     capsys.readouterr()
@@ -302,7 +325,7 @@ def test_runs_past_their_hold_are_mentioned_until_emptied(env, monkeypatch, caps
     run("--batch", BATCH)
     out = capsys.readouterr().out
     assert f"{A}: 1 forget runs held 0 days or more ({run_dir.name})" in out
-    assert "'offload forget --empty' deletes them for good" in out
+    assert "'mailcellar forget --empty' deletes them for good" in out
     assert forget.held(A) == [(run_dir.name, 2)]
 
 
@@ -522,7 +545,7 @@ def test_forget_rows_name_the_mailbox_by_provider():
     choice = forget.Choice(
         forget=[], not_gone=["a"], in_gmail=["b"], held=[], unchecked=[("c", "timed out")]
     )
-    rows = offload_cli.forget_rows(choice, "imap")
+    rows = forget_cli.forget_rows(choice, "imap")
     assert rows[0] == "  can be forgotten                       0"
     assert rows[1].startswith("  not yet gone from the server           1")
     assert "after the server empties its Trash" in rows[1]
@@ -535,7 +558,7 @@ def test_an_unreadable_sidecar_stops_forget_with_an_error(env, monkeypatch):
     def unreadable(folder):
         raise sidecar.MetaError("meta.sqlite can't be read: file is not a database")
 
-    monkeypatch.setattr(offload_cli.sidecar, "provider", unreadable)
+    monkeypatch.setattr(forget_cli.sidecar, "provider", unreadable)
     with pytest.raises(SystemExit, match="error: meta.sqlite can't be read"):  # not a traceback
         run("--batch", BATCH)
 

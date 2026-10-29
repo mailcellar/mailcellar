@@ -270,7 +270,7 @@ class Snapshot:
     index: Mapping[str, gyb.BackupMessage]  # what gyb's index has, with its .eml
     recorded: Mapping[str, str]  # ID → the .eml's SHA-256, as the hash chain recorded it
     restored: frozenset[str]  # source IDs restored into the target already; empty if not read
-    forgotten: frozenset[str]  # deleted from the backup by offload forget
+    forgotten: frozenset[str]  # deleted from the backup by forget
     superseded: frozenset[str]  # old IDs of messages restored under new ones
     marks: frozenset[str]  # an IMAP backup's review marks: never put back
 
@@ -395,7 +395,7 @@ def candidates(
     not a restore) and for a restore, whose plan() counts one as done only
     while the mailbox still has it; the old IDs of messages restored under
     new ones are always left out, so none is listed twice.
-    Messages deleted from the backup by offload forget are never candidates
+    Messages deleted from the backup by forget are never candidates
     (see forgotten_in). read_snapshot() reads; select() chooses.
     """
     selection = Selection(

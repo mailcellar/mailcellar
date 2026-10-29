@@ -157,7 +157,7 @@ def open_db(db_path: Path) -> sqlite3.Connection:
 def remove_messages(con: sqlite3.Connection, account: str, gmail_ids) -> int:
     """
     Take messages out of the catalogue: their rows, labels and match
-    memberships (offload forget). Returns how many were catalogued. No commit.
+    memberships (forget). Returns how many were catalogued. No commit.
     """
     removed = 0
     for gid in gmail_ids:

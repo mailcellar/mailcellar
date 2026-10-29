@@ -217,8 +217,8 @@ def update(con: sqlite3.Connection, folder: Path) -> Stats:
 
 def remove(con: sqlite3.Connection, account: str, gmail_ids) -> int:
     """
-    Take messages out of the index: their docs rows and their words (offload
-    forget). Returns how many were indexed. No commit.
+    Take messages out of the index: their docs rows and their words
+    (forget). Returns how many were indexed. No commit.
     """
     removed = 0
     for gid in gmail_ids:

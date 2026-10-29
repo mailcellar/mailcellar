@@ -217,6 +217,7 @@ The [documentation site](https://mailcellar.github.io/mailcellar/) has the guide
 - [What changes your mailbox](https://mailcellar.github.io/mailcellar/reference/what-changes-gmail/): the commands that write to Gmail, or to an IMAP server
 - [Removing duplicates](https://mailcellar.github.io/mailcellar/reference/dedup/): `dedup`
 - [Offloading old mail](https://mailcellar.github.io/mailcellar/reference/offload/): `offload`, and the rule keys
+- [Forgetting mail](https://mailcellar.github.io/mailcellar/reference/forget/): `forget`, and retention
 - [Restoring mail](https://mailcellar.github.io/mailcellar/reference/restore/): `restore`
 - [Exporting mail](https://mailcellar.github.io/mailcellar/reference/export/): `export`
 - [Searching mail](https://mailcellar.github.io/mailcellar/reference/search/): `search`

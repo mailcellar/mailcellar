@@ -388,7 +388,7 @@ def offload_batches(con) -> Table:
             "whenever it, or a mail client, empties it. Trash emptied: messages the last "
             "backup or count found gone from their mailbox; run one for current figures. "
             "Restored messages are back in their mailbox and count in neither size. "
-            "Forgotten: deleted from the backup too (offload forget). Sizes are the "
+            "Forgotten: deleted from the backup too (mailcellar forget). Sizes are the "
             "mailbox's own figures; Gmail's storage figure isn't available through its API."
         ],
         limit=False,
