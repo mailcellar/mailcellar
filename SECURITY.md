@@ -53,3 +53,13 @@ Cloud console and create a new one.
 - Nothing is ever permanently deleted from Gmail.
 - No third party is involved: the OAuth client is your own, and the mail
   stays on your machine.
+
+## Where mailcellar comes from
+
+Only from the source at <https://github.com/mailcellar/mailcellar>, the
+package `mailcellar` on PyPI, and the docs at
+<https://mailcellar.github.io/mailcellar/>. It has no app or `.dmg` to
+download, and never asks you to bypass macOS's warnings or remove its
+quarantine flag. A paid macOS app sold as "Mailcellar" on newmac.app is
+unrelated to this project
+([how to tell](https://mailcellar.github.io/mailcellar/guide/troubleshooting/#is-this-the-mac-app-called-mailcellar)).
