@@ -1,3 +1,7 @@
+---
+description: "Continue a Got Your Back (gyb) Gmail backup with mailcellar: the same on-disk format byte for byte, nothing converted and nothing downloaded twice."
+---
+
 # Migrating from gyb
 
 mailcellar writes [Got Your Back](https://github.com/GAM-team/got-your-back)

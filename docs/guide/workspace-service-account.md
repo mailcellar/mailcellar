@@ -1,3 +1,7 @@
+---
+description: "Back up every Google Workspace mailbox unattended through a read-only service account with domain-wide delegation: no per-user sign-in, no token to renew."
+---
+
 # Workspace: backing up through a service account
 
 A Google Workspace domain can let mailcellar read its mailboxes through a

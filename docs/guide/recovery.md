@@ -1,3 +1,7 @@
+---
+description: "What to do, case by case, when a token expires, backups fall more than four weeks behind, an offload is interrupted, the data root is lost or a token leaks."
+---
+
 # Recovering when something goes wrong
 
 What to do, case by case, when a run fails or something is lost. Each case

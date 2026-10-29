@@ -1,3 +1,7 @@
+---
+description: "The few mailcellar commands that change a Gmail or IMAP mailbox, what each one changes, and the access it needs. Everything else is read-only."
+---
+
 # What changes your mailbox
 
 Everything is read-only except these, and each one asks for confirmation

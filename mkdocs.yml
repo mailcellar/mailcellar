@@ -3,7 +3,7 @@
 # stays the command reference, linked from the site. To preview it locally:
 #   uvx --exclude-newer 2026-10-11 --from zensical==0.0.69 zensical serve
 site_name: mailcellar
-site_description: Back up Gmail locally, move old mail out by rule, and keep it searchable and restorable.
+site_description: Back up Gmail and IMAP mail locally, move old mail out by rule, and keep it searchable and restorable.
 site_url: https://mailcellar.github.io/mailcellar/
 repo_url: https://github.com/mailcellar/mailcellar
 repo_name: mailcellar/mailcellar

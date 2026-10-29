@@ -1,3 +1,7 @@
+---
+description: "Reference for mailcellar restore: every option for putting backed-up mail back into Gmail or an IMAP mailbox, or restoring from an mbox file or a gyb folder."
+---
+
 # Restoring mail: restore
 
 `restore` puts backed-up mail back into its mailbox, Gmail or IMAP:

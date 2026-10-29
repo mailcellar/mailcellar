@@ -1,3 +1,7 @@
+---
+description: "Back up iCloud Mail, Yahoo Mail, Fastmail or a self-hosted Dovecot server over IMAP, read-only, then search, offload, deduplicate and restore it as with Gmail."
+---
+
 # Backing up an IMAP account
 
 mailcellar can back up an account on another provider's server, or your

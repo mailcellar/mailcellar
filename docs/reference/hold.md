@@ -1,3 +1,7 @@
+---
+description: "Reference for mailcellar hold: add, list, show and release legal holds that keep mail in the mailbox and the backup."
+---
+
 # Legal holds: hold
 
 A hold names mail that must be kept as it is, for a dispute, an audit or a

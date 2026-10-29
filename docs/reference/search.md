@@ -1,3 +1,7 @@
+---
+description: "Reference for mailcellar search: full-text search of email backups, offloaded mail included, by sender, recipients, subject and body."
+---
+
 # Searching mail: search
 
 A mailbox's own search no longer finds mail once it has been offloaded.

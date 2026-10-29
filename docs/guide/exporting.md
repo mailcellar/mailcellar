@@ -1,3 +1,7 @@
+---
+description: "Export mail from the backup to an mbox file or a zip of .eml files, to read in a desktop mail client or hand to an accountant or a lawyer. Read-only."
+---
+
 # Exporting mail
 
 `mailcellar export` copies a selection of the backup out of mailcellar, to a

@@ -1,3 +1,7 @@
+---
+description: "Keep mail exactly as it is for a dispute, an audit or a records request: a hold stops mailcellar removing it from the mailbox or the backup until you release it."
+---
+
 # Keeping mail on hold
 
 Sometimes mail has to be kept exactly as it is: you're in a dispute with a

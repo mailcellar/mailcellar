@@ -1,3 +1,7 @@
+---
+description: "Every mailcellar command and option, by page: backups, configuration, deduplication, offloading, forgetting, restore, export, search, legal holds and reports."
+---
+
 # Command reference
 
 Every command and option. For a task from start to finish, see the

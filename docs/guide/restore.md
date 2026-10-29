@@ -1,3 +1,7 @@
+---
+description: "Put mail back into Gmail or an IMAP mailbox from the backup: undo an offload, recover lost mail, move a backup to another account, or import a Takeout mbox."
+---
+
 # Restoring mail: putting it back into Gmail
 
 `restore` puts mail from the backup back into Gmail: mail you offloaded,

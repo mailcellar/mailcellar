@@ -1,3 +1,7 @@
+---
+description: "Reference for mailcellar offload: the rules file, every rule key, and the options of plan and apply for moving old mail out of the mailbox."
+---
+
 # Offloading old mail: offload
 
 Rules go in `<data root>/offload/rules.toml`, one `[[rule]]` table each.

@@ -1,3 +1,7 @@
+---
+description: "Search every email backup, including mail no longer in Gmail, and see where the storage goes and what to offload first. Read-only, with no Gmail access needed."
+---
+
 # Finding mail, and deciding what to offload
 
 Two read-only commands help you work with what is in the backups. `search`
