@@ -59,8 +59,8 @@ A dry run unless `--label` or `--trash` is given.
 | Option | What it does |
 | --- | --- |
 | `--label [NAME]` | Add the label NAME (default `dedup-redundant`) to removals that pass the checks; it is created if missing |
-| `--trash [NAME]` | Move removals that a `--label` run labelled NAME, that pass the checks and still carry the label, to Trash; the others aren't read |
-| `--limit N` | Only consider the first N removals in the plan (with `--trash`, of those a label run labelled) |
+| `--trash [NAME]` | Move removals that a `--label` run labelled NAME, that pass the checks and still carry the label, to Trash; the others, and those an earlier `--trash` run trashed, aren't read |
+| `--limit N` | Only consider the first N removals in the plan (with `--trash`, of those a label run labelled and no trash run trashed) |
 | `--yes` | Don't ask for confirmation before trashing |
 | `--plan PLAN` | Plan CSV to apply (default `<data root>/dedup/dedup-plan.csv`) |
 | `--log LOG` | Apply log, appended to (default `<data root>/dedup/dedup-apply-log.csv`) |

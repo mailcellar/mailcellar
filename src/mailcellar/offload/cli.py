@@ -311,7 +311,7 @@ def cmd_apply(args) -> None:
         sys.exit("Nothing to do: no plan rows match.")
     # Messages this tool labelled carry the label in a plan made after the next
     # backup; only a label already there for other reasons makes it unusable.
-    labelled, _vetoed = log_state(Path(args.log), label)
+    labelled, _vetoed, _trashed = log_state(Path(args.log), label)
     problem = unusable_label(
         [r for r in rows if (r["account"], r["gmail_id"]) not in labelled], label
     )

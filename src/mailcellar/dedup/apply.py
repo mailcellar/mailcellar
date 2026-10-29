@@ -123,26 +123,29 @@ def read_removals(plan_path: Path) -> list[dict]:
     return [r for r in rows if r["action"] == "remove"]
 
 
-def log_state(log_path: Path, label: str) -> tuple[set[tuple], set[tuple]]:
+def log_state(log_path: Path, label: str) -> tuple[set[tuple], set[tuple], set[tuple]]:
     """
     From earlier runs with this label: (account, gmail_id) of the messages
-    labelled, and of those vetoed (a trash run found the label removed).
+    labelled, of those vetoed (a trash run found the label removed), and of
+    those a trash run trashed.
     """
-    labelled, vetoed = set(), set()
+    labelled, vetoed, trashed = set(), set(), set()
     if not log_path.is_file():
-        return labelled, vetoed
+        return labelled, vetoed, trashed
     with log_path.open(newline="", encoding="utf-8") as fh:
         for e in csv.DictReader(fh):
             key = (e["account"], e["gmail_id"])
             if e["mode"] == f"label ({label})" and e["outcome"] == "labelled":
                 labelled.add(key)
+            elif e["mode"] == f"trash ({label})" and e["outcome"] == "trashed":
+                trashed.add(key)
             elif (
                 e["mode"] == f"trash ({label})"
                 and e["outcome"] == "skipped"
                 and e["detail"] == f"not labelled {label}"
             ):
                 vetoed.add(key)
-    return labelled, vetoed
+    return labelled, vetoed, trashed
 
 
 def labelled_rows(

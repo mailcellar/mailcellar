@@ -121,14 +121,15 @@ def cmd_apply(args) -> None:
     mode = "label" if args.label is not None else "trash" if args.trash is not None else "dry-run"
     dedup_label = args.label or args.trash or DEDUP_LABEL
     rows = read_removals(Path(args.plan))
-    labelled, vetoed = log_state(Path(args.log), dedup_label)
+    labelled, vetoed, trashed = log_state(Path(args.log), dedup_label)
     if mode == "trash":
         before = len(rows)
-        rows = list(labelled_rows(rows, labelled, vetoed))
+        # Trashed by an earlier run: reading it again only finds it in Trash.
+        rows = list(labelled_rows(rows, labelled, vetoed | trashed))
         if len(rows) < before:
             logger.info(
-                f"{before - len(rows):,} removals not labelled by a label run, or vetoed "
-                "before: not read."
+                f"{before - len(rows):,} removals not labelled by a label run, vetoed "
+                "or trashed before: not read."
             )
     if args.limit is not None:
         rows = rows[: args.limit]
@@ -136,7 +137,7 @@ def cmd_apply(args) -> None:
         sys.exit(
             "Nothing to do: "
             + (
-                "no removal a label run labelled, and none vetoed since."
+                "no removal a label run labelled that wasn't vetoed or trashed since."
                 if mode == "trash"
                 else "the plan has no 'remove' rows."
             )
