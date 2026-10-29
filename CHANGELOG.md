@@ -22,6 +22,11 @@ in beta, so commands and options may still change before 1.0.
   unchanged, and its reference is a page of its own (Forgetting mail).
   `offload forget` still works for this release, with a warning.
 
+### Fixed
+- `forget --batch`, `--rule` and `--due` took an IMAP account's offloaded
+  mail as gone when it sat in a folder the server couldn't read that run;
+  it is now listed as couldn't be checked, and left in the backup.
+
 ## 0.18.0 (2026-10-29)
 
 **Upgrading from 0.17.0:** no database's schema changes.
