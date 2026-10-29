@@ -1,3 +1,7 @@
+---
+description: "Reference for mailcellar forget: deleting mail from the backup in stages, offloaded mail or mail the mailbox has deleted, held 30 days first, with undo."
+---
+
 # Forgetting mail: forget
 
 Some offloaded mail shouldn't be kept at all, even in the backup.
