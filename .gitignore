@@ -18,8 +18,9 @@ docs/internal/
 .coverage
 htmlcov/
 
-# The documentation site (mkdocs build)
+# The documentation site and its build cache (zensical build)
 /site/
+/.cache/
 
 # Claude Code session worktrees, each a checkout of its own branch
 /.claude/worktrees/

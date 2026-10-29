@@ -1,7 +1,7 @@
 # The documentation site, https://mailcellar.github.io/mailcellar/: the guides
 # and docs/architecture.md, built by .github/workflows/docs.yml. The README
 # stays the command reference, linked from the site. To preview it locally:
-#   uvx --from mkdocs==1.6.1 --with mkdocs-material==9.7.7 mkdocs serve
+#   uvx --exclude-newer 2026-10-11 --from zensical==0.0.69 zensical serve
 site_name: mailcellar
 site_description: Back up Gmail locally, move old mail out by rule, and keep it searchable and restorable.
 site_url: https://mailcellar.github.io/mailcellar/
@@ -75,6 +75,6 @@ nav:
       - Reports: reference/report.md
   - Releases: https://github.com/mailcellar/mailcellar/releases
 
-# A broken link or anchor fails the strict build (mkdocs reports anchors at INFO by default).
+# A broken link or anchor fails the strict build (MkDocs reported anchors only at INFO without this).
 validation:
   anchors: warn

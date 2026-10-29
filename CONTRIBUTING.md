@@ -118,7 +118,7 @@ options instead of repeating them. Links from a guide to the README use its
 GitHub address, so they work on GitHub and on the site. To preview:
 
 ```bash
-uvx --from mkdocs==1.6.1 --with mkdocs-material==9.7.7 mkdocs serve
+uvx --exclude-newer 2026-10-11 --from zensical==0.0.69 zensical serve
 ```
 
 Once, a maintainer sets Settings → Pages → Source to *GitHub Actions*.
