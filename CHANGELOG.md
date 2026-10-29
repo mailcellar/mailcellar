@@ -7,6 +7,8 @@ in beta, so commands and options may still change before 1.0.
 
 ## Unreleased
 
+## 0.18.0 (2026-10-29)
+
 **Upgrading from 0.17.0:** no database's schema changes.
 `dedup apply --trash` now trashes only removals that a `dedup apply
 --label` run labelled: if you added the label to messages by hand, run
