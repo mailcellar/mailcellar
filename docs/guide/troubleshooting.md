@@ -111,3 +111,22 @@ backed up over IMAP: [Backing up an IMAP account](imap.md).
 Because of that, once mail has been offloaded and Gmail has emptied its
 Trash, the backup holds the only copy. Keep a second copy of the data
 root.
+
+## Is this the Mac app called Mailcellar?
+
+No. A paid macOS app is sold under the name "Mailcellar" on newmac.app.
+It isn't made by this project and has no connection to it.
+
+mailcellar is free and open source (Apache-2.0), and it comes only from
+these places:
+
+- the source at [github.com/mailcellar/mailcellar](https://github.com/mailcellar/mailcellar);
+- the package `mailcellar` on [PyPI](https://pypi.org/project/mailcellar/),
+  installed with `uv tool install mailcellar` or `pipx install mailcellar`;
+- these docs, at [mailcellar.github.io/mailcellar](https://mailcellar.github.io/mailcellar/).
+
+It has no paid edition, no license key, no `.dmg` or app to download, and
+no install script to pipe into a shell. Nothing in these docs asks you to
+open an app macOS warns about, or to remove macOS's quarantine flag. An
+IMAP account's password is kept in your own config folder, readable only
+by you, and sent only to that account's mail server.
