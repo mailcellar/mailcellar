@@ -15,6 +15,9 @@ in beta, so commands and options may still change before 1.0.
   1, `report health` lists each check as a `verify` run, and
   `schedule status` flags damage the last eight checks found.
   `--verify N` checks N messages, `--verify 0` none.
+- The backing-up guide has a restic recipe for the second copy of the
+  data root: encrypted snapshots, checking one with `verify`, and what
+  they keep after `forget`.
 
 ## 0.20.0 (2026-10-30)
 
