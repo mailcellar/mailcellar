@@ -765,6 +765,91 @@ def test_an_interrupted_forget_changes_neither_database_and_a_rerun_completes(
     assert all(p.stat().st_nlink == 1 for p in run_dir.rglob("*.eml"))  # --empty frees them
 
 
+def stop_a_forget_run(monkeypatch, after_moves=1):
+    """Run forget --batch --yes, stopped after `after_moves` files moved (#145)."""
+    real_move, moves = gyb.shutil.move, []
+
+    def stopping_move(src, target):
+        if len(moves) == after_moves:
+            raise KeyboardInterrupt
+        moves.append(src)
+        return real_move(src, target)
+
+    monkeypatch.setattr(gyb.shutil, "move", stopping_move)
+    monkeypatch.setattr(forget, "RUN_FORMAT", "run-1")
+    with pytest.raises(KeyboardInterrupt):
+        run("--batch", BATCH, "--yes", typed="2", monkeypatch=monkeypatch)
+    monkeypatch.setattr(gyb.shutil, "move", real_move)
+    return forget.runs_dir(A) / "run-1"
+
+
+def test_the_next_forget_run_puts_back_what_a_stopped_one_left(env, monkeypatch, capsys):
+    from mailcellar.backup import chain
+
+    folder, _gmail = env
+    stopped = stop_a_forget_run(monkeypatch)
+    (moved,) = stopped.rglob("*.eml")
+    rel = moved.relative_to(stopped)
+    assert chain.check(folder, A).failures  # p1 never moved, yet its removal was recorded
+    capsys.readouterr()
+
+    run("--batch", BATCH)  # a dry run says so, and changes nothing
+    assert "a stopped forget run left 2 messages" in capsys.readouterr().out
+    assert moved.is_file()
+
+    run("--empty", "--yes", typed="0", monkeypatch=monkeypatch)  # nothing due: only the repair
+    assert "put back 2 messages" in capsys.readouterr().out
+    assert (folder / rel).is_file() and not stopped.exists()
+    assert chain.check(folder, A).failures == ()
+
+
+def test_a_run_stopped_before_its_first_move_is_put_back_too(env, monkeypatch, capsys):
+    from mailcellar.backup import chain
+
+    folder, _gmail = env
+    stop_a_forget_run(monkeypatch, after_moves=0)
+    assert chain.check(folder, A).failures
+    run("--empty", "--yes", typed="0", monkeypatch=monkeypatch)
+    assert "put back 2 messages" in capsys.readouterr().out
+    assert chain.check(folder, A).failures == ()
+
+
+def test_a_changed_file_put_back_is_still_reported_changed(env, monkeypatch):
+    from mailcellar.backup import chain
+
+    folder, _gmail = env
+    stopped = stop_a_forget_run(monkeypatch)
+    (moved,) = stopped.rglob("*.eml")
+    moved.write_bytes(moved.read_bytes() + b"x")  # changed while out of the backup
+    run("--empty", "--yes", typed="0", monkeypatch=monkeypatch)
+    assert [p.kind for p in chain.check(folder, A).failures] == [chain.CHANGED]
+
+
+def test_undo_puts_back_a_stopped_run_and_a_dry_empty_does_not(env, monkeypatch, capsys):
+    from mailcellar.backup import chain
+
+    folder, _gmail = env
+    stopped = stop_a_forget_run(monkeypatch)
+    capsys.readouterr()
+    run("--empty")  # a dry run: says so, changes nothing
+    assert "a stopped forget run left 2 messages" in capsys.readouterr().out
+    assert stopped.is_dir() and chain.check(folder, A).failures
+
+    with pytest.raises(SystemExit, match="no held forget run"):
+        run("--undo", "run-9")  # no such run, but --undo may change the backup
+    assert "put back 2 messages" in capsys.readouterr().out
+    assert not stopped.exists() and chain.check(folder, A).failures == ()
+
+
+def test_unexplained_and_strays_decide_what_goes_back():
+    removed = {"g1": "aa", "g2": "bb"}
+    assert forget.unexplained(removed, held=["g2"], index=["g1", "g2", "g3"]) == ["g1"]
+    assert forget.unexplained(removed, held=[], index=["g3"]) == []  # finished: not indexed
+    index = {"g1": "2026/1/1/g1.eml", "g2": "2026/1/1/g2.eml"}
+    files = ["2026/1/1/g1.eml", "2026/1/1/g2.eml", "2026/1/1/x.eml"]
+    assert forget.strays(files, index, present=["2026/1/1/g2.eml"]) == [("g1", "2026/1/1/g1.eml")]
+
+
 def test_forget_rows_name_the_mailbox_by_provider():
     choice = forget.Choice(
         forget=[], not_gone=["a"], in_gmail=["b"], held=[], unchecked=[("c", "timed out")]

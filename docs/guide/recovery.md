@@ -76,10 +76,11 @@ repeated in full next time, not skipped. A scheduled backup at least every
 four weeks avoids all of this: `mailcellar schedule install` sets one up (see
 [Scheduled backups](scheduling.md)).
 
-## An interrupted offload or restore
+## An interrupted offload, restore or forget
 
-Both record each message as they go, so an interruption (a crash, a lost
-connection, closing the terminal) is safe to follow with the same command.
+An interruption (a crash, a lost connection, closing the terminal) loses
+nothing. Offload and restore record each message as they go, so the same
+command carries on; forget is put right by its next run.
 
 **`offload apply --trash`.** Run it again, with the same options. Messages
 the interrupted run had already trashed but not recorded are found (they are
@@ -100,6 +101,15 @@ upload can leave a duplicate. Mail restored but not yet indexed when the run
 died is picked up by the next `backup`, which downloads it.
 
 **`backup`.** Run it again; see the previous case.
+
+**`forget --yes`.** A run stopped part-way forgets nothing: the backup's
+index changes only at the end. But the run has already recorded its
+messages as removed in the hash chain, and moved some files into a folder
+under `<data root>/_forgotten/` with no manifest, so `verify` reports those
+files missing and `verify --chain` fails. The next `forget` run with
+`--yes` (or `--undo`) puts them back first, in the chain and in the backup;
+a dry run says what it found. To forget them after all, run the same
+command again.
 
 To check afterwards, use `mailcellar count ACCOUNT` and, for an offload,
 the batch's manifest in `<data root>/offload/batches/`.

@@ -163,6 +163,8 @@ def cmd_forget(args) -> int:
         sys.exit(
             f"error: --force only applies with --deleted (the {forget.MAX_DELETED_SHARE:.0%} guard)"
         )
+    for folder in folders:
+        put_back_stopped(folder, act=bool(args.yes or args.undo))
     if args.undo:
         forget_undo(folders, args.undo)
         return 0
@@ -307,6 +309,29 @@ def retention_policy(args) -> dict:
     if not retain:
         sys.exit(f"error: no rule in {args.rules} has forget_after")
     return retain
+
+
+def put_back_stopped(folder: Path, act: bool) -> None:
+    """
+    Put back what a forget run stopped part-way left (#145) when this run may
+    change the backup (`act`), else say so.
+    """
+    account = backup_account(folder)
+    found = forget.stopped(folder, account)
+    if not found.count:
+        return
+    moved = f"{len(found.home):,} of them with their files moved out"
+    if not act:
+        print(
+            f"{account}: a stopped forget run left {found.count:,} messages out of the "
+            f"backup's hash chain ({moved}); the next forget run with --yes puts them back.\n"
+        )
+        return
+    forget.repair(folder, account, found)
+    print(
+        f"{account}: put back {found.count:,} messages a stopped forget run had left out of "
+        f"the backup's hash chain ({moved}).\n"
+    )
 
 
 def remind_due(folders: list[Path]) -> None:
