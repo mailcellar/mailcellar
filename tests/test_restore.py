@@ -689,6 +689,23 @@ def test_decide(kwargs, expected):
     assert way(**kwargs) == expected
 
 
+def test_mail_in_the_trash_of_a_server_without_move_stays_there():
+    c = cand()
+    d = restore.decide(
+        c,
+        "",
+        COPY,
+        labels={"TRASH"},
+        same_account=True,
+        hits=[],
+        hashes={},
+        provider="imap",
+        can_move=False,
+    )
+    assert (d.way, d.new_id) == ("skipped", "")
+    assert d.detail == "in the server's Trash, and the server has no MOVE (RFC 6851) to take it out"
+
+
 def test_empty_content_never_counts_as_the_same():
     w, _id, detail = way(cand(content_hash=""), hits=["n1"], hashes={"n1": ""})
     assert w == "skipped" and "can't be compared" in detail
@@ -1106,6 +1123,16 @@ def test_help_names_the_narrowing_options(capsys):
     out = capsys.readouterr().out
     for option in ("--before", "--after", "--has-label", "--sender"):
         assert option in out
+
+
+def test_a_copy_found_in_the_trash_of_a_server_without_move_is_left_there(env, monkeypatch):
+    env.other.messages["g1"] = message("g1", labels=("TRASH",))
+    monkeypatch.setattr(env.other, "can_move", lambda: False)
+    assert run("--id", "g1", "--to", "b", "--yes") == 1
+    outcome, detail = log()["g1"]
+    assert outcome == "skipped" and "has no MOVE" in detail
+    assert restored_rows(env.folder) == {}  # not recorded: a later restore tries again
+    assert not any(c[0] in ("import", "untrash") for c in env.other.calls)
 
 
 def test_in_another_account_a_message_with_the_same_id_is_another_copy(env):

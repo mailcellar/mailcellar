@@ -88,7 +88,8 @@ for its password, signs in, and says what the server allows, then writes
 `<config>/<name>/imap.toml` (the server) and `<config>/<name>/imap-password`,
 owner-only. Nothing on the server changes when it is backed up; offload and
 dedup apply work where the server has MOVE and a special-use Trash, and
-restore works into it too ([Backing up an IMAP account](../guide/imap.md)).
+restore works into it too, by upload only where it has no MOVE
+([Backing up an IMAP account](../guide/imap.md)).
 Setting an account up again (for a new password, say) keeps the port, username, CA
 file and review mode its `imap.toml` holds, unless an option changes them.
 

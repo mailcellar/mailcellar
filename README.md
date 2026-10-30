@@ -144,7 +144,7 @@ You need [uv](https://docs.astral.sh/uv/) (it provides Python 3.14).
 
    | Provider | Server | Note |
    | --- | --- | --- |
-   | iCloud Mail | `imap.mail.me.com` | `--username` with the part before `@`; backup only (no IMAP MOVE) |
+   | iCloud Mail | `imap.mail.me.com` | `--username` with the part before `@`; no offload or dedup, restore by upload only (no IMAP MOVE) |
    | Yahoo Mail | `imap.mail.yahoo.com` | add `--review folder` to offload: Yahoo keeps no custom keywords |
    | Fastmail | `imap.fastmail.com` | not yet tried with mailcellar |
 

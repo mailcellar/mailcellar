@@ -1255,6 +1255,10 @@ class GmailAccount:
         """Nothing: a listing that fails raises instead."""
         return ()
 
+    def can_move(self) -> bool:
+        """Always: Gmail untrashes by label."""
+        return True
+
     def close(self) -> None:
         """Nothing held open: each API call is a request of its own."""
 

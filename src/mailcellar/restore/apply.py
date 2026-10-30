@@ -495,6 +495,11 @@ def restored_label(now: float | None = None) -> str:
     return time.strftime("restored/%Y-%m-%d", time.localtime(now))
 
 
+def no_move(where: str) -> str:
+    """Why mail in Trash stays there: the server can't move it out. Pure."""
+    return f"in {where}'s Trash, and {where} has no MOVE (RFC 6851) to take it out"
+
+
 def decide(
     c: Candidate,
     problem: str,
@@ -507,6 +512,7 @@ def decide(
     provider: str,
     restored_as: str = "",
     unread: tuple[str, ...] = (),
+    can_move: bool = True,
 ) -> Decision:
     """
     A candidate's way back, from what was read: the backup check (`problem`,
@@ -515,8 +521,10 @@ def decide(
     labels for its ID (None if it no longer has it); and the other messages
     with its Message-ID (`hits`) with their content hashes. While folders of
     an IMAP mailbox couldn't be read (`unread`), nothing is imported: the
-    message may be there, unseen (#146). Details name the mailbox by
-    `provider` (mailbox_name). Pure: no I/O.
+    message may be there, unseen (#146). On a server without MOVE
+    (`can_move`), mail in its Trash can't be taken out, so that way is
+    skipped. Details name the mailbox by `provider` (mailbox_name). Pure: no
+    I/O.
     """
     where, start = mailbox_name(provider), mailbox_name(provider, start=True)
     if problem or copy is None:
@@ -530,6 +538,8 @@ def decide(
             return replace(
                 decision, way=PRESENT, detail=f"in {where}'s Trash" if "TRASH" in labels else ""
             )
+        if "TRASH" in labels and not can_move:
+            return replace(decision, detail=no_move(where))
         if "TRASH" in labels:
             return replace(decision, way=UNTRASH, new_id=c.source_id)
         return replace(decision, way=IN_GMAIL, new_id=c.source_id, detail="already out of Trash")
@@ -610,6 +620,7 @@ def plan(
     with Progress("Searching for Message-IDs", len(wanted)):
         searched = gmail.find_message_ids(wanted)
     unread = gmail.unread()  # IMAP folders the state and the search above couldn't see
+    can_move = gmail.can_move()
     # In its own account a message's own ID isn't another copy; elsewhere any ID is.
     hits = {
         c.source_id: [
@@ -640,6 +651,7 @@ def plan(
             provider=gmail.provider,
             restored_as=still.get(c.source_id, ""),
             unread=unread,
+            can_move=can_move,
         )
         for c, (problem, copy) in zip(cands, checks, strict=True)
     ]
@@ -735,6 +747,12 @@ def apply(
         if found:
             live = gmail.message_labels([d.new_id for d in found])
             found_trashed = {g for g, labels in live.items() if labels and "TRASH" in labels}
+        # Found in a Trash the server can't move it out of: skipped, not recorded.
+        stuck = found_trashed if found_trashed and not gmail.can_move() else set()
+        for d in found:
+            if d.new_id in stuck:
+                emit(Result(d, "skipped", no_move(mailbox_name(gmail.provider))))
+        found = [d for d in found if d.new_id not in stuck]
         to_untrash = by_way.get(UNTRASH, []) + [d for d in found if d.new_id in found_trashed]
         failed = {}
         if to_untrash:

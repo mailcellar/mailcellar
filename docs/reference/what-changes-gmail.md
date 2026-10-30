@@ -39,9 +39,10 @@ Access column).
 
 ## On an IMAP account
 
-The same commands, and only they, change an IMAP account's server, and
-only one that has MOVE and a special-use Trash; any other is refused,
-saying what's missing. Backing up opens folders read-only (`EXAMINE`) and
+The same commands, and only they, change an IMAP account's server.
+Offload and dedup change only one that has MOVE and a special-use Trash;
+any other is refused, saying what's missing. Restore uploads to any
+server, and moves mail out of Trash only where it has MOVE. Backing up opens folders read-only (`EXAMINE`) and
 leaves even the read state alone.
 
 - **`--label`** adds a `$mailcellar-` keyword, or, with review by folder,

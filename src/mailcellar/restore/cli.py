@@ -290,7 +290,7 @@ def main(argv=None, prog: str | None = None) -> int:
             mailbox.open_mailbox(
                 target,
                 target_config,
-                "modify" if args.yes else "readonly",
+                "append" if args.yes else "readonly",  # untrashing needs MOVE: can_move()
                 folder=backup_folder(target),  # an IMAP account's map, and where mail lived
             )
         ) as gmail:
@@ -376,7 +376,7 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
             mailbox.open_mailbox(
                 target,
                 target_config,
-                "modify" if args.yes else "readonly",
+                "append" if args.yes else "readonly",  # untrashing needs MOVE: can_move()
                 folder=backup_folder(target),  # an IMAP account's map, and where mail lived
             )
         ) as gmail:

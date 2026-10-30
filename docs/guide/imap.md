@@ -50,7 +50,7 @@ provider's account settings and give that to `setup`.
 
 | Provider | Server (`--imap`) | Note |
 | --- | --- | --- |
-| iCloud Mail | `imap.mail.me.com` | `--username` with the part of the address before `@` (Apple: the full address if that fails); backup only: it has no MOVE |
+| iCloud Mail | `imap.mail.me.com` | `--username` with the part of the address before `@` (Apple: the full address if that fails); it has no MOVE, so offload and dedup are refused and restore only uploads |
 | Yahoo Mail | `imap.mail.yahoo.com` | it keeps no custom keywords: add `--review folder` to offload |
 | Fastmail | `imap.fastmail.com` | not yet tried with mailcellar |
 
@@ -138,6 +138,11 @@ another account (`--to`), IMAP or Gmail, as it does for Gmail:
 - restored mail gets a `$mailcellar-restored.<date>` keyword, where the
   server keeps keywords (otherwise restore says so and carries on; in a
   folder that keeps none, the message is restored with a note in the log).
+
+On a server without MOVE (iCloud), restore only uploads: a message still
+in the server's Trash can't be moved out, so it is skipped, saying so,
+and left unrecorded; once the Trash is emptied, the next restore appends
+it. Setup's report says "restore: possible (uploads only …)" there.
 
 **Between Gmail and IMAP accounts** the target decides: a Gmail backup
 restored into an IMAP account has its labels made folders (INBOX and the
