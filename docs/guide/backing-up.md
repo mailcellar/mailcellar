@@ -89,6 +89,8 @@ Any of these works:
   has not.
 - **A copy to another disk** with a tool that preserves the folder as it is,
   such as `rsync -a`.
+- **Snapshots with restic**, encrypted and with a history: see
+  [below](#with-restic).
 - **A sync or cloud-backup folder** you trust.
 
 Things to watch:
@@ -104,6 +106,49 @@ Things to watch:
   another disk at least, another place if you can.
 - **Do not copy the config folder to a shared place.** It holds OAuth
   tokens. The data root does not.
+
+### With restic
+
+[restic](https://restic.net/) keeps encrypted, deduplicated snapshots of
+a folder on another disk or in cloud storage, so the copy also has a
+history: a file damaged last month can come back from a snapshot taken
+before. Install it (`brew install restic` on a Mac, or your Linux
+distribution's package), then:
+
+```bash
+export RESTIC_REPOSITORY=/Volumes/Spare/restic-mailcellar
+export RESTIC_PASSWORD_FILE=~/.restic-mailcellar   # one line: the repository's password
+restic init                          # once
+restic backup ~/mailcellar           # the data root, after each backup
+restic check --read-data-subset=10%  # now and then: read back a tenth of the snapshots
+```
+
+- **The password file** is the only way into the repository: keep it off
+  the disk the repository is on, and a copy of the password somewhere
+  safe, such as a password manager. Lost, the snapshots can't be read.
+- **Snapshot the whole data root**, the folder `mailcellar config` shows,
+  while no mailcellar command is running. mailcellar doesn't run restic:
+  run it by hand after the scheduled backup, or from a cron or launchd
+  entry of your own that runs later.
+- **The config folder** holds OAuth tokens. Leave it out, or snapshot it
+  into a repository of its own that is as private as the folder.
+- **Snapshots keep what `forget` deletes.** Mail forgotten in the backup
+  stays in every snapshot taken before; `restic forget --prune` with a
+  retention policy (for example `--keep-weekly 8`) removes old snapshots.
+
+To check a snapshot, restore it somewhere and verify it as below. restic
+puts the files under the target at their full path:
+
+```bash
+restic restore latest --target /tmp/check
+MAILCELLAR_DATA=/tmp/check$HOME/mailcellar mailcellar verify
+```
+
+`verify --chain` also checks the snapshot against the hash chain's anchor
+in the config folder, so it passes only for a snapshot taken after the
+last command that changed the backup; an older one reports that the
+anchor doesn't match the chain. Delete `/tmp/check` afterwards: it is a
+copy of your mail.
 
 ### Checking the copy
 
@@ -147,11 +192,11 @@ is stored on:
   so gyb reads it too. Mount it before any backup runs, the scheduled one
   included. While it isn't, `backup` refuses an account it has backed up
   before rather than starting afresh on the wrong disk.
-- **The second copy.** [restic](https://restic.net/) and
-  [borg](https://www.borgbackup.org/) take encrypted, deduplicated
-  snapshots to another disk or to cloud storage; take them while no
-  mailcellar command is running. For Time Machine, encrypt the backup
-  disk.
+- **The second copy.** [restic](https://restic.net/) (see
+  [With restic](#with-restic)) and [borg](https://www.borgbackup.org/)
+  take encrypted, deduplicated snapshots to another disk or to cloud
+  storage; take them while no mailcellar command is running. For Time
+  Machine, encrypt the backup disk.
 
 Exports are copies outside all of this: see
 [Exporting mail](exporting.md).
