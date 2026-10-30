@@ -12,6 +12,8 @@ in beta, so commands and options may still change before 1.0.
   backup's hash chain, and some of their files in a folder with no
   manifest: `verify` reported them missing and `verify --chain` failed.
   The next `forget` run with `--yes` or `--undo` now puts them back (#145).
+- `restore` of more than 1,000 messages into an IMAP account stopped with
+  "Gmail's search ('in:trash') doesn't apply".
 
 ## 0.19.0 (2026-10-29)
 
