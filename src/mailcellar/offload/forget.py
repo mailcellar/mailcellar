@@ -107,7 +107,52 @@ class DeletedDecision:
     refusal: str = ""  # why nothing may be taken although some could; "" if it may
 
 
+@dataclass(frozen=True)
+class Stopped:
+    """
+    What forget runs stopped part-way left in a backup (#145). A run appends
+    its removal link for its whole selection before it moves a file, and
+    commits the index only at the end, so a stopped one leaves messages the
+    backup still indexes out of the hash chain, and the files it had moved
+    in a run folder with no manifest.
+    """
+
+    relink: tuple[tuple[str, str], ...]  # (Gmail ID, the sha256 its removal recorded)
+    home: tuple[tuple[str, Path, Path], ...]  # (Gmail ID, file in a stopped run, its place)
+    runs: tuple[Path, ...]  # the stopped runs' folders
+
+    @property
+    def count(self) -> int:
+        return len({g for g, _ in self.relink} | {g for g, _, _ in self.home})
+
+
 # ── decisions ────────────────────────────────────────────────────────────────
+
+
+def unexplained(
+    removed: Mapping[str, str], held: Collection[str], index: Collection[str]
+) -> list[str]:
+    """
+    Messages a removal link named (`removed`: Gmail ID → sha256) that the
+    backup still indexes but the hash chain no longer holds: what a run
+    stopped before committing leaves. A finished one took them out of the
+    index. Pure.
+    """
+    held, index = set(held), set(index)
+    return sorted(g for g in removed if g in index and g not in held)
+
+
+def strays(
+    files: Collection[str], index: Mapping[str, str], present: Collection[str]
+) -> list[tuple[str, str]]:
+    """
+    (Gmail ID, path) of a stopped run's `files` (paths relative to the
+    backup) to move home: those the index (Gmail ID → path) still names,
+    where the backup has no file (`present`). Pure.
+    """
+    by_path = {rel: gid for gid, rel in index.items()}
+    present = set(present)
+    return sorted((by_path[r], r) for r in files if r in by_path and r not in present)
 
 
 def gone_from(indexed: Collection[str], listed: Collection[str], kept: Collection[str]) -> Gone:
@@ -324,6 +369,25 @@ def held_runs(account: str) -> list[str]:
     if not folder.is_dir():
         return []
     return sorted(p.name for p in folder.iterdir() if (p / MANIFEST).is_file())
+
+
+def stopped(folder: Path, account: str) -> Stopped:
+    """What stopped forget runs left in this backup (Stopped). Read-only."""
+    removed = chain.removed(folder)
+    index = chain.index_paths(folder)
+    relink = tuple((g, removed[g]) for g in unexplained(removed, chain.held(folder), index))
+    root = runs_dir(account)
+    runs = tuple(
+        r
+        for r in sorted(root.iterdir() if root.is_dir() else ())
+        if r.is_dir() and gyb.interrupted(r, MANIFEST)
+    )
+    home = []
+    for run in runs:
+        files = [str(p.relative_to(run)) for p in run.rglob("*.eml")]
+        present = [r for r in files if (folder / r).is_file()]
+        home += [(gid, run / rel, folder / rel) for gid, rel in strays(files, index, present)]
+    return Stopped(relink, tuple(home), runs)
 
 
 def held(account: str) -> list[tuple[str, int]]:
@@ -597,6 +661,22 @@ def empty(folder: Path, account: str, runs: list[str], now_ms: int) -> int:
     finally:
         mcon.close()
     return deleted
+
+
+def repair(folder: Path, account: str, found: Stopped) -> None:
+    """
+    Put back what stopped runs left (stopped()): one `undo` link, appended
+    first as for every change, records the messages again with the sha256
+    their removal recorded (so verify --chain still sees a changed file),
+    then the files go home and the emptied run folders go.
+    """
+    runs = [r.name for r in found.runs]
+    chain.append(folder, account, "undo", found.relink, note=json.dumps({"stopped_runs": runs}))
+    for _gid, src, dest in found.home:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(src, dest)
+    for run in found.runs:
+        gyb.remove_if_empty(run)
 
 
 def returning(folder: Path, src: Path) -> list[tuple[str, str]]:

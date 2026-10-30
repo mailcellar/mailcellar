@@ -7,6 +7,12 @@ in beta, so commands and options may still change before 1.0.
 
 ## Unreleased
 
+### Fixed
+- A `forget --yes` run stopped part-way left its messages out of the
+  backup's hash chain, and some of their files in a folder with no
+  manifest: `verify` reported them missing and `verify --chain` failed.
+  The next `forget` run with `--yes` or `--undo` now puts them back (#145).
+
 ## 0.19.0 (2026-10-29)
 
 **Upgrading from 0.18.0:** no database's schema changes. A script that
