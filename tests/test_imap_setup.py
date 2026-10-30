@@ -38,6 +38,7 @@ def test_setup_signs_in_then_writes_the_account(server, tmp_path, capsys):
     out = capsys.readouterr().out
     assert "folders backed up: 1 (INBOX)" in out and "read, not backed up: TRASH" in out
     assert "offload and dedup: possible" in out  # MOVE named only after LOGIN, as Dovecot does
+    assert "restore: possible\n" in out
     assert "secret" not in out
     assert server.commands[-1] == ("LOGOUT",)  # setup's session ended, not left open
     assert cli.main(["backup", "home"]) == 0  # what setup wrote is what backup reads
@@ -105,7 +106,10 @@ def test_bad_options_are_refused_before_asking(server, tmp_path, monkeypatch, ar
 def test_server_report_says_when_offload_wont_be_possible():
     folders = (imap.Folder("INBOX", "INBOX"), imap.Folder("Trash", "TRASH"))
     info = imap.ServerInfo(frozenset({"IMAP4REV1"}), folders, frozenset({"TRASH"}))
-    assert "refused on this server" in setup.server_report(info)[-1]
+    assert "refused on this server" in setup.server_report(info)[-2]
+    assert setup.server_report(info)[-1].endswith(
+        "(uploads only: without MOVE, mail in its Trash stays there)"
+    )
     # A Trash known only by its name isn't one offloading may move mail into.
     named = imap.ServerInfo(frozenset({"MOVE"}), folders, frozenset({"SENT"}))
     assert not named.can_offload

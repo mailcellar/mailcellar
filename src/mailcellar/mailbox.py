@@ -106,6 +106,10 @@ class Mailbox(Protocol):
         """Move messages out of Trash; returns failures as trash() does."""
         raise NotImplementedError
 
+    def can_move(self) -> bool:
+        """Whether untrash() can work here: an IMAP server without MOVE can't."""
+        raise NotImplementedError
+
     # ── upload ───────────────────────────────────────────────────────────────
     def find_message_ids(self, message_ids: dict[str, str]) -> dict[str, list[str]]:
         """{key: Message-ID header} → {key: IDs of the messages with it}, Trash included."""
@@ -155,9 +159,12 @@ def open_mailbox(
     folder: Path | None = None,
 ) -> Mailbox:
     """
-    The account's mailbox with `scope` ("readonly" or "modify"), signing in if
-    needed and `interactive`. Raises gmailapi.GmailError when it can't, and
-    for an IMAP account asked for anything but reading. `folder`, the
+    The account's mailbox with `scope` ("readonly", "modify", or "append" for
+    restore, which only uploads and asks can_move() before untrashing),
+    signing in if needed and `interactive`. Raises gmailapi.GmailError when
+    it can't, and for an IMAP account asked for a change it can't make
+    safely (imap.write_refusal): offload and dedup ask for "modify", so they
+    never open a server without MOVE. `folder`, the
     account's backup folder, keeps an IMAP account's UID map; without it the
     map lasts as long as the mailbox object.
     """
@@ -172,12 +179,13 @@ def open_mailbox(
         )
         box.sign_in()  # as GmailAccount checks its identity: a refusal shows here
         if scope != "readonly":  # changes only where the server can make them safely
-            refusal = imap.write_refusal(box.server_info())
+            refusal = imap.write_refusal(box.server_info(), scope)
             if refusal:
                 box.close()
                 raise gmailapi.GmailError(f"{account}: {refusal}")
         return box
-    creds = gmailapi.load_credentials(config_folder, account, scope, interactive=interactive)
+    gmail_scope = "modify" if scope == "append" else scope  # Gmail's import needs modify
+    creds = gmailapi.load_credentials(config_folder, account, gmail_scope, interactive=interactive)
     return gmailapi.GmailAccount(account, creds)
 
 

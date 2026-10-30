@@ -288,6 +288,9 @@ class FakeMailbox:
     def unread(self):
         return ()
 
+    def can_move(self):
+        return True
+
     def close(self):
         self.closed = True
 

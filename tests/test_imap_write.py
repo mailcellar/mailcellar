@@ -692,6 +692,16 @@ def test_offload_label_on_a_keywordless_folder_fails_its_mail_and_goes_on(home, 
     assert all("Projects keeps no keywords" in r["detail"] for r in rows)
 
 
+def test_a_server_without_move_or_a_marked_trash_opens_for_uploads(config, server):
+    server.signed_in = ("IMAP4rev1",)
+    server.folders["Trash"]["flags"].remove("\\Trash")
+    box = mailbox.open_mailbox(ADDRESS, config, "append")
+    assert not box.can_move()
+    box.close()
+    with pytest.raises(gmailapi.GmailError, match="no MOVE"):
+        mailbox.open_mailbox(ADDRESS, config, "modify")  # offload and dedup still refused
+
+
 # ── restore into an IMAP account ─────────────────────────────────────────────
 
 
@@ -728,6 +738,21 @@ def test_restore_appends_mail_the_server_no_longer_has(home, tmp_path, capsys):
     capsys.readouterr()
     assert cli.main(["backup", "home"]) == 0
     assert "Downloaded 0 messages" in capsys.readouterr().out  # the same IDs: nothing new
+
+
+def test_without_move_restore_appends_and_leaves_trash_alone(home, tmp_path, capsys):
+    offload_two(home, tmp_path)
+    home.signed_in = tuple(c for c in home.signed_in if c != "MOVE")
+    moved = len([c for c in home.commands if c[:2] == ("UID", "MOVE")])  # by the offload
+    capsys.readouterr()
+    assert cli.main(["restore", "home", "--offloaded", "--yes"]) == 1
+    assert "has no MOVE" in capsys.readouterr().out
+    assert len(home.folders["Trash"]["uids"]) == 2 and len(home.folders["Projects"]["uids"]) == 1
+    home.folders["Trash"]["uids"].clear()  # emptied: now only an upload brings them back
+    assert cli.main(["backup", "home"]) == 0
+    assert cli.main(["restore", "home", "--offloaded", "--yes"]) == 0
+    assert len(home.folders["Projects"]["uids"]) == 3
+    assert len([c for c in home.commands if c[:2] == ("UID", "MOVE")]) == moved
 
 
 def test_a_large_restore_reads_the_servers_state_from_its_listing(

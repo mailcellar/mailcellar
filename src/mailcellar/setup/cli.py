@@ -313,6 +313,8 @@ def server_report(info) -> list[str]:
             if info.can_offload
             else "refused on this server (they need MOVE and a special-use Trash)"
         ),
+        "  restore: possible"
+        + ("" if info.can_move else " (uploads only: without MOVE, mail in its Trash stays there)"),
     ]
 
 

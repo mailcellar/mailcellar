@@ -134,6 +134,11 @@ class ServerInfo:
         """
         return "MOVE" in self.capabilities and "TRASH" in self.marked
 
+    @property
+    def can_move(self) -> bool:
+        """MOVE: what restore needs to take mail out of Trash. Uploads need only APPEND."""
+        return "MOVE" in self.capabilities
+
 
 @dataclass(frozen=True)
 class Scan:
@@ -646,11 +651,16 @@ def server_said(exc: BaseException) -> str:
     return f"{found[1]}: " + " ".join(["BAD", *(w for w in words if w)])
 
 
-def write_refusal(info: ServerInfo) -> str:
+def write_refusal(info: ServerInfo, scope: str = "modify") -> str:
     """
     Why mailcellar won't change this server, or "": it needs MOVE and a Trash
-    the server marks \\Trash, so nothing is ever expunged. Pure.
+    the server marks \\Trash, so nothing is ever expunged. "append" (restore)
+    is never refused: an upload needs only APPEND, which every IMAP4rev1
+    server has, and restore asks can_move() before taking mail out of Trash.
+    Pure.
     """
+    if scope == "append":
+        return ""
     missing = [
         what
         for what, ok in (
@@ -1338,11 +1348,17 @@ class ImapAccount:
         greeting's list, and servers name MOVE only once signed in.
         """
         entries = self._read_entries()
-        caps = self._retrying(
+        return ServerInfo(self._capabilities(), folders_from(entries), marked_roles(entries))
+
+    def _capabilities(self) -> frozenset[str]:
+        return self._retrying(
             "reading capabilities",
             lambda conn: capabilities_from(self._ok(*conn.capability(), "CAPABILITY")),
         )
-        return ServerInfo(caps, folders_from(entries), marked_roles(entries))
+
+    def can_move(self) -> bool:
+        """Whether the server has MOVE, which untrash() needs."""
+        return "MOVE" in self._capabilities()
 
     def unread(self) -> tuple[str, ...]:
         """The folders this run's scan skipped: refused, or listed short."""

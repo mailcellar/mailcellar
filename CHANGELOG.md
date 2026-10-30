@@ -18,6 +18,10 @@ in beta, so commands and options may still change before 1.0.
 - The backing-up guide has a restic recipe for the second copy of the
   data root: encrypted snapshots, checking one with `verify`, and what
   they keep after `forget`.
+- `restore` works into an IMAP server without MOVE, such as iCloud, by
+  uploading: mail still in the server's Trash is skipped, saying why,
+  until the Trash is emptied. Offload and dedup are still refused there,
+  and setup's report says which of them work.
 
 ## 0.20.0 (2026-10-30)
 
