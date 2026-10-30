@@ -20,8 +20,7 @@ Beyond what gyb does, each leaving a valid gyb folder:
   add_copy()  indexes a restored message under its new Gmail ID, sharing
               the old ID's .eml file
   prune()     moves a message's file out of the backup and deletes its
-              rows (backup --prune, forget); gyb itself never
-              removes anything
+              rows (forget); gyb itself never removes anything
   unprune()   puts back what prune() moved out (forget --undo)
 """
 
@@ -287,7 +286,7 @@ def prune(
     crash), the index is as it was, so it still agrees with meta.sqlite, and
     the files already moved are picked up by the next run, which moves each
     into its own folder (earlier_copy) so its manifest lists it as moved and
-    `restore` finds it, leaving one copy under one manifest; the stopped
+    `forget --undo` finds it, leaving one copy under one manifest; the stopped
     run's folder goes once it is empty. A file in a finished run's folder
     is linked instead, as that run's manifest still lists it. Returns the
     manifest rows.

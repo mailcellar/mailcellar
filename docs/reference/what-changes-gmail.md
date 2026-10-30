@@ -12,8 +12,8 @@ or stages its changes:
 | `dedup apply --label` / `offload apply --label` | adds a review label to the planned messages | modify |
 | `dedup apply --trash` / `offload apply --trash` | moves labelled messages to the mailbox's Trash | modify |
 | `auth ACCOUNT --scope modify` | with `keep_modify_token = true`, grants and stores modify access (changes nothing in the mailbox); otherwise only says that the commands above sign in when they run | modify |
-| `restore ACCOUNT … --yes` | moves offloaded mail out of Trash, or uploads backed-up mail the mailbox no longer has (into this account or, with `--to`, another), or mail from a pruned batch, an mbox file or another gyb folder; adds a `restored/<date>` label | modify |
-| `forget --deleted --yes` (and `backup --prune --yes`, which runs it) | the *backup*: takes mail permanently deleted from the mailbox out of it, held 30 days in `<data root>/_forgotten/` | read-only |
+| `restore ACCOUNT … --yes` | moves offloaded mail out of Trash, or uploads backed-up mail the mailbox no longer has (into this account or, with `--to`, another), or mail from an mbox file or another gyb folder; adds a `restored/<date>` label | modify |
+| `forget --deleted --yes` | the *backup*: takes mail permanently deleted from the mailbox out of it, held 30 days in `<data root>/_forgotten/` | read-only |
 
 - **Nothing is ever permanently deleted from the mailbox.** Removals go to
   Trash, after a review label. Removing the label from a message vetoes it.

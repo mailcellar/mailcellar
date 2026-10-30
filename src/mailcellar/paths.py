@@ -4,7 +4,6 @@ data root (backups and everything derived from them) are.
 
   <config>/accounts.toml, settings.toml, <name>/  ← config_root()
   <data>/<email>/                                 ← one backup per account (gyb's format)
-  <data>/_pruned/<email>/<timestamp>/             ← messages moved out by backup --prune
   <data>/dedup/, offload/, restore/               ← plans, logs, indexes
 
 config_root(): $MAILCELLAR_CONFIG, else ~/.config/mailcellar, else ./config.
@@ -18,13 +17,12 @@ from pathlib import Path
 
 DATA_DIR = "~/mailcellar"  # the default data root: visible, since it holds the user's mail
 LEGACY_DATA_DIR = "data"  # the old default, relative to the working directory
-DATA_SUBDIRS = ("dedup", "offload", "restore", "search", "_pruned")  # what mailcellar writes there
+DATA_SUBDIRS = ("dedup", "offload", "restore", "search")  # what mailcellar writes there
 DATA_ENV = "MAILCELLAR_DATA"
 CONFIG_ENV = "MAILCELLAR_CONFIG"
 SETTINGS_NAME = "settings.toml"  # in the config folder: data_dir = "~/data/mailcellar"
 SETTINGS_KEYS = {"data_dir", "token_warn_days", "keep_modify_token"}
 TOKEN_WARN_DAYS = 5  # days after consent when a token starts to be reported as ageing
-PRUNED_DIR = "_pruned"  # <data>/_pruned/<email>/<timestamp>/, written by --prune
 
 
 def _path(value: str) -> Path:
@@ -153,11 +151,6 @@ def make_data_root(data: Path | None = None) -> None:
 def backup_folder(account: str, data: Path | None = None) -> Path:
     """Where an account's backup lives: <data>/<email>/ (data: data_root())."""
     return (data or data_root()) / account
-
-
-def pruned_folder(backup_dir: Path) -> Path:
-    """Where `backup --prune` moves a backup's pruned messages: <data>/_pruned/<email>/."""
-    return backup_dir.parent / PRUNED_DIR / backup_dir.name
 
 
 def write_private(path: Path, data: bytes) -> None:

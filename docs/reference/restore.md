@@ -77,9 +77,8 @@ can't read, is given one from the date the backup recorded, since Gmail
 would otherwise date it at the moment of the restore; the backup's file is
 left as it is, and the log says so (not for `--from-mbox`, which records
 no date). Before uploading, each backup copy is checked against the SHA-256 its
-hash chain recorded (for pruned mail, the one the prune recorded), so a
-copy changed or damaged since it was backed up, headers and links
-included, is skipped and logged; a backup from before the chain is checked
+hash chain recorded, so a copy changed or damaged since it was backed
+up, headers and links included, is skipped and logged; a backup from before the chain is checked
 by its content hash only. The backup indexes each new ID, sharing the existing `.eml`, so the
 next backup doesn't download it again. On Gmail, a message whose Message-ID
 Gmail already holds with *other* content is skipped: Gmail would match the
@@ -113,22 +112,16 @@ restore label not added) gets a second row with the note; its last row
 is the one that counts. How it works:
 [docs/architecture.md](../architecture.md#restore).
 
-**From elsewhere.** Three other sources hold mail that isn't in a backup's
+**From elsewhere.** Two other sources hold mail that isn't in a backup's
 index. Each restores every message it holds, narrowed by `--id`, `--before`,
 `--after`, `--has-label`, `--sender` and `--limit`, with the same dry run
 and `--yes`:
 
 ```bash
-mailcellar restore personal --from-pruned 2026-03-01-120000   # what backup --prune moved out before
 mailcellar restore personal --from-mbox ~/Takeout/Mail/All.mbox --yes
 mailcellar restore personal --from-folder /Volumes/old/GYB-GMail-Backup-old@example.org
 ```
 
-- `--from-pruned BATCH`: mail that `backup --prune` moved into
-  `<data root>/_pruned/<email>/BATCH/` before it ran `forget --deleted`,
-  with the labels in its `pruned.csv`. It goes back into that account, or
-  another with `--to`. For this release; mail `forget --deleted` takes
-  comes back with [`forget --undo RUN`](forget.md) while it is held.
 - `--from-mbox FILE`: a Google Takeout export, or a file `mailcellar export`
   wrote, into ACCOUNT. Labels come from each message's `X-Gmail-Labels`
   header (Takeout's names such as `Inbox` or `Category Updates` become
@@ -172,7 +165,6 @@ account restored into. Without `--yes` it is a dry run.
 
 | Option | What it reads |
 | --- | --- |
-| `--from-pruned BATCH` | Mail `backup --prune` moved into `<data root>/_pruned/<email>/BATCH/` before it ran forget (for this release) |
 | `--from-mbox FILE` | An mbox file: a Google Takeout export, or one `export` wrote |
 | `--from-folder DIR` | A gyb backup folder from elsewhere, read as it is |
 

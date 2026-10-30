@@ -1,6 +1,5 @@
 import csv
 import sqlite3
-import sys
 from datetime import datetime
 
 import httplib2
@@ -13,7 +12,7 @@ from mailcellar.backup import chain, commands, gyb
 from mailcellar.backup.gyb import backup_account, iter_backup
 from mailcellar.cli import main as cli_main
 from mailcellar.dedup import cli as dedup
-from mailcellar.offload import forget, forget_cli
+from mailcellar.offload import forget
 from test_index import make_eml
 
 
@@ -445,93 +444,11 @@ def cli(tmp_path, monkeypatch):
     return state, run
 
 
-def test_cli_prune_with_search_is_refused(cli):
-    _state, run = cli
-    with pytest.raises(SystemExit, match="can't be combined with --search"):
-        run("backup", "a", "--prune", "--search", "x")
-
-
-def test_cli_prune_skipped_after_fetch_failures(tmp_path, cli):
-    state, run = cli
-    gmail, folder = synced(tmp_path)
-    gmail.messages["new"] = raw_response("new")
-    gmail.fail = {"new"}
-    state.update(gmail=gmail, folder=folder)
-    assert run("backup", "a", "--prune", "--yes") == 1
-    assert "g0" in rows(folder)["uids"]
-
-
-def test_cli_prune_runs_forget_deleted_after_the_backup(tmp_path, cli, listing_from, capsys):
-    state, run = cli
-    gmail, folder = synced(tmp_path)
-    state.update(gmail=gmail, folder=folder)
-    listing_from(gmail)
-    assert run("backup", "a", "--prune") == 0  # forget's dry run
-    captured = capsys.readouterr()
-    assert "'backup --prune' is now 'mailcellar forget --deleted'" in captured.err
-    assert "Dry run: nothing was changed" in captured.out
-    assert "g0" in rows(folder)["uids"]
-
-    assert run("backup", "a", "--prune", "--yes") == 0
-    assert "Forgot 1 messages" in capsys.readouterr().out
-    assert "g0" not in rows(folder)["uids"]
-    assert not (tmp_path / "data" / "_pruned").exists()  # forget's holding area, not prune's
-
-
-def test_cli_prune_above_the_guard_exits_1_unless_forced(tmp_path, cli, listing_from):
-    state, run = cli
-    gmail, folder = synced(tmp_path, n=10, gone=("g0", "g1"), trashed=())
-    state.update(gmail=gmail, folder=folder)
-    listing_from(gmail)
-    assert run("backup", "a", "--prune", "--yes") == 1
-    assert len(rows(folder)["uids"]) == 10
-    assert run("backup", "a", "--prune", "--yes", "--force") == 0
-    assert len(rows(folder)["uids"]) == 8
-
-
-def test_cli_prune_a_forget_error_fails_that_account_only(tmp_path, cli, monkeypatch, capsys):
-    state, run = cli
-    gmail, folder = synced(tmp_path)
-    state.update(gmail=gmail, folder=folder)
-    backed_up = []
-    connect = commands.connect
-
-    def counting(args):
-        backed_up.append(args.account)
-        return connect(args)
-
-    monkeypatch.setattr(commands, "connect", counting)
-    monkeypatch.setattr(forget_cli, "main", lambda argv, prog: sys.exit("error: boom"))
-    assert run("backup", "a", "b", "--prune") == 1
-    assert backed_up == ["a", "b"]  # b's backup still ran
-    assert f"error: {ACCOUNT}: boom" in capsys.readouterr().err
-
-
-def test_cli_prune_yes_with_no_terminal_forgets_nothing(tmp_path, cli, listing_from, monkeypatch):
-    state, run = cli
-    gmail, folder = synced(tmp_path)
-    state.update(gmail=gmail, folder=folder)
-    listing_from(gmail)
-
-    def no_terminal(prompt):
-        raise EOFError
-
-    monkeypatch.setattr("builtins.input", no_terminal)
-    assert run("backup", "a", "--prune", "--yes") == 0  # declined, as prune's "no" was
-    assert "g0" in rows(folder)["uids"]
-
-
 def test_count_refuses_a_mailbox_that_lists_nothing(tmp_path):
     gmail, folder = synced(tmp_path)
     gmail.messages.clear()
     with pytest.raises(gmailapi.GmailError, match="Gmail listed no messages at all"):
         commands.count(gmail, ACCOUNT, folder)
-
-
-def test_cli_prune_with_folder_is_refused(cli):
-    _state, run = cli
-    with pytest.raises(SystemExit, match="works on the backups in the data root"):
-        run("backup", "a", "--prune", "--folder", "elsewhere")
 
 
 def test_cli_sync_is_gone(tmp_path, cli, capsys):
@@ -544,12 +461,12 @@ def test_cli_sync_is_gone(tmp_path, cli, capsys):
     assert "g0" in rows(folder)["uids"]  # nothing pruned
 
 
-def test_cli_help_renders_and_lists_prune_not_sync(capsys):
+def test_cli_help_renders_without_prune_or_sync(capsys):
     with pytest.raises(SystemExit) as exc:
         commands.main(["backup", "--help"])
     assert exc.value.code == 0
     out = capsys.readouterr().out
-    assert "--prune" in out and "--sync" not in out
+    assert "--prune" not in out and "--sync" not in out
 
 
 # ── gmailapi retries ─────────────────────────────────────────────────────────

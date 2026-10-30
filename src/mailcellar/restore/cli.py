@@ -178,12 +178,6 @@ def main(argv=None, prog: str | None = None) -> int:
         "narrowing options can narrow)"
     ).add_mutually_exclusive_group()
     elsewhere.add_argument(
-        "--from-pruned",
-        metavar="BATCH",
-        help="Mail backup --prune moved out of the backup before it ran forget, in "
-        "<data root>/_pruned/<email>/BATCH/ (this option goes in a later release)",
-    )
-    elsewhere.add_argument(
         "--from-mbox",
         metavar="FILE",
         help="An mbox file: a Google Takeout export, or one written by mailcellar export",
@@ -226,13 +220,13 @@ def main(argv=None, prog: str | None = None) -> int:
     )
     p.add_argument("--log", default=str(log), help=f"Restore log, appended to (default: {log})")
     args = p.parse_args(argv)
-    source = args.from_pruned or args.from_mbox or args.from_folder
+    source = args.from_mbox or args.from_folder
     if source and (args.batch or args.rule or args.offloaded or args.all):
         p.error(
-            "--from-pruned, --from-mbox and --from-folder take every message they hold; "
+            "--from-mbox and --from-folder take every message they hold; "
             "use --id, --before, --after, --has-label or --sender to narrow it"
         )
-    if (args.from_mbox or args.from_folder) and args.to:
+    if source and args.to:
         p.error("with --from-mbox or --from-folder, name the account to restore into as ACCOUNT")
     narrowing = selection(p, args, required=not source)
     if source:
@@ -339,7 +333,7 @@ def main(argv=None, prog: str | None = None) -> int:
 
 
 def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowing, log) -> int:
-    """restore --from-pruned, --from-mbox or --from-folder: the same staging, another source."""
+    """restore --from-mbox or --from-folder: the same staging, another source."""
     from mailcellar import gmailapi, mailbox
 
     config = Path(args.config)
@@ -351,11 +345,7 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
     except gmailapi.GmailError as exc:
         sys.exit(f"error: {exc}")
     try:
-        if args.from_pruned:
-            where = f"pruned batch {args.from_pruned}"
-            source_provider(backup_folder(account))
-            cands = sources.from_pruned(backup_folder(account), args.from_pruned)
-        elif args.from_mbox:
+        if args.from_mbox:
             where = args.from_mbox
             cands = sources.from_mbox(Path(args.from_mbox).expanduser())
         else:

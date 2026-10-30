@@ -106,13 +106,13 @@ mailcellar` and `python -m mailcellar` both work.
 |---|---|
 | `cli.py` | The `mailcellar` command: dispatches `setup`, `backup`, `count`, `meta` (every configured account by default), `verify`, `auth`, `schedule`, `dedup`, `offload`, `forget`, `restore`, `export`, `hold`, `search`, `report` (plus `senders`), and `config`, which shows paths and each account's state without printing secrets; sets up logging (stderr; `-v`/`-q` anywhere on the line) |
 | `progress.py` | Progress for long steps: done of total, rate and time left, rewritten on a terminal or logged now and then; Gmail's batches advance the innermost open `Progress` |
-| `paths.py` | Where things are: `config_root()`, `data_root()` and where each was set, `backup_folder()`, `find_backups()`, `pruned_folder()` (where an older `backup --prune` moved mail) |
+| `paths.py` | Where things are: `config_root()`, `data_root()` and where each was set, `backup_folder()`, `find_backups()` |
 | `mailbox.py` | What the commands need from a mail account: the `Mailbox` protocol (listing, history, raw messages, labels, trash and untrash, Message-ID lookup, import), which `GmailAccount` provides, and `open_mailbox()`, the one place backup, dedup, offload and restore open an account. `auth` and `setup` use `gmailapi` directly, since they manage Gmail's credentials |
 | `gmailapi.py` | Accounts (`<config>/accounts.toml`), OAuth tokens and scopes, a Workspace domain's service-account key for read-only access (`<config>/service-accounts/<domain>.json`, `delegated_credentials`), `GmailAccount`: adaptive batching, retries with backoff, listing, history, labels, trash and untrash, batched Message-ID searches, `messages.import` |
 | `imap.py` | An IMAP account as a read-only `Mailbox`: a scan reads folders, UIDs, flags and new headers (EXAMINE, BODY.PEEK) and decides with pure functions over frozen values (IDs from Message-ID, date and size or content, folders and flags as labels, what is gone); the UID map is kept in `meta.sqlite` (`imap_map`) and written only through backup's connection (`save_state`). Writes raise |
 | `message.py` | Message parsing: `parse_message()`, `content_hash()`, `header_key()`, `extract_address()`, `PARSER_VERSION` |
 | `setup/cli.py` | `setup`: from a downloaded OAuth client to a configured, signed-in account. `check_client`, `accounts_entries`, `pick_name`, `add_account`, `latest_download` are pure; `accounts.toml` is only appended to, the client is written owner-only, and the sign-in is `mailcellar auth`'s read-only one |
-| `backup/commands.py` | `backup` (history-based or full listing), `count`, `meta` (sidecar backfill); `--prune` hands on to `forget --deleted`; the runs log |
+| `backup/commands.py` | `backup` (history-based or full listing), `count`, `meta` (sidecar backfill); the runs log |
 | `backup/gyb.py` | gyb's format: writes `msg-db.sqlite` and `<y>/<m>/<d>/<id>.eml`, reads them back (`iter_backup`, `backup_account`), `prune` (moving files out, with a manifest) for `forget` |
 | `backup/schedule.py` | `schedule`: installs `backup --unattended` as a launchd agent on macOS (a cron line elsewhere), `status` from the sidecars' runs and the token files, `remove`. The decisions (`describe`, `launchd_plist`, `cron_line`, `overdue`) are pure |
 | `backup/verify.py` | `verify`: for each backup, every indexed message's `.eml` exists, parses and matches the content hash in `meta.sqlite`; the two databases agree on which messages exist (`--offloaded`, `--sample`). Both are opened read-only; the decisions (`judge`, `select`, `disagreements`) are pure |
@@ -125,8 +125,8 @@ mailcellar` and `python -m mailcellar` both work.
 | `dedup/rules.py`, `dedup/plan.py` | Keep / remove / review decisions; the plan CSV |
 | `dedup/apply.py` | Live checks against Gmail, then label or trash; the audit log. Shared with offload. `apply_plan()` reads Gmail's state, `check_row()`/`checked()` decide, and `act()` carries out one account's rows; each returns new frozen `Result`s (the plan rows are never changed) |
 | `dedup/report.py`, `dedup/paths.py` | Text reports; default output locations |
-| `offload/` | `rules.py` (TOML rules), `plan.py` (selection, plan CSV, summary; the messages each protection keeps), `review.py` (`plan --review`: a local HTML page per rule from the plan's results; samples, largest messages, busiest threads and the page itself are pure), `apply.py` (backup checks, the offload record, batch manifests on top of dedup's label → trash loop), `forget.py` (what `forget` can forget, the 30-day hold, scrubbing every derived store; retention, `--due` by the rules' `forget_after`), `cli.py` (`offload`), `forget_cli.py` (the `forget` command; `offload forget` hands on to it for a release) |
-| `restore/` | `sources.py` and `mbox.py` (`--from-pruned`, `--from-mbox`, `--from-folder`: candidates from a pruned batch, an mbox file or another gyb folder), `apply.py` (which offloaded messages, narrowed by date, label and sender; backup checks; each message's way back: untrash, already in the mailbox, found by Message-ID, or import; indexing a new ID in the backup), `cli.py` (the command, and the selection options `export` shares), `export.py` (`export`: the same selection copied out read-only as an mbox file or a zip of `.eml` files with an index; the mbox entry, label header and index row are pure) |
+| `offload/` | `rules.py` (TOML rules), `plan.py` (selection, plan CSV, summary; the messages each protection keeps), `review.py` (`plan --review`: a local HTML page per rule from the plan's results; samples, largest messages, busiest threads and the page itself are pure), `apply.py` (backup checks, the offload record, batch manifests on top of dedup's label → trash loop), `forget.py` (what `forget` can forget, the 30-day hold, scrubbing every derived store; retention, `--due` by the rules' `forget_after`), `cli.py` (`offload`), `forget_cli.py` (the `forget` command) |
+| `restore/` | `sources.py` and `mbox.py` (`--from-mbox`, `--from-folder`: candidates from an mbox file or another gyb folder), `apply.py` (which offloaded messages, narrowed by date, label and sender; backup checks; each message's way back: untrash, already in the mailbox, found by Message-ID, or import; indexing a new ID in the backup), `cli.py` (the command, and the selection options `export` shares), `export.py` (`export`: the same selection copied out read-only as an mbox file or a zip of `.eml` files with an index; the mbox entry, label header and index row are pure) |
 | `hold/` | `holds.py` (legal holds: `Criteria`, `Hold` and `Facts`; `covers()`, `holding()` and `held_now()` decide, pure; `read_facts()` and `held()` read the sidecar; `HoldCheck` is the `local_check` that keeps held mail in Gmail on `offload apply` and `dedup apply`; `add()` and `release()` write the `holds` table and the hash chain), `cli.py` (the command). `forget` (`--deleted` too) and `--empty` ask `held()` before removing anything |
 | `search/` | `index.py` (each message's sender, recipients, subject and readable body into the index, incrementally: `document()` and `changes()` are pure), `query.py` (the query language translated to FTS5 by `fts_query()`; `keep()` for the offload filters and `render()` for a result are pure; `find()` reads), `db.py` (`search.sqlite` schema and migrations), `cli.py` (the command) |
 | `report/` | Reports over all accounts' sidecars, attached read-only (`db.py`): `storage` (with each offload batch's space freed, from `offloaded.gone_ms`), `bulk`, `volume`, `threads`, `labels`, `correspondents`, `health`; `senders.py` for one backup; `output.py` formats tables |
@@ -149,7 +149,6 @@ mailcellar` and `python -m mailcellar` both work.
     msg-db.sqlite            gyb index (db_version 6)
     <year>/<month>/<day>/<gmail_id>.eml
     meta.sqlite              sidecar (schema v11), with legal holds
-  _pruned/<email>/<timestamp>/  messages an older backup --prune moved out, + pruned.csv
   _forgotten/<email>/<run>/     messages forget deleted, held 30 days, + forgotten.csv
   logs/
     backup.log               output of the scheduled backup (schedule install); not rotated
@@ -265,9 +264,8 @@ it from `forget --deleted`, and `superseded_ids()` keeps it out of reports and
 dedup. With `--to`, restored rows carry the target account and leave the
 source's offload record alone.
 
-**Other sources** (`restore/sources.py`, `restore/mbox.py`): `--from-pruned`,
-`--from-mbox` and `--from-folder` build the same `Candidate`s from a pruned
-batch's `pruned.csv`, an mbox file (a candidate's `span` is where its entry
+**Other sources** (`restore/sources.py`, `restore/mbox.py`): `--from-mbox`
+and `--from-folder` build the same `Candidate`s from an mbox file (a candidate's `span` is where its entry
 is; `read_raw()` reads it back) or another gyb folder, parsed once for the
 sender, date and content hash. `plan()` and `apply()` are unchanged apart
 from that: every message takes the other-account way back (`found` by

@@ -101,7 +101,7 @@ def test_count_runs(tmp_path):
 
 @pytest.fixture
 def report(tmp_path, monkeypatch):
-    """A: runs at known times, a lost .eml and a pruned batch. B: no start point."""
+    """A: runs at known times, a lost .eml and an old pruned batch. B: no start point."""
     folder_a, folder_b = tmp_path / "data" / A, tmp_path / "data" / B
     gmail = FakeMailbox({"g1": raw_response("g1"), "g2": raw_response("g2")})
     commands.backup(gmail, A, folder_a)
@@ -165,11 +165,11 @@ def test_runs_gaps_and_months(report):
     assert months[("2026-10", A)] == (1, 0, 0, 0, 4, 0, 0, 1)
 
 
-def test_pruned_batches_and_cli(report, capsys, tmp_path):
-    assert report()["pruned"].rows == [(A, "2026-09-01-120000", 2)]
+def test_an_old_pruned_batch_is_left_alone_and_the_cli_writes_each_table(report, capsys, tmp_path):
+    assert "pruned" not in report()
     cli.main(["health", "--csv", "reports"])
     assert capsys.readouterr().out.startswith(f"Backup health report — {A}, {B}")
-    assert len(list((tmp_path / "reports").glob("health-*.csv"))) == 9
+    assert len(list((tmp_path / "reports").glob("health-*.csv"))) == 8
     headers = {
         h
         for path in (tmp_path / "reports").glob("health-*.csv")

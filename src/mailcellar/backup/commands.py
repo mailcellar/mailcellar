@@ -11,10 +11,6 @@ gyb folder moved there is continued as it is.
           everything when there is no history to start from, the history
           has expired, or with --full, --search or --refresh-labels
           (which re-syncs the labels of every backed-up message).
-          With --prune, for a release, it then runs `mailcellar forget
-          --deleted` on the account (forget_cli), passing on --yes and
-          --force: mail the mailbox has deleted for good, never offloaded,
-          leaves the backup, held 30 days.
   count   Compare the mailbox with the backup: what is missing locally, and
           what the backup holds that the mailbox no longer has, offloaded
           mail apart. Changes nothing.
@@ -33,13 +29,11 @@ Usage
   mailcellar backup work --full
   mailcellar backup personal --refresh-labels
   mailcellar backup personal --search "after:2026/10/01"
-  mailcellar backup personal --prune
   mailcellar count
   mailcellar meta personal
 
-Exit status is 1 if an account failed, any message could not be fetched,
---prune's forget refused (backup), or the backup is missing messages
-(count).
+Exit status is 1 if an account failed, any message could not be fetched
+(backup), or the backup is missing messages (count).
 """
 
 import argparse
@@ -484,16 +478,6 @@ def record_unattended_failure(args, reason: str = "needs-consent") -> None:
 
 
 def cmd_backup(args) -> int:
-    if args.prune and args.search:
-        sys.exit(
-            "error: --prune can't be combined with --search: messages outside "
-            "the search would look deleted."
-        )
-    if args.prune and args.folder:
-        sys.exit(
-            "error: --prune runs 'mailcellar forget --deleted', which works on the backups in "
-            "the data root, not --folder."
-        )
     try:
         account, folder, gmail = connect(args)
     except gmailapi.NeedsConsent:
@@ -517,7 +501,7 @@ def cmd_backup(args) -> int:
                 else ""
             )
         )
-        if stats["deleted_backed_up"] and not args.prune:
+        if stats["deleted_backed_up"]:
             print(
                 f"{stats['deleted_backed_up']:,} backed-up messages were permanently deleted "
                 f"from {mailbox_name(gmail.provider)}; 'mailcellar forget --deleted' would "
@@ -527,7 +511,6 @@ def cmd_backup(args) -> int:
             logger.warning(
                 f"{len(stats['failed']):,} messages could not be fetched, e.g. "
                 f"{stats['failed'][0]}. Re-run backup to retry them."
-                + (" Prune skipped." if args.prune else "")
             )
             return 1
         if stats["unread"]:
@@ -535,35 +518,9 @@ def cmd_backup(args) -> int:
                 f"{len(stats['unread']):,} folders couldn't be read and were left as they "
                 f"were in the backup: {', '.join(stats['unread'])}. Their mail isn't taken "
                 "as deleted; the warnings above say why."
-                + (" Prune skipped." if args.prune else "")
             )
             return 1
-
-        if not args.prune:
-            return 0
-    return prune_by_forget(args, account)  # once the backup's own session has logged out
-
-
-def prune_by_forget(args, account: str) -> int:
-    """
-    backup --prune, for a release: `mailcellar forget --deleted` on the
-    account, after its backup, with --yes and --force passed on. Without
-    --yes that is forget's dry run; with it, forget asks for the count.
-    """
-    from mailcellar.offload import forget_cli
-
-    logger.warning(
-        "'backup --prune' is now 'mailcellar forget --deleted', run after the backup: mail "
-        "goes to <data root>/_forgotten/, held 30 days. --prune goes in a later release"
-    )
-    argv = [account, "--deleted", "--config", args.config]
-    argv += ["--yes"] * args.yes + ["--force"] * args.force
-    try:
-        return forget_cli.main(argv, prog="mailcellar forget")
-    except SystemExit as exc:  # forget's errors end its run, not the other accounts' backups
-        if isinstance(exc.code, str):
-            logger.error(f"{account}: {exc.code.removeprefix('error: ')}")
-        return exc.code if isinstance(exc.code, int) and exc.code else 1
+    return 0
 
 
 # ── meta backfill ────────────────────────────────────────────────────────────
@@ -781,7 +738,7 @@ def count(gmail, account: str, folder: Path) -> dict:
         "missing": [g for g in missing if g not in chats],
         "chats": len(chats),
         # A message restored under its own ID that the mailbox lost again is only in
-        # the backup, like any other; --prune still keeps it, as it keeps all kept_ids.
+        # the backup, like any other.
         "only_in_backup": len(backed_up - in_gmail - (kept - back)),
         "restored_gone": len(set(gone_kept) & back),
         "gone_from_server": len(gone),
@@ -905,27 +862,10 @@ def main(argv=None, prog: str | None = None) -> int:
         help="List every message instead of reading Gmail's history since the last run",
     )
     p_backup.add_argument(
-        "--prune",
-        action="store_true",
-        help="Then run 'mailcellar forget --deleted' on the account: what the mailbox has "
-        "deleted for good leaves the backup, held 30 days (--prune goes in a later release)",
-    )
-    p_backup.add_argument(
-        "--yes",
-        action="store_true",
-        help="With --prune: forget them after the count is typed; without it, a dry run",
-    )
-    p_backup.add_argument(
         "--unattended",
         action="store_true",
         help="For scheduled runs: never open a browser. A token that needs signing in fails "
         "the run, with the command to fix it, and is recorded for `report health`",
-    )
-    p_backup.add_argument(
-        "--force",
-        action="store_true",
-        help="With --prune: go ahead although more than "
-        f"{forget.MAX_DELETED_SHARE:.0%}% of the backup's messages are gone from the mailbox",
     )
     p_backup.set_defaults(func=cmd_backup)
 

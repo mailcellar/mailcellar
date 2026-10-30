@@ -1,9 +1,6 @@
 """
 sources: mail to restore from somewhere other than the backup's own index.
 
-  pruned   what `backup --prune` moved into <data root>/_pruned/<email>/<batch>/
-           before it ran forget, with the labels and dates in its pruned.csv
-           (read for a release, then --from-pruned goes)
   mbox     a Google Takeout export, or a file written by `mailcellar export`,
            with labels from each message's X-Gmail-Labels header
   folder   a gyb backup folder from elsewhere, read as it is (read-only)
@@ -16,14 +13,12 @@ message takes the way back that restoring into another account takes:
 found in Gmail by Message-ID and content, or imported.
 """
 
-import csv
 import email.utils
 from datetime import datetime
 from pathlib import Path
 
 from mailcellar.backup import chain, gyb, sidecar
 from mailcellar.message import PARSER_VERSION, parse_message
-from mailcellar.paths import pruned_folder
 from mailcellar.restore import mbox
 from mailcellar.restore.apply import Candidate
 
@@ -61,7 +56,7 @@ def candidate(source_id: str, raw: bytes, path: Path, labels, internal_date: int
     fields = parse_message(raw)
     return Candidate(
         source_id,
-        more.pop("batch", ""),
+        "",
         "",
         path,
         tuple(labels),
@@ -74,54 +69,12 @@ def candidate(source_id: str, raw: bytes, path: Path, labels, internal_date: int
     )
 
 
-def unreadable(
-    source_id: str, path: Path | None, labels=(), internal_date=0, batch=""
-) -> Candidate:
+def unreadable(source_id: str, path: Path | None, labels=(), internal_date=0) -> Candidate:
     """A Candidate whose copy is missing or can't be read: plan() skips it, saying why."""
-    return Candidate(source_id, batch, "", path, tuple(labels), internal_date, "", "")
+    return Candidate(source_id, "", "", path, tuple(labels), internal_date, "", "")
 
 
 # ── reading ──────────────────────────────────────────────────────────────────
-
-
-def pruned_batches(folder: Path) -> list[str]:
-    """The batches `backup --prune` moved out of a backup, oldest first."""
-    root = pruned_folder(folder)
-    return sorted(d.name for d in root.glob("*") if (d / gyb.PRUNE_MANIFEST).is_file())
-
-
-def from_pruned(folder: Path, batch: str) -> list[Candidate]:
-    """The messages of one pruned batch of the backup in `folder`."""
-    dest = pruned_folder(folder) / batch
-    manifest = dest / gyb.PRUNE_MANIFEST
-    if not manifest.is_file():
-        have = ", ".join(pruned_batches(folder)) or "none"
-        raise SourceError(f"{dest} has no {gyb.PRUNE_MANIFEST}; pruned batches: {have}")
-    with manifest.open(newline="", encoding="utf-8") as fh:
-        rows = list(csv.DictReader(fh))
-    recorded = chain.removed(folder)  # each file's SHA-256 as the prune recorded it
-    out = []
-    for row in rows:
-        labels = [n for n in row["labels"].split(";") if n]
-        ms = local_ms(row["internal_date"])
-        path = dest / row["path"]
-        try:
-            raw = path.read_bytes()
-        except OSError:
-            out.append(unreadable(row["gmail_id"], None, labels, ms, batch))
-            continue
-        out.append(
-            candidate(
-                row["gmail_id"],
-                raw,
-                path,
-                labels,
-                ms,
-                batch=batch,
-                sha256=recorded.get(row["gmail_id"], ""),
-            )
-        )
-    return out
 
 
 def from_folder(folder: Path) -> list[Candidate]:
