@@ -135,7 +135,7 @@ another account (`--to`), IMAP or Gmail, as it does for Gmail:
   the server stored (by the UID the server gives it, else by its
   Message-ID and date among what arrived during the restore), and the
   next backup downloads it once;
-- restored mail gets a `$mailcellar-restored.<date>` keyword, where the
+- restored mail gets a `$mailcellar-restored_<date>` keyword, where the
   server keeps keywords (otherwise restore says so and carries on; in a
   folder that keeps none, the message is restored with a note in the log).
 

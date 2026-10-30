@@ -353,8 +353,13 @@ def test_names_stand_in_for_the_roles_a_server_marks_no_folder_for():
 
 def test_mailcellars_labels_travel_as_keywords_and_back():
     assert imap.keyword_for("offload-candidate") == "$mailcellar-offload-candidate"
-    assert imap.keyword_for("restored/2026-10-27") == "$mailcellar-restored.2026-10-27"
-    assert imap.label_from_keyword("$mailcellar-restored.2026-10-27") == "restored/2026-10-27"
+    assert (
+        imap.keyword_for("restored/2026-10-27") == "$mailcellar-restored_2026-10-27"
+    )  # iCloud: no '.'
+    assert imap.label_from_keyword("$mailcellar-restored_2026-10-27") == "restored/2026-10-27"
+    assert (
+        imap.label_from_keyword("$mailcellar-restored.2026-10-27") == "restored/2026-10-27"
+    )  # as written before
     assert imap.label_from_keyword("$MailCellar-Dedup-Redundant") == "dedup-redundant"  # any case
     with pytest.raises(gmailapi.GmailError, match="can't be marked on an IMAP server"):
         imap.keyword_for("Dedup/Check")  # capitals: a keyword can't carry it back

@@ -23,6 +23,12 @@ in beta, so commands and options may still change before 1.0.
   until the Trash is emptied. Offload and dedup are still refused there,
   and setup's report says which of them work.
 
+### Fixed
+- Restored mail on iCloud gets its `restored/<date>` keyword: the
+  keyword is now written `$mailcellar-restored_<date>`, since iCloud
+  refuses a `.` in a keyword. Keywords written the old way still read as
+  the same label.
+
 ## 0.20.0 (2026-10-30)
 
 **Upgrading from 0.19.0:** no database's schema changes. Scripts that
