@@ -172,8 +172,7 @@ API, so the sizes are its per-message estimates.
 Some offloaded mail shouldn't be kept at all, even in the backup.
 [`forget`](forget.md) deletes it from the backup, in stages, once the
 mailbox has deleted it too; a rule's `forget_after` makes it a standing
-policy ([retention](forget.md#retention-forget_after)). It was
-`offload forget`, which still works for a release.
+policy ([retention](forget.md#retention-forget_after)).
 
 ## Options
 

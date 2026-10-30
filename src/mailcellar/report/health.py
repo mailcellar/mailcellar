@@ -5,9 +5,8 @@ From the sidecar's runs table (every backup, count and prune run since
 meta.sqlite schema 5), plus checks that need no run history: index
 entries without an .eml file, sidecar rows missing or parsed by an older
 parser, whether a history start point is stored, the newest message,
-mail offloaded from Gmail and kept in the backup, the batches --prune
-moved to <data root>/_pruned/, and the forget runs held in
-<data root>/_forgotten/, with those due for --empty.
+mail offloaded from Gmail and kept in the backup, and the forget runs
+held in <data root>/_forgotten/, with those due for --empty.
 
 Gmail keeps mailbox history for about 28 days; a backup whose start
 point is older than that lists every message instead (~30 s rather than
@@ -23,7 +22,6 @@ from pathlib import Path
 from mailcellar.backup import chain
 from mailcellar.backup.gyb import backup_account
 from mailcellar.offload import forget, rules
-from mailcellar.paths import pruned_folder
 from mailcellar.report.db import completeness_counts
 from mailcellar.report.output import Table, day, when
 
@@ -159,8 +157,8 @@ def runs(con) -> Table:
         ],
         [(r[0], when(r[1]), *r[2:]) for r in rows],
         notes=[
-            "Recorded since meta.sqlite schema 5; earlier runs are not known (the pruned "
-            "batches below and the newest message show earlier activity). Why full: "
+            "Recorded since meta.sqlite schema 5; earlier runs are not known (the newest "
+            "message shows earlier activity). Why full: "
             "no-history (no start point stored), expired (Gmail's history no longer reaches "
             "it), or asked for (full, search, refresh-labels); needs-consent marks an unattended "
             "backup that could not sign in (status error; renew with mailcellar auth), and "
@@ -231,30 +229,8 @@ def by_month(con) -> Table:
         rows,
         notes=[
             "Failed runs: download failures, errors, or a prune stopped by its guard "
-            "(before backup --prune ran forget, which records no run; its refusals go "
-            "to stderr and its exit status)."
+            "(backup --prune, before 0.19.0)."
         ],
-    )
-
-
-def pruned(folders: list[Path]) -> Table:
-    rows = []
-    for folder in folders:
-        account = backup_account(folder)
-        for batch in sorted(pruned_folder(folder).glob("*/pruned.csv")):
-            with batch.open(encoding="utf-8") as fh:
-                n = sum(1 for _ in fh) - 1
-            rows.append((account, batch.parent.name, n))
-    return Table(
-        "pruned",
-        "Pruned batches (<data root>/_pruned/)",
-        [("Account", "text"), ("Batch", "text"), ("Messages", "int")],
-        rows,
-        notes=[
-            "Messages backup --prune moved out of the backup before it ran forget, one folder "
-            "per run (local time); restore --from-pruned reads them, for a release."
-        ],
-        limit=False,
     )
 
 
@@ -463,7 +439,6 @@ def build(
         runs(con),
         gaps(con, accounts, opts, now),
         by_month(con),
-        pruned(folders),
         forgotten(folders, now),
         retention_table(folders, now),
         holds_table(folders, now),

@@ -33,8 +33,8 @@ The steps, each returning new frozen values:
 
 Nothing is changed without apply(); nothing is deleted.
 
-Candidates can also come from elsewhere (sources.py): a pruned batch, an
-mbox file or another gyb folder. They take the other-account way back, and
+Candidates can also come from elsewhere (sources.py): an mbox file or
+another gyb folder. They take the other-account way back, and
 apply() with no backup folder records and indexes nothing.
 """
 

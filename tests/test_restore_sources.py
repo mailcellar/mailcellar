@@ -1,7 +1,6 @@
-"""restore --from-pruned, --from-mbox and --from-folder: mail back from other sources."""
+"""restore --from-mbox and --from-folder: mail back from other sources."""
 
 import base64
-import csv
 import sqlite3
 from pathlib import Path
 
@@ -9,16 +8,12 @@ import pytest
 
 from mailcellar import cli as mailcellar
 from mailcellar import gmailapi
-from mailcellar.backup import chain, commands, gyb, sidecar
-from mailcellar.paths import pruned_folder
+from mailcellar.backup import commands, gyb, sidecar
 from mailcellar.restore import apply as restore
 from mailcellar.restore import mbox, sources
 from mailcellar.restore.apply import read_raw
 from test_index import make_eml
 from test_restore import A, B, Gmail, message
-
-PRUNED = "2026-03-01-120000"
-
 
 # ── reading an mbox ──────────────────────────────────────────────────────────
 
@@ -180,8 +175,8 @@ def test_sources_that_are_not_there_say_so(tmp_path):
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     """
-    A's backup of p1, p2, p3 and k1; backup --prune has pruned p1, p2 and p3
-    (gone from Gmail), and Gmail still has p3 under another ID (q3). k1 stays.
+    A's backup of p1, p2, p3 and k1; p1, p2 and p3 are gone from Gmail, which
+    still has p3 under another ID (q3). k1 stays.
     """
     monkeypatch.chdir(tmp_path)
     msgs = {g: message(g) for g in ("p1", "p3", "k1")}
@@ -189,11 +184,6 @@ def env(tmp_path, monkeypatch):
     gmail = Gmail(msgs)
     folder = tmp_path / "data" / A
     commands.backup(gmail, A, folder)
-    # as backup --prune does: the chain records each file's hash, then the files move
-    chain.append(folder, A, "prune", removed=chain.removal(folder, ["p1", "p2", "p3"]))
-    con = gyb.open_backup(folder, A)
-    gyb.prune(con, folder, ["p1", "p2", "p3"], pruned_folder(folder) / PRUNED)
-    con.close()
     for gid in ("p1", "p2", "p3"):
         del gmail.messages[gid]
     gmail.messages["q3"] = message("q3", body=make_eml(msgid="<p3@x>"))
@@ -233,17 +223,6 @@ def backup_state(folder):
     ]
 
 
-def test_a_pruned_copy_changed_since_the_prune_is_not_uploaded(env):
-    (c,) = [c for c in sources.from_pruned(env.folder, PRUNED) if c.source_id == "p1"]
-    assert c.sha256 == chain.file_hash(c.path)  # as the prune recorded it
-    c.path.write_bytes(c.path.read_bytes().replace(b"Subject: ", b"X-Added: 1\nSubject: ", 1))
-    assert run("--from-pruned", PRUNED, "--yes") == 1
-    with open("log.csv", newline="", encoding="utf-8") as fh:
-        got = {r["source_id"]: (r["outcome"], r["detail"]) for r in csv.DictReader(fh)}
-    assert got["p1"] == ("skipped", restore.CHANGED_SINCE_RECORDED)
-    assert got["p2"][0] == "imported"
-
-
 def test_a_gyb_folder_with_a_chain_is_checked_against_it(env):
     (path,) = [bm.path for bm in gyb.iter_backup(env.folder) if bm.gmail_id == "k1"]
     path.write_bytes(path.read_bytes() + b"\nAdded later.\n")
@@ -251,62 +230,8 @@ def test_a_gyb_folder_with_a_chain_is_checked_against_it(env):
     assert restore.check_backup(c)[0] == restore.CHANGED_SINCE_RECORDED
 
 
-def test_pruned_mail_dry_run_says_what_it_would_do(env, capsys):
-    before = backup_state(env.folder)
-    assert run("--from-pruned", PRUNED) == 0
-    out = capsys.readouterr().out
-    assert f"from pruned batch {PRUNED}: 3 messages" in out
-    assert "would import" in out and "would record (found in the mailbox)" in out
-    assert imports(env) == {} and env.calls == [("search", 3)]
-    assert backup_state(env.folder) == before
-
-
-def test_pruned_mail_is_imported_with_its_labels_and_found_mail_recorded(env, capsys):
-    assert run("--from-pruned", PRUNED, "--yes") == 0
-    got = imports(env)
-    assert set(got) == {"p1", "p2"}  # p3 is in Gmail as q3
-    assert sorted(env.label_names(got["p2"][3])) == ["INBOX", "work"]
-    restored = [c for c in env.calls if c[0] == "label"][0]
-    assert sorted(restored[1]) == sorted([got["p1"][2], got["p2"][2], "q3"])
-    assert not any(c[0] == "unlabel" for c in env.calls)
-    # nothing recorded in the backup or indexed there: the next backup downloads them
-    con = sidecar.open_meta(env.folder)
-    assert sidecar.restored_ids(con) == set()
-    con.close()
-    assert {bm.gmail_id for bm in gyb.iter_backup(env.folder)} == {"k1"}
-    commands.backup(env, A, env.folder)
-    assert {bm.gmail_id for bm in gyb.iter_backup(env.folder)} == set(env.messages)
-
-
-def test_restoring_again_finds_what_was_restored_and_uploads_nothing(env):
-    run("--from-pruned", PRUNED, "--yes")
-    env.calls.clear()
-    assert run("--from-pruned", PRUNED, "--yes") == 0
-    assert imports(env) == {}
-
-
-def test_a_pruned_file_that_is_missing_is_skipped(env, capsys):
-    next((pruned_folder(env.folder) / PRUNED).rglob("p1.eml")).unlink()
-    assert run("--from-pruned", PRUNED, "--yes") == 1
-    assert "skipped: p1 — no .eml in the backup" in capsys.readouterr().out
-    assert set(imports(env)) == {"p2"}
-
-
-def test_an_unknown_pruned_batch_lists_the_ones_there_are(env):
-    with pytest.raises(SystemExit, match=f"pruned batches: {PRUNED}"):
-        run("--from-pruned", "2020-01-01-000000")
-
-
-def test_pruned_mail_can_go_into_another_account(env):
-    assert run("--from-pruned", PRUNED, "--to", "b", "--yes", "--label-prefix", "old") == 0
-    got = imports(env.other)
-    assert set(got) == {"p1", "p2", "p3"}  # B has none of them
-    assert sorted(env.other.label_names(got["p2"][3])) == ["INBOX", "old/work"]
-    assert env.calls == [] or all(c[0] != "import" for c in env.calls)
-
-
 def test_an_mbox_from_export_restores_byte_for_byte_with_its_labels(env, capsys, tmp_path):
-    # export the pruned mail's twins from a second backup, then restore the mbox into B
+    # export a second backup's mail, then restore the mbox into B
     folder_b = tmp_path / "data" / "src@example.org"
     src = Gmail({"s1": message("s1", labels=("Label_1", "INBOX")), "s2": message("s2")})
     commands.backup(src, "src@example.org", folder_b)
@@ -349,22 +274,25 @@ def test_a_gyb_folder_from_elsewhere_restores_and_is_left_as_it_was(env, tmp_pat
     assert backup_state(other) == before
 
 
-def test_sources_narrow_by_id_date_sender_and_limit(env, capsys):
-    run("--from-pruned", PRUNED, "--id", "p2")
-    assert f"batch {PRUNED}: 1 messages" in capsys.readouterr().out
-    run("--from-pruned", PRUNED, "--limit", "2")
-    assert f"batch {PRUNED}: 2 messages" in capsys.readouterr().out
+def test_sources_narrow_by_id_date_sender_and_limit(env, capsys, tmp_path):
+    other = tmp_path / "elsewhere"
+    commands.backup(Gmail({g: message(g) for g in ("s1", "s2", "s3")}), "old@example.org", other)
+    capsys.readouterr()
+    run("--from-folder", str(other), "--id", "s2")
+    assert f"{other}: 1 messages" in capsys.readouterr().out
+    run("--from-folder", str(other), "--limit", "2")
+    assert f"{other}: 2 messages" in capsys.readouterr().out
     with pytest.raises(SystemExit, match="Nothing to do"):
-        run("--from-pruned", PRUNED, "--sender", "@nowhere.example")
+        run("--from-folder", str(other), "--sender", "@nowhere.example")
 
 
 @pytest.mark.parametrize(
     "args, message_",
     [
-        (["--from-pruned", PRUNED, "--all"], "take every message they hold"),
-        (["--from-pruned", PRUNED, "--offloaded"], "take every message they hold"),
+        (["--from-mbox", "x.mbox", "--all"], "take every message they hold"),
+        (["--from-folder", "x", "--offloaded"], "take every message they hold"),
         (["--from-mbox", "x.mbox", "--to", "b"], "name the account to restore into"),
-        (["--from-mbox", "x.mbox", "--from-pruned", PRUNED], "not allowed with"),
+        (["--from-mbox", "x.mbox", "--from-folder", "x"], "not allowed with"),
     ],
 )
 def test_sources_refuse_what_makes_no_sense(env, capsys, args, message_):

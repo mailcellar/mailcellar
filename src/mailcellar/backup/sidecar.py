@@ -19,7 +19,7 @@ message is parsed once:
   meta            schema_version, and history_id: where the next
                   history-based backup starts
 
-backup writes it on download, label refresh and --prune, and `meta` fills
+backup writes it on download and label refresh, and `meta` fills
 it for older mail; offload apply and restore record what they did. dedup
 index and the reports read it instead of parsing .eml files. gyb ignores
 the file; msg-db.sqlite is never touched here.
@@ -206,7 +206,7 @@ CREATE TABLE IF NOT EXISTS runs (
     run_id           INTEGER PRIMARY KEY,
     started_ms       INTEGER NOT NULL,    -- ms since epoch, UTC
     finished_ms      INTEGER NOT NULL,
-    command          TEXT NOT NULL,       -- 'backup' | 'count' | 'sync' (= --prune)
+    command          TEXT NOT NULL,       -- 'backup' | 'count' | 'sync' (= --prune, before 0.19.0)
     mode             TEXT NOT NULL DEFAULT '',  -- backup: 'history' | 'full'
     reason           TEXT NOT NULL DEFAULT '',  -- why full: 'no-history' | 'expired' |
                                                 -- 'full' | 'search' | 'refresh-labels';
@@ -541,7 +541,7 @@ def replace_label_catalogue(con: sqlite3.Connection, labels: list[dict]) -> None
 
 
 def delete_messages(con: sqlite3.Connection, gmail_ids) -> None:
-    """Delete messages' rows: moved out of the backup by --prune or forget. No commit."""
+    """Delete messages' rows: moved out of the backup by forget. No commit."""
     ids = list(gmail_ids)
     for table in ("message_labels", "attachments", "recipients"):
         con.executemany(f"DELETE FROM {table} WHERE gmail_id = ?", ((g,) for g in ids))

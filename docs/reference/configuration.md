@@ -34,7 +34,7 @@ count and last backup. It never prints a credential.
   (`$XDG_CONFIG_HOME` is honoured), else `./config` in the project, the old
   place.
 - **Data root:** everything derived from mail, that is the backups, the
-  dedup and offload plans and logs, and `_pruned/`. It is
+  dedup and offload plans and logs, and mail `forget` holds. It is
   `$MAILCELLAR_DATA`, else `data_dir` in `settings.toml`, else
   `~/mailcellar`. (It used to default to `./data` in the folder you ran the
   command from; a `./data` that already holds mailcellar's data is still

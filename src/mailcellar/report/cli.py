@@ -288,7 +288,7 @@ def main(argv=None, prog: str | None = None) -> None:
         add_common(r)
         r.set_defaults(func=func)
 
-    h = sub.add_parser("health", help="Backup completeness, runs, gaps and pruned batches")
+    h = sub.add_parser("health", help="Backup completeness, runs, gaps and forgotten mail")
     add_common(h)
     h.add_argument(
         "--window-days",

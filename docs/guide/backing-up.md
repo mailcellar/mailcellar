@@ -72,8 +72,7 @@ folder `mailcellar config` shows. It holds:
 - one folder per account, with the `.eml` files and the two databases,
   `msg-db.sqlite` and `meta.sqlite`;
 - `offload/` (rules, plans and the batch manifests), `restore/`,
-  `_forgotten/` (mail `forget` holds for 30 days), `logs/`, and `_pruned/`
-  if an older `backup --prune` made it.
+  `_forgotten/` (mail `forget` holds for 30 days), and `logs/`.
 
 `meta.sqlite` records which mail was offloaded and which was restored, and
 nothing rebuilds that from the `.eml` files. Copy the whole folder, not just
@@ -176,12 +175,6 @@ The mail is held in `<data root>/_forgotten/<email>/<run>/`.
 `mailcellar forget work --undo RUN` puts a run back into the backup, and
 `mailcellar forget --empty --yes` deletes runs held 30 days or more for
 good; until you run that, `--undo` still works. See [Forgetting mail](../reference/forget.md#mail-deleted-in-the-mailbox-deleted).
-
-`backup --prune` runs the same thing after a backup, for one release.
-Before that it moved this mail into `<data root>/_pruned/<email>/<batch>/`
-and kept it there; those batches stay where they are until you delete
-them, and for this release `restore --from-pruned` can still put them
-back into Gmail.
 
 Most people never need `--deleted`. Mail stays in the backup if you leave
 it alone, at the cost of disk space.

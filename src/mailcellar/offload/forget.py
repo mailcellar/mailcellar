@@ -8,10 +8,9 @@ one irreversible thing mailcellar does, so:
       Trash) and still gone when Gmail is asked again now. A dry run unless
       --yes, and then the count must be typed.
   forget --deleted
-      Mail deleted in its mailbox, never offloaded (B40: what backup --prune
-      took): the mailbox is listed now (gone_from, deleted_decision), and
-      more than MAX_DELETED_SHARE of the backup needs --force. Recorded
-      with batch "" and rule DELETED.
+      Mail deleted in its mailbox, never offloaded: the mailbox is listed
+      now (gone_from, deleted_decision), and more than MAX_DELETED_SHARE of
+      the backup needs --force. Recorded with batch "" and rule DELETED.
   … --yes
       Moves their files to <data root>/_forgotten/<email>/<run>/ (with a
       manifest for --undo), deletes their rows from msg-db.sqlite and

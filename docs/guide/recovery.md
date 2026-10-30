@@ -163,9 +163,7 @@ mail, which has no other source). It changes nothing.
   from a copy together with its `.eml` files.
 - Mail that `forget` took out is held in `<data root>/_forgotten/` until
   `forget --empty` deletes it, at least 30 days later;
-  `mailcellar forget ACCOUNT --undo RUN` puts a run back into the backup. Mail an older `backup --prune` moved out is in
-  `<data root>/_pruned/`, one folder per run; for this release,
-  `mailcellar restore ACCOUNT --from-pruned BATCH` puts it back into Gmail.
+  `mailcellar forget ACCOUNT --undo RUN` puts a run back into the backup.
   A Google Takeout export, or another gyb folder, can be restored with
   `--from-mbox` or `--from-folder` (see
   [Restoring mail](../reference/restore.md)).

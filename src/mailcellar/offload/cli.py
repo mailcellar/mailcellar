@@ -1,8 +1,7 @@
 """
 Command line for mailcellar offload: argparse and one cmd_* per
-subcommand (plan, suggest, apply). forget is its own command now
-(forget_cli); the top-level cli.py hands `offload forget` on to it for a
-release.
+subcommand (plan, suggest, apply). forget is its own command
+(forget_cli).
 """
 
 import argparse
@@ -423,11 +422,6 @@ def space_freed(providers: set[str]) -> str:
     return "Their space is freed when each mailbox's Trash is emptied (Gmail's after 30 days)."
 
 
-def cmd_moved(args) -> None:
-    """Reached only when cli.py's hand-on was bypassed (`offload -- forget`)."""
-    sys.exit("error: 'offload forget' is now 'mailcellar forget'")
-
-
 def main(argv=None, prog: str | None = None) -> None:
     here = offload_dir()
     rules, plan, log = (
@@ -571,10 +565,6 @@ def main(argv=None, prog: str | None = None) -> None:
     )
     ap.add_argument("--log", default=str(log), help=f"Apply log, appended to (default: {log})")
     ap.set_defaults(func=cmd_apply)
-
-    sub.add_parser(
-        "forget", help="Now 'mailcellar forget'; this name goes in a later release"
-    ).set_defaults(func=cmd_moved)  # cli.py hands `offload forget ...` on before this
 
     args = p.parse_args(argv)
     try:

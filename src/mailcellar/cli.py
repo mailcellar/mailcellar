@@ -2,7 +2,7 @@
 mailcellar: one command for the Gmail backups and what is done with them.
 
   mailcellar setup   [ADDRESS] [--client FILE]   add an account from a downloaded OAuth client
-  mailcellar backup  [ACCOUNT ...] [--full | --search Q | --refresh-labels] [--prune]
+  mailcellar backup  [ACCOUNT ...] [--full | --search Q | --refresh-labels]
   mailcellar count   [ACCOUNT ...]      compare Gmail with the backup
   mailcellar meta    [ACCOUNT ...]      fill meta.sqlite for older mail
   mailcellar verify  [ACCOUNT ...] [--offloaded] [--sample N]   check the backup's files
@@ -13,7 +13,7 @@ mailcellar: one command for the Gmail backups and what is done with them.
   mailcellar forget  [ACCOUNT ...] --batch B | --rule R | --due | --empty | --undo RUN
                      [--yes]   delete offloaded mail from the backup, held 30 days first
   mailcellar restore ACCOUNT --batch B | --rule R | --id G | --offloaded | --all
-                     | --from-pruned B | --from-mbox F | --from-folder D
+                     | --from-mbox F | --from-folder D
                      [--to ACCOUNT] [--yes]   put backed-up mail back into Gmail
   mailcellar export  ACCOUNT <selection> --to FILE.mbox|FILE.zip   copy mail out, read-only
   mailcellar hold    add | list | show | release   legal holds: mail nothing may remove
@@ -89,11 +89,6 @@ def _dedup(argv: list[str]) -> int:
 
 
 def _offload(argv: list[str]) -> int:
-    if argv[:1] == ["forget"]:  # the old name, for a release
-        logger.warning(
-            "'offload forget' is now 'mailcellar forget'; this name goes in a later release"
-        )
-        return _forget(argv[1:])
     from mailcellar.offload.cli import main
 
     main(argv, prog="mailcellar offload")

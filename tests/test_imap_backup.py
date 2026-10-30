@@ -235,11 +235,11 @@ def test_restore_refuses_a_backup_whose_sidecar_cant_be_read(server):
         cli.main(["restore", "home", "--all"])
 
 
-def test_prune_forgets_nothing_from_a_server_that_lists_nothing_and_says_which(server, capsys):
+def test_forget_deleted_forgets_nothing_from_a_server_that_lists_nothing(server, capsys):
     assert cli.main(["backup", "home"]) == 0
     for folder in server.folders.values():
         folder["uids"].clear()  # a server that answers with an empty mailbox
-    assert cli.main(["backup", "home", "--prune", "--yes"]) == 1
+    assert cli.main(["forget", "home", "--deleted", "--yes"]) == 1
     said = capsys.readouterr().err
     assert "the server listed no messages at all; nothing is forgotten" in said
     assert "Gmail" not in said

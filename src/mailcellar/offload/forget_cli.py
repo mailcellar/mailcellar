@@ -1,7 +1,6 @@
 """
 Command line for mailcellar forget: delete mail from the backup on purpose,
-held HOLD_DAYS first (offload/forget.py does the work). `offload forget` is
-the old name: cli.py hands it on here for a release.
+held HOLD_DAYS first (offload/forget.py does the work).
 """
 
 import argparse
@@ -420,8 +419,7 @@ def main(argv=None, prog: str | None = None) -> int:
     fg.add_argument(
         "--deleted",
         action="store_true",
-        help="Mail its mailbox has deleted, never offloaded (what backup --prune took): the "
-        "mailbox is listed now, read-only",
+        help="Mail its mailbox has deleted, never offloaded: the mailbox is listed now, read-only",
     )
     fg.add_argument(
         "--force",

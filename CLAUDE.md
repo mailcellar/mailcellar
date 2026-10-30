@@ -29,7 +29,7 @@ uv run mailcellar dedup <index|match|plan|apply> [options]
 uv run mailcellar offload <plan [--review]|apply> [options]
 uv run mailcellar forget [ACCOUNT ...] <--batch|--rule|--due|--empty|--undo RUN> [--yes]
 uv run mailcellar restore ACCOUNT <--batch|--rule|--id|--offloaded|--all> [--to ACCOUNT] [--yes]
-uv run mailcellar restore ACCOUNT <--from-pruned BATCH|--from-mbox FILE|--from-folder DIR> [--yes]
+uv run mailcellar restore ACCOUNT <--from-mbox FILE|--from-folder DIR> [--yes]
 uv run mailcellar search QUERY [ACCOUNT ...] [--offloaded] [--rule R] [--before DATE]
 uv run mailcellar export ACCOUNT <--batch|--rule|--id|--offloaded|--all|--hold H> --to FILE.mbox|FILE.zip
 uv run mailcellar hold <add|list|show|release> [NAME] [ACCOUNT ...]   # legal holds
@@ -50,7 +50,7 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
   the repo root or the data root.
 - Ask before anything that changes Gmail, the backups, or access:
   `dedup apply --label/--trash`, `offload apply --label/--trash`,
-  `restore --yes`, `backup --prune`, `forget --yes`,
+  `restore --yes`, `forget --yes`,
   `forget --empty --yes` and `--undo` (they delete from, or move
   within, the backup), `auth --scope modify` (also as
   `dedup auth`), `setup` (it installs an OAuth client or a

@@ -292,29 +292,6 @@ def test_empty_deletes_runs_after_the_hold_for_good(env, monkeypatch, capsys):
     assert files_with_marker(data_root(), "p0", "p1", held_too=True) == []  # held copies too
 
 
-def test_offload_forget_is_handed_on_to_forget_and_says_so(env, monkeypatch, capsys):
-    assert cli.main(["offload", "forget", "--batch", BATCH]) == 0
-    captured = capsys.readouterr()
-    assert "'offload forget' is now 'mailcellar forget'" in captured.err
-    assert "Dry run: nothing was changed" in captured.out
-    monkeypatch.setattr("builtins.input", lambda prompt: "2")
-    assert cli.main(["offload", "forget", "--batch", BATCH, "--yes"]) == 0
-    assert "Forgot 2 messages" in capsys.readouterr().out
-    (run_dir,) = forget.runs_dir(A).iterdir()
-    assert cli.main(["offload", "forget", "--undo", run_dir.name]) == 0
-    assert "put 2 messages back" in capsys.readouterr().out
-    with pytest.raises(SystemExit):
-        cli.main(["offload", "--help"])
-    assert "Now 'mailcellar forget'" in capsys.readouterr().out
-    cli.main(["--help"])
-    assert "mailcellar forget" in capsys.readouterr().out
-
-
-def test_offload_forget_past_the_hand_on_is_an_error_not_a_traceback(env):
-    with pytest.raises(SystemExit, match="is now 'mailcellar forget'"):
-        cli.main(["offload", "--", "forget"])
-
-
 def test_forget_says_undo_works_until_empty_not_for_a_fixed_time(env, monkeypatch, capsys):
     run("--batch", BATCH, "--yes", typed="2", monkeypatch=monkeypatch)
     out = capsys.readouterr().out

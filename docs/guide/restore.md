@@ -21,7 +21,6 @@ invented.
 | Put back everything offloaded | `--offloaded` |
 | Rebuild an account that lost its mail | `--all` |
 | Copy an account's mail into another | `--all --to ACCOUNT` |
-| Recover mail an older `backup --prune` moved out | `--from-pruned` (this release only) |
 | Load a Takeout export or an old gyb folder | `--from-mbox`, `--from-folder` |
 
 Restoring needs modify access to the account the mail goes into. A
@@ -121,18 +120,8 @@ The new messages are indexed in the target account's backup too, so the next
 
 ## Mail from somewhere that isn't in the index
 
-Three sources hold mail that no backup lists. Each restores every message it
+Two sources hold mail that no backup lists. Each restores every message it
 holds, narrowed by the same options, with the same dry run and `--yes`.
-
-**Pruned mail** is what `backup --prune` moved out of the backup before it
-ran `forget --deleted` ([Backing up](backing-up.md#mail-deleted-from-gmail-forget-deleted));
-`--from-pruned` reads those batches for this release, then goes. Mail
-`forget` takes is put back with `forget --undo` instead, while it is held.
-The batch name is the folder under `<data root>/_pruned/<email>/`:
-
-```bash
-mailcellar restore work --from-pruned 2026-03-01-120000
-```
 
 **A Takeout export or an mbox file**, including one `mailcellar export`
 wrote:

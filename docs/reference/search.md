@@ -55,7 +55,7 @@ end. The account and ID are what `restore ACCOUNT --id` and
 
 Files mailcellar writes and reads back keep their own column names for the
 same ID: `gmail_id` in the offload and dedup plans and apply logs and in the
-batch and prune manifests; `source_id` in the restore log (with the restored
+batch and forget manifests; `source_id` in the restore log (with the restored
 copy's ID in `new_id`). For an IMAP account it is that account's ID, not
 Gmail's.
 

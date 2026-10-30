@@ -33,8 +33,8 @@ logger = logging.getLogger(__name__)
 
 
 def cmd_index(args) -> None:
-    # Default: every backup in the data root (find_backups skips _pruned/
-    # folders mailcellar backup --prune makes, which have no msg-db.sqlite).
+    # Default: every backup in the data root (find_backups skips folders with
+    # no msg-db.sqlite, such as _forgotten/).
     folders = [Path(f) for f in args.folders] or find_backups()
     if not folders:
         sys.exit(f"error: no backup folders given or found in {data_root()}.")
