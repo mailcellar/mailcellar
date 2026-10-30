@@ -36,7 +36,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from mailcellar import gmailapi
-from mailcellar.backup import sidecar
+from mailcellar.backup import sidecar, verify
 from mailcellar.backup.gyb import backup_account
 from mailcellar.paths import (
     backup_folder,
@@ -219,22 +219,28 @@ def build_job(schedule: Schedule, accounts: list[str], explicit: bool, config: P
     )
 
 
-def last_backup(account: str) -> tuple[int, str] | None:
-    """(finished_ms, status) of the account's last backup run, or None. Read-only."""
+def last_runs(account: str, command: str, n: int = 1) -> list[tuple[int, str, int | None]]:
+    """(finished_ms, status, failed) of the account's last `n` runs of `command`, newest first."""
     folders = {backup_account(f): f for f in find_backups()}
     folder = folders.get(account)
     if folder is None or not sidecar.meta_path(folder).is_file():
-        return None
+        return []
     con = sqlite3.connect(f"file:{sidecar.meta_path(folder)}?mode=ro", uri=True)
     try:
         return con.execute(
-            """SELECT finished_ms, status FROM runs WHERE command = 'backup'
-               ORDER BY finished_ms DESC, run_id DESC LIMIT 1"""
-        ).fetchone()
+            """SELECT finished_ms, status, failed FROM runs WHERE command = ?
+               ORDER BY finished_ms DESC, run_id DESC LIMIT ?""",
+            (command, n),
+        ).fetchall()
     except sqlite3.Error:  # a sidecar from before the runs table
-        return None
+        return []
     finally:
         con.close()
+
+
+def damaged(checks: list[tuple[int, str, int | None]]) -> int:
+    """Damaged files the checks after backups found. Pure."""
+    return sum(failed or 0 for _ms, status, failed in checks if status != "ok")
 
 
 def token_scopes(config: Path, account: str) -> list[str]:
@@ -348,7 +354,7 @@ def cmd_status(args) -> int:
     except gmailapi.GmailError as exc:
         sys.exit(f"error: {exc}")
     for account in accounts:
-        last = last_backup(account)
+        last = next(iter(last_runs(account, "backup")), None)
         schedule = job.schedule if job else None
         if last is None:
             line, bad = "no backup run recorded", True
@@ -358,6 +364,14 @@ def cmd_status(args) -> int:
             line = f"last backup {when:%Y-%m-%d %H:%M} UTC, {last[1]}"
             if overdue(last[0], now_ms, schedule):
                 line += " (overdue)"
+        # A damaged file is found again each pass until it is repaired: a pass is PASS_RUNS checks.
+        problems_found = damaged(last_runs(account, "verify", verify.PASS_RUNS))
+        if problems_found:
+            line += (
+                f"; the checks after recent backups found {problems_found:,} damaged files "
+                f"(mailcellar verify {account} --chain)"
+            )
+            bad = True
         token, token_bad = token_note(config, account, now)
         due = sum(n[1] for n in forget.retention(backup_folder(account), now_ms).values())
         if due:

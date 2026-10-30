@@ -167,7 +167,9 @@ def runs(con) -> Table:
             "Deleted in mailbox: backed-up "
             "messages permanently deleted there (backup, count), offloaded mail apart. Offloaded: "
             "offloaded messages in the backup (count, prune). Missing / Only in backup: count's "
-            "comparison (only in backup includes mail in Trash or Spam, not offloaded mail)."
+            "comparison (only in backup includes mail in Trash or Spam, not offloaded mail). "
+            "verify: the check of the next slice of the backup after each backup; Failed is "
+            "the damaged files it found (mailcellar verify ACCOUNT --chain checks them all)."
         ],
     )
 
@@ -228,8 +230,9 @@ def by_month(con) -> Table:
         ],
         rows,
         notes=[
-            "Failed runs: download failures, errors, or a prune stopped by its guard "
-            "(backup --prune, before 0.19.0)."
+            "Failed runs: download failures, errors, damaged files found by the check "
+            "after a backup (verify), or a prune stopped by its guard (backup --prune, "
+            "before 0.19.0)."
         ],
     )
 

@@ -10,6 +10,7 @@ mailcellar backup personal         # one account
 mailcellar count                   # compare each mailbox with its backup
 mailcellar backup personal --full  # list every message instead of using history
 mailcellar backup --unattended     # for scheduled runs: never opens a browser
+mailcellar backup personal --verify 0   # without checking the backup's files afterwards
 mailcellar meta                    # fill meta.sqlite for older mail
 mailcellar verify                  # are the backup's files still intact?
 ```
@@ -17,7 +18,8 @@ mailcellar verify                  # are the backup's files still intact?
 **Exit status** (for scripts and schedulers): 0 when everything worked.
 Otherwise 1, in any of these cases:
 - an account failed (with several accounts, the others still run);
-- downloads failed (the next run fetches them);
+- downloads failed (the next run fetches them), or the check after the
+  backup found a damaged file;
 - `count` found mail missing from the backup;
 - `verify` found a problem.
 
@@ -28,6 +30,15 @@ its Trash, the backup holds the only copy, so `verify` looks for damage that
 would otherwise go unnoticed: a failing disk, a sync tool rewriting files,
 an accidental delete. It needs no access to the mailbox and changes nothing (both
 databases are opened read-only).
+
+Each `backup` also checks part of the backup as `verify` does: an eighth
+of its messages by default, at least 1,000, starting where the last
+backup's check stopped, so a weekly backup has checked every message
+after eight runs, two months. A damaged file makes `backup` exit 1, and
+`report health` lists each check as a `verify` run, with the problems it
+found as Failed. `--verify N` checks N instead, and `--verify 0` none.
+Only the full `verify` also checks that the two databases agree, and
+only `verify --chain` checks every byte.
 
 ```bash
 mailcellar verify                  # every backup, every message
@@ -69,6 +80,7 @@ with none named, every account in `accounts.toml`.
 | `--unattended` | For scheduled runs: never open a browser. A token that needs signing in fails that account's run, with the command to fix it |
 | `--refresh-labels` | Also re-sync the labels of messages already backed up. Gmail lists them label by label, 500 messages per call, so about a minute for 50,000 messages. An IMAP account's labels are refreshed on every run |
 | `--search QUERY` | Only consider messages matching this Gmail search (Gmail accounts only) |
+| `--verify N` | Then check the files of the next N messages, from where the last backup's check stopped (default: an eighth of the backup, at least 1,000; `0`: none) |
 | `--folder FOLDER` | Backup folder (default `<data root>/<email>`) |
 | `--config CONFIG` | Config folder (default `~/.config/mailcellar`, or `$MAILCELLAR_CONFIG`) |
 

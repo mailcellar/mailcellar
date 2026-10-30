@@ -7,6 +7,15 @@ in beta, so commands and options may still change before 1.0.
 
 ## Unreleased
 
+### Added
+- `backup` checks the files of part of the backup after each run, as
+  `verify` does: an eighth of its messages by default, at least 1,000,
+  carrying on from where the last run's check stopped, so a weekly backup
+  checks every message in two months. A damaged file makes `backup` exit
+  1, `report health` lists each check as a `verify` run, and
+  `schedule status` flags damage the last eight checks found.
+  `--verify N` checks N messages, `--verify 0` none.
+
 ## 0.20.0 (2026-10-30)
 
 **Upgrading from 0.19.0:** no database's schema changes. Scripts that
