@@ -87,6 +87,29 @@ def test_select_keeps_index_order_and_samples_within_the_scope():
     assert verify.select(entries, None, 10, random.Random(0)) == entries  # fewer than N
 
 
+def test_a_slice_from_a_start_wraps_and_successive_slices_cover_every_entry():
+    entries = [Entry(g, f"{g}.eml") for g in ("a", "b", "c", "d", "e")]
+    ids = lambda chosen: [e.gmail_id for e in chosen]  # noqa: E731
+    assert ids(verify.select(entries, None, 2, random.Random(0), start=0)) == ["a", "b"]
+    assert ids(verify.select(entries, None, 3, random.Random(0), start=4)) == ["e", "a", "b"]
+    assert ids(verify.select(entries, None, 9, random.Random(0), start=7)) == list("cdeab")
+    seen, start = [], 0
+    for _ in range(3):
+        seen += ids(verify.select(entries, None, 2, random.Random(0), start=start))
+        start = verify.advance(start, 2, len(entries))
+    assert sorted(set(seen)) == list("abcde") and start == 1
+    assert verify.select([], None, 2, random.Random(0), start=3) == []
+
+
+def test_advance_and_the_stored_cursor():
+    assert verify.advance(0, 2, 5) == 2
+    assert verify.advance(4, 2, 5) == 1
+    assert verify.advance(3, 9, 5) == 3  # the whole backup: the same start next time
+    assert verify.advance(3, 2, 0) == 0  # an empty backup
+    assert [verify.cursor(v) for v in (None, "", "12", "x", "-1")] == [0, 0, 12, 0, 0]
+    assert [verify.slice_size(n) for n in (0, 3, 8_000, 60_001)] == [1000, 1000, 1000, 7501]
+
+
 def test_disagreements_name_each_side():
     found = verify.disagreements({"a", "b"}, {"b", "z"}, {"a", "y"})
     assert {(f.gmail_id, f.problem) for f in found} == {
@@ -264,3 +287,79 @@ def test_problem_listing_is_capped(folder, capsys):
 def test_sample_must_be_positive(folder):
     with pytest.raises(SystemExit):
         cli.main(["verify", "--sample", "0"])
+
+
+# ── backup's check of the next slice ─────────────────────────────────────────
+
+
+def test_successive_checks_cover_the_backup_and_keep_their_place(folder):
+    starts, checked = [], 0
+    for _ in range(3):
+        report, start, taken = verify.verify_next(folder, 2)
+        assert taken == 2
+        starts.append(start)
+        checked += report.checked
+    assert starts == [0, 2, 1] and checked == 6  # g1 g2, g3 g1, g2 g3
+    con = sidecar.open_meta(folder)
+    try:
+        assert sidecar.get_state(con, verify.CURSOR) == "0"
+        runs = con.execute("SELECT status, failed FROM runs WHERE command = 'verify'")
+        assert runs.fetchall() == [("ok", 0)] * 3
+    finally:
+        con.close()
+
+
+def test_a_slice_finds_a_damaged_file_in_it_and_only_then(folder):
+    eml_path(folder, "g3").write_bytes(eml("g3", "changed"))
+    assert verify.verify_next(folder, 2)[0].ok  # g1, g2
+    assert problems(verify.verify_next(folder, 2)[0]) == {("g3", MISMATCH)}
+    con = sidecar.open_meta(folder)
+    try:
+        last = "SELECT status, failed FROM runs WHERE command = 'verify' ORDER BY run_id DESC"
+        assert con.execute(last).fetchone() == ("failures", 1)  # for report health
+    finally:
+        con.close()
+
+
+@pytest.fixture
+def run_backup(folder, monkeypatch):
+    """`mailcellar backup` on the fixture's backup, its mailbox a FakeMailbox."""
+    gmail = FakeMailbox({g: raw_response(g, body=eml(g)) for g in IDS})
+    monkeypatch.setattr(commands, "connect", lambda args: (ACCOUNT, folder, gmail))
+    return lambda *argv: commands.main(["backup", ACCOUNT, *argv])
+
+
+def test_backup_checks_the_next_slice_and_exits_1_on_damage(folder, run_backup, capsys):
+    assert run_backup("--verify", "2") == 0
+    assert f"{ACCOUNT}: 2 messages verified, no problems" in capsys.readouterr().out
+    eml_path(folder, "g3").write_bytes(eml("g3", "changed"))  # the next slice: g3, g1
+    assert run_backup("--verify", "2") == 1
+    out = capsys.readouterr()
+    assert f"g3  {MISMATCH}" in out.out and f"mailcellar verify {ACCOUNT} --chain" in out.err
+
+
+def test_backup_checks_the_whole_of_a_small_backup_by_default(run_backup, capsys):
+    assert run_backup() == 0
+    assert f"{ACCOUNT}: 3 messages verified, no problems" in capsys.readouterr().out
+
+
+def test_backup_verify_0_checks_nothing(folder, run_backup, capsys):
+    sql(folder, "meta.sqlite", "UPDATE messages SET content_hash = 'x'")
+    assert run_backup("--verify", "0") == 0
+    assert "verified" not in capsys.readouterr().out
+
+
+def test_backup_verify_must_not_be_negative(run_backup):
+    with pytest.raises(SystemExit):
+        run_backup("--verify", "-1")
+
+
+def test_a_check_that_cant_run_fails_the_check_not_the_backup(run_backup, monkeypatch, capsys):
+    def unreadable(folder, sample):
+        raise sidecar.MetaError("meta.sqlite can't be read")
+
+    monkeypatch.setattr(verify, "verify_next", unreadable)
+    assert run_backup() == 1
+    out = capsys.readouterr()
+    assert "Downloaded 0 messages" in out.out
+    assert "the check after the backup failed: meta.sqlite can't be read" in out.err

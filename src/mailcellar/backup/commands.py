@@ -10,7 +10,10 @@ gyb folder moved there is continued as it is.
           every folder and compares it with the last run's. Gmail lists
           everything when there is no history to start from, the history
           has expired, or with --full, --search or --refresh-labels
-          (which re-syncs the labels of every backed-up message).
+          (which re-syncs the labels of every backed-up message). Then it
+          checks the files of the next --verify N messages (default an
+          eighth of the backup), from where the last run's check stopped, so
+          successive runs check the whole backup (verify.verify_next).
   count   Compare the mailbox with the backup: what is missing locally, and
           what the backup holds that the mailbox no longer has, offloaded
           mail apart. Changes nothing.
@@ -33,13 +36,15 @@ Usage
   mailcellar meta personal
 
 Exit status is 1 if an account failed, any message could not be fetched
-(backup), or the backup is missing messages (count).
+or the check found a damaged file (backup), or the backup is missing
+messages (count).
 """
 
 import argparse
 import base64
 import hashlib
 import logging
+import sqlite3
 import sys
 import time
 from collections.abc import Collection, Mapping
@@ -49,7 +54,7 @@ from datetime import datetime
 from pathlib import Path
 
 from mailcellar import gmailapi, mailbox
-from mailcellar.backup import chain, gyb, sidecar
+from mailcellar.backup import chain, gyb, sidecar, verify
 from mailcellar.mailbox import mailbox_name
 from mailcellar.message import PARSER_VERSION, parse_eml, parse_message
 from mailcellar.offload import forget
@@ -507,20 +512,41 @@ def cmd_backup(args) -> int:
                 f"from {mailbox_name(gmail.provider)}; 'mailcellar forget --deleted' would "
                 "take them, and any deleted before, out of the backup."
             )
+        status = 0
         if stats["failed"]:
             logger.warning(
                 f"{len(stats['failed']):,} messages could not be fetched, e.g. "
                 f"{stats['failed'][0]}. Re-run backup to retry them."
             )
-            return 1
-        if stats["unread"]:
+            status = 1
+        elif stats["unread"]:
             logger.warning(
                 f"{len(stats['unread']):,} folders couldn't be read and were left as they "
                 f"were in the backup: {', '.join(stats['unread'])}. Their mail isn't taken "
                 "as deleted; the warnings above say why."
             )
-            return 1
-    return 0
+            status = 1
+    if args.verify != 0:  # after logging out: it reads only local files
+        status = max(status, check_next(account, folder, args.verify))
+    return status
+
+
+def check_next(account: str, folder: Path, sample: int | None) -> int:
+    """backup --verify: the next slice of the backup's files (verify.verify_next); 1 if damaged."""
+    try:
+        report, start, taken = verify.verify_next(folder, sample)
+    except (sqlite3.Error, OSError, ValueError, sidecar.MetaError) as exc:
+        logger.error(f"{account}: the check after the backup failed: {exc}")
+        return 1
+    logger.info(
+        f"Checked {taken:,} of the backup's {report.indexed:,} messages, "
+        f"from number {start + 1:,} on"
+    )
+    verify.show(report, top=10, only_offloaded=False)
+    if report.ok:
+        return 0
+    logger.warning(f"Run 'mailcellar verify {account} --chain' to check the whole backup.")
+    return 1
 
 
 # ── meta backfill ────────────────────────────────────────────────────────────
@@ -862,6 +888,15 @@ def main(argv=None, prog: str | None = None) -> int:
         help="List every message instead of reading Gmail's history since the last run",
     )
     p_backup.add_argument(
+        "--verify",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Then check the files of the next N backed-up messages, from where the last "
+        "backup's check stopped, as verify does (default: an eighth of the backup, at least "
+        f"{verify.MIN_SLICE:,}, so weekly backups check it all in two months; 0: none)",
+    )
+    p_backup.add_argument(
         "--unattended",
         action="store_true",
         help="For scheduled runs: never open a browser. A token that needs signing in fails "
@@ -883,6 +918,8 @@ def main(argv=None, prog: str | None = None) -> int:
     p_meta.set_defaults(func=cmd_meta)
 
     args = p.parse_args(argv)
+    if (getattr(args, "verify", None) or 0) < 0:
+        p.error("--verify needs 0 or a positive number")
     try:
         accounts = args.accounts or sorted(gmailapi.config_accounts(Path(args.config)))
     except gmailapi.GmailError as exc:

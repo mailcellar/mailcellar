@@ -206,7 +206,8 @@ CREATE TABLE IF NOT EXISTS runs (
     run_id           INTEGER PRIMARY KEY,
     started_ms       INTEGER NOT NULL,    -- ms since epoch, UTC
     finished_ms      INTEGER NOT NULL,
-    command          TEXT NOT NULL,       -- 'backup' | 'count' | 'sync' (= --prune, before 0.19.0)
+    command          TEXT NOT NULL,       -- 'backup' | 'count' | 'verify' (backup's check) |
+                                          -- 'sync' (= --prune, before 0.19.0)
     mode             TEXT NOT NULL DEFAULT '',  -- backup: 'history' | 'full'
     reason           TEXT NOT NULL DEFAULT '',  -- why full: 'no-history' | 'expired' |
                                                 -- 'full' | 'search' | 'refresh-labels';

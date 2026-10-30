@@ -9,7 +9,7 @@ connection, with temp views that combine the accounts.
   all_recipients      account + recipients
   all_message_labels  account, gmail_id, label_id, name, type
   all_labels          account + the label catalogue (label_id, name, type)
-  all_runs            account + runs (backup, count and prune runs)
+  all_runs            account + runs (backup, count, verify and prune runs)
   all_state           account + meta (name, value: schema_version, history_id)
   all_offloaded       account + offloaded (removed from Gmail, kept in the backup)
   all_forgotten       account + forgotten (offloaded, then deleted from the backup)

@@ -72,7 +72,9 @@ Log:   <data root>/logs/backup.log
 
 `schedule status` exits 1 if anything needs attention: an account whose last
 backup failed, or is more than two intervals old (one missed run is made up
-when the Mac wakes), has no backup run recorded, or has no token; a token
+when the Mac wakes), has no backup run recorded, or has no token; damaged
+files that the checks after the last eight backups found (a damaged file
+is found again each pass until it is repaired); a token
 more than `token_warn_days` past consent; or an agent that is installed but
 not loaded.
 

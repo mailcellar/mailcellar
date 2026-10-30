@@ -1,7 +1,9 @@
 """
 verify: check that each backup's files are still intact. Read-only: both
 databases are opened read-only, and nothing is recorded. It needs no Gmail
-access.
+access. `backup` also checks the next slice of the index after each run
+(verify_next): that records only where the next slice starts, and the
+check as a 'verify' run in meta.sqlite's runs log, for report health.
 
 Once mail is offloaded and Gmail has emptied its Trash, the backup holds the
 only copy, so this looks for what would otherwise go unnoticed: a failing
@@ -25,8 +27,9 @@ fills it in. A message with no visible text or attachments has an empty
 content hash by design (message.content_hash), so it is counted apart, as
 empty: still parsed, and still empty, but its bytes are --chain's to check.
 
-The decisions are pure functions (judge, select, disagreements) over frozen
-values; reading the files and databases is a thin layer around them.
+The decisions are pure functions (judge, select, advance, disagreements)
+over frozen values; reading the files and databases is a thin layer around
+them.
 """
 
 import argparse
@@ -34,6 +37,7 @@ import logging
 import random
 import sqlite3
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,6 +57,8 @@ UNREADABLE = "file does not parse"
 MISMATCH = "content hash differs from meta.sqlite"
 NOT_INDEXED = "offloaded, but not in the backup's index"
 NOT_IN_INDEX = "in meta.sqlite, but not in the backup's index"
+CURSOR = "verify_next"  # meta.sqlite state: where backup's next slice starts
+PASS_RUNS, MIN_SLICE = 8, 1000  # backup's slice: an eighth of the backup, at least 1,000
 
 
 class VerifyError(Exception):
@@ -123,18 +129,45 @@ def judge(read: Read, stored: Stored | None) -> str:
 
 
 def select(
-    entries: list[Entry], offloaded: set[str] | None, sample: int | None, rng: random.Random
+    entries: list[Entry],
+    offloaded: set[str] | None,
+    sample: int | None,
+    rng: random.Random,
+    start: int | None = None,
 ) -> list[Entry]:
     """
     The entries to check: only offloaded ones when `offloaded` is given, then
     `sample` of them at random if that is smaller. In index order otherwise,
-    so progress and findings are stable from run to run.
+    so progress and findings are stable from run to run. With `start`, the
+    `sample` from that position on instead, wrapping at the end: successive
+    slices cover every entry, which random samples never promise.
     """
     chosen = [e for e in entries if offloaded is None or e.gmail_id in offloaded]
+    if start is not None and chosen:
+        at = start % len(chosen)
+        return (chosen[at:] + chosen[:at])[:sample]
     if sample is not None and sample < len(chosen):
         keep = {e.gmail_id for e in rng.sample(chosen, sample)}
         chosen = [e for e in chosen if e.gmail_id in keep]
     return chosen
+
+
+def advance(start: int, sample: int, total: int) -> int:
+    """Where the slice after `sample` entries from `start` begins, of `total`."""
+    return (start + min(sample, total)) % total if total else 0
+
+
+def slice_size(total: int) -> int:
+    """
+    backup's default slice: the whole backup in PASS_RUNS runs, two months
+    of weekly backups; at least MIN_SLICE.
+    """
+    return max(MIN_SLICE, -(-total // PASS_RUNS))
+
+
+def cursor(value: str | None) -> int:
+    """The stored start of the next slice; 0 when there is none, or it isn't a number."""
+    return int(value) if value and value.isdigit() else 0
 
 
 def disagreements(
@@ -216,8 +249,13 @@ def verify_backup(
     only_offloaded: bool = False,
     sample: int | None = None,
     rng: random.Random | None = None,
+    start: int | None = None,
 ) -> Report:
-    """Check one backup folder. Raises VerifyError when --offloaded can't be answered."""
+    """
+    Check one backup folder: every message, `sample` at random, or, with
+    `start`, the `sample` from that position in the index (select). Raises
+    VerifyError when --offloaded can't be answered.
+    """
     rng = rng or random.Random()
     account = backup_account(folder)
     entries = read_index(folder)
@@ -226,7 +264,7 @@ def verify_backup(
         raise VerifyError(f"{account}: the offload record is unavailable ({note})")
 
     scope = offloaded if only_offloaded else None
-    chosen = select(entries, scope, sample, rng)
+    chosen = select(entries, scope, sample, rng, start)
     # Rows without an index entry are only looked for when every message is checked.
     full = not only_offloaded and sample is None
     findings = disagreements({e.gmail_id for e in entries}, set(stored) if full else set(), scope)
@@ -246,6 +284,35 @@ def verify_backup(
                 findings.append(Finding(entry.gmail_id, verdict, read.detail or entry.path))
             checking.advance()
     return Report(account, len(entries), checked, unchecked, tuple(findings), note, empty)
+
+
+def verify_next(folder: Path, sample: int | None = None) -> tuple[Report, int, int]:
+    """
+    backup's check after each run: the next `sample` messages of the index
+    (default slice_size), from where the last check stopped, so that
+    successive backups check the whole backup. Records where the next one
+    starts, and the check as a 'verify' run (problems as `failed`), in
+    meta.sqlite: the only things it writes. Returns the report, where this
+    one started and how many it took.
+    """
+    sample = sample or slice_size(len(read_index(folder)))
+    mcon = sidecar.open_meta(folder)
+    try:
+        started = int(time.time() * 1000)
+        start = cursor(sidecar.get_state(mcon, CURSOR))
+        report = verify_backup(folder, sample=sample, start=start)
+        sidecar.set_state(mcon, CURSOR, str(advance(start, sample, report.indexed)))
+        sidecar.record_run(  # commits
+            mcon,
+            "verify",
+            started,
+            int(time.time() * 1000),
+            "ok" if report.ok else "failures",
+            failed=len(report.findings),
+        )
+    finally:
+        mcon.close()
+    return report, start, min(sample, report.indexed)
 
 
 # ── command ──────────────────────────────────────────────────────────────────

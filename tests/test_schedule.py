@@ -11,7 +11,7 @@ import pytest
 
 from fake_mailbox import FakeMailbox, raw_response
 from mailcellar import cli, gmailapi
-from mailcellar.backup import commands, schedule, sidecar
+from mailcellar.backup import commands, schedule, sidecar, verify
 from mailcellar.backup.schedule import Job, Schedule
 
 A, B = "a@x.com", "b@y.com"
@@ -287,6 +287,22 @@ def test_status_reports_the_last_run_even_a_failed_one(home, capsys):
     assert run("status") == 1
     line = next(x for x in capsys.readouterr().out.splitlines() if x.strip().startswith(A))
     assert ", error" in line  # the unattended run that could not sign in
+
+
+def test_status_flags_damage_the_checks_found_until_a_pass_has_gone_by(home, capsys):
+    run("install")
+    con = sidecar.open_meta(Path.cwd() / "data" / A)
+    now = int(datetime.now(UTC).timestamp() * 1000)
+    sidecar.record_run(con, "verify", now, now, "failures", failed=2)
+    for n in range(verify.PASS_RUNS - 1):
+        sidecar.record_run(con, "verify", now + n + 1, now + n + 1, "ok", failed=0)
+    assert run("status") == 1
+    line = next(x for x in capsys.readouterr().out.splitlines() if x.strip().startswith(A))
+    assert f"found 2 damaged files (mailcellar verify {A} --chain)" in line
+    sidecar.record_run(con, "verify", now + 99, now + 99, "ok", failed=0)  # a pass later
+    con.close()
+    assert run("status") == 0
+    assert "damaged" not in capsys.readouterr().out
 
 
 def test_status_flags_an_overdue_backup(home, capsys):

@@ -36,7 +36,6 @@ A backup you set up once and check now and then:
 | Once | `mailcellar schedule install` | a weekly unattended backup |
 | After the first backup | `mailcellar count` | Gmail's message count against the backup's |
 | Every month or so | `mailcellar report health` | the last run of each account, gaps, tokens that need signing in |
-| Every month or so | `mailcellar verify --sample 500` | 500 random files are intact |
 | Before and after an offload | `mailcellar verify --offloaded` | the copies with no other source are intact |
 
 `backup` catches up from Gmail's change history, which Gmail keeps for about
@@ -52,8 +51,13 @@ Chats are skipped, so they never show as missing
 file, the file parses, and its content hash matches the one recorded in
 `meta.sqlite`. It needs no Gmail access and changes nothing. It is what
 catches a failing disk, a sync tool that rewrote files, or an accidental
-delete. Run the full `mailcellar verify` occasionally: it parses every
-message, so on a large backup it takes a while.
+delete. Each `backup` runs part of it, an eighth of the backup by
+default, carrying on from where the last one stopped, so a weekly backup
+has checked every file after two months; a damaged file makes it exit 1
+and shows as a failed `verify` run in `report health`. Run the full
+`mailcellar verify` occasionally too: it parses every message, so on a
+large backup it takes a while, and it also checks that the two databases
+agree.
 
 `verify --chain` also catches a change made on purpose. Every `backup`,
 `restore` and `forget` records what it added or removed,
