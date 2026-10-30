@@ -179,7 +179,9 @@ gives.
 shared folder you can't read, say), or wouldn't list all its messages.
 The rest is backed up, the skipped folder is left as it was in the
 backup (its mail isn't taken as deleted), and the run ends with an
-error, so a scheduled backup records it.
+error, so a scheduled backup records it. While a folder is skipped,
+`restore` appends nothing (the message may be in that folder, unseen) and
+says so; it still moves back what it finds in Trash.
 
 **"certificate verify failed":** your server's certificate isn't one the
 system trusts. Give its CA with `--cafile`.

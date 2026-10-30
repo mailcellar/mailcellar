@@ -119,7 +119,7 @@ def test_dry_run_says_what_it_would_do_and_changes_nothing(env, capsys):
     assert "Nothing in the mailbox or the backup was changed" in captured.out
     # Progress lines go to stderr, unless --quiet.
     assert captured.err.startswith("Checked 5 backup copies")
-    assert "Searching Gmail for the Message-IDs" in captured.err
+    assert "Searching Gmail for other copies of" in captured.err
     run("--batch", BATCH, "--quiet")
     assert capsys.readouterr().err == ""
 

@@ -12,7 +12,7 @@ from mailcellar import cli, gmailapi, imap, mailbox
 from mailcellar.backup import commands, gyb, sidecar
 from mailcellar.dedup.apply import DEDUP_LABEL, apply_plan
 from mailcellar.offload import cli as offload_cli
-from mailcellar.paths import backup_folder
+from mailcellar.paths import backup_folder, data_root
 from mailcellar.restore import apply as restore_apply
 from test_imap_scan import account, ids_by_msgid
 from test_index import make_eml
@@ -721,7 +721,7 @@ def test_restore_appends_mail_the_server_no_longer_has(home, tmp_path, capsys):
     capsys.readouterr()
     assert cli.main(["restore", "home", "--offloaded", "--yes"]) == 0
     err = capsys.readouterr().err
-    assert "Searching the server for the Message-IDs" in err and "Gmail" not in err
+    assert "Searching the server for other copies" in err and "Gmail" not in err
     back = home.folders["Projects"]["uids"].values()
     assert len(back) == 3 and all("\\Seen" in m["flags"] for m in back)
     assert {m["date"] for m in back} == {OLD}  # the Date header's date, as Gmail's import takes it
@@ -737,6 +737,23 @@ def test_a_large_restore_reads_the_servers_state_from_its_listing(
     monkeypatch.setattr(restore_apply, "LISTING_THRESHOLD", 0)  # as for over 1,000 messages
     assert cli.main(["restore", "home", "--offloaded", "--yes"]) == 0
     assert not home.folders["Trash"]["uids"] and len(home.folders["Projects"]["uids"]) == 3
+
+
+@pytest.mark.parametrize("many", [False, True])
+def test_restore_appends_nothing_while_a_folder_cant_be_read(
+    home, tmp_path, capsys, monkeypatch, many
+):
+    offload_two(home, tmp_path)
+    if many:  # answered from the listing, not one by one
+        monkeypatch.setattr(restore_apply, "LISTING_THRESHOLD", 0)
+    home.refused.add("Trash")  # the two offloaded messages are there, unseen
+    cli.main(["restore", "home", "--offloaded", "--yes"])
+    assert len(home.folders["Projects"]["uids"]) == 1  # the one kept: nothing appended
+    assert len(home.folders["Trash"]["uids"]) == 2
+    with next(data_root().rglob("restore-log.csv")).open(newline="", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    assert {r["outcome"] for r in rows} == {"skipped"}
+    assert all("folders couldn't be read (Trash)" in r["detail"] for r in rows)
 
 
 # ── folder review: the review's findings ─────────────────────────────────────

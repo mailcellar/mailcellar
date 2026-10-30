@@ -506,14 +506,17 @@ def decide(
     hashes: dict[str, str],
     provider: str,
     restored_as: str = "",
+    unread: tuple[str, ...] = (),
 ) -> Decision:
     """
     A candidate's way back, from what was read: the backup check (`problem`,
     `copy`); the ID an earlier restore put it back under, if the mailbox
     still has that copy (`restored_as`); in its own account, the mailbox's
     labels for its ID (None if it no longer has it); and the other messages
-    with its Message-ID (`hits`) with their content hashes. Details name the
-    mailbox by `provider` (mailbox_name). Pure: no I/O.
+    with its Message-ID (`hits`) with their content hashes. While folders of
+    an IMAP mailbox couldn't be read (`unread`), nothing is imported: the
+    message may be there, unseen (#146). Details name the mailbox by
+    `provider` (mailbox_name). Pure: no I/O.
     """
     where, start = mailbox_name(provider), mailbox_name(provider, start=True)
     if problem or copy is None:
@@ -545,6 +548,11 @@ def decide(
             decision,
             detail=f"{start} has its Message-ID with other content ({', '.join(hits)}); "
             "an import would only match that message",
+        )
+    if unread:
+        return replace(
+            decision,
+            detail=f"{start} may have it unseen: folders couldn't be read ({', '.join(unread)})",
         )
     no_id = "no Message-ID: a crash during the import could leave a duplicate"
     return replace(decision, way=IMPORT, detail="" if copy.message_id else no_id)
@@ -596,11 +604,12 @@ def plan(
 
     # Gone: does the mailbox have the Message-ID under another ID?
     if gone:
-        progress(f"Searching {where} for the Message-IDs of {len(gone):,} messages it doesn't have")
+        progress(f"Searching {where} for other copies of {len(gone):,} messages, by Message-ID")
     with_id = {c.source_id: copies[c.source_id].message_id for c in gone}
     wanted = {k: m for k, m in with_id.items() if m}
     with Progress("Searching for Message-IDs", len(wanted)):
         searched = gmail.find_message_ids(wanted)
+    unread = gmail.unread()  # IMAP folders the state and the search above couldn't see
     # In its own account a message's own ID isn't another copy; elsewhere any ID is.
     hits = {
         c.source_id: [
@@ -630,6 +639,7 @@ def plan(
             hashes=hashes,
             provider=gmail.provider,
             restored_as=still.get(c.source_id, ""),
+            unread=unread,
         )
         for c, (problem, copy) in zip(cands, checks, strict=True)
     ]
