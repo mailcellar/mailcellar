@@ -716,7 +716,7 @@ def test_restore_takes_offloaded_mail_out_of_trash_home(home, tmp_path, capsys):
     assert not home.folders["Trash"]["uids"] and len(home.folders["Projects"]["uids"]) == 3
     flags = [m["flags"] for m in home.folders["Projects"]["uids"].values()]
     assert not any("$mailcellar-offload-candidate" in f for f in flags)  # the mark taken off
-    assert sum(any(k.startswith("$mailcellar-restored.") for k in f) for f in flags) == 2
+    assert sum(any(k.startswith("$mailcellar-restored_") for k in f) for f in flags) == 2
     assert cli.main(["backup", "home"]) == 0
     capsys.readouterr()
     assert cli.main(["count", "home"]) == 0
@@ -958,7 +958,7 @@ def test_labels_become_folders_and_flags_for_an_append():
     )
     assert plan.folders == ("Projects", "Receipts.2026", "Sent Messages")
     assert plan.create == ("Receipts.2026",)  # in the server's own hierarchy
-    assert plan.flags == "(\\Flagged $mailcellar-restored.2026-10-27)"  # unread: no \Seen
+    assert plan.flags == "(\\Flagged $mailcellar-restored_2026-10-27)"  # unread: no \Seen
     assert imap.append_plan({"INBOX"}, folders, ".").flags == "(\\Seen)"
     archived = imap.append_plan({"UNREAD"}, folders, ".")  # no folder label: archived in Gmail
     assert archived.folders == ("Archive",) and archived.create == ("Archive",)
@@ -1196,7 +1196,7 @@ def test_a_gmail_backup_restores_into_an_imap_account(gmail, home, tmp_path):
         name: [
             (
                 m["raw"].split(b"Message-ID: <")[1][:2],
-                {f for f in m["flags"] if not f.startswith("$mailcellar-restored.")},
+                {f for f in m["flags"] if not f.startswith("$mailcellar-restored_")},
             )
             for m in f["uids"].values()
         ]
@@ -1209,7 +1209,7 @@ def test_a_gmail_backup_restores_into_an_imap_account(gmail, home, tmp_path):
     assert not [n for n in home.folders if "IMPORTANT" in n.upper() or "CATEGORY" in n.upper()]
     restored = [m for f in home.folders.values() for m in f["uids"].values()]
     assert (
-        sum(any(k.startswith("$mailcellar-restored.") for k in m["flags"]) for m in restored) == 4
+        sum(any(k.startswith("$mailcellar-restored_") for k in m["flags"]) for m in restored) == 4
     )
 
 

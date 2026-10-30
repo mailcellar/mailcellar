@@ -328,27 +328,31 @@ def review_label(label: str) -> str | None:
 def keyword_for(label: str) -> str:
     """
     The keyword that carries one of mailcellar's labels (`offload-candidate`,
-    `restored/2026-10-27`): $mailcellar- and the label, '/' as '.'. GmailError
-    for a label a keyword can't carry, naming the form it can. Pure.
+    `restored/2026-10-27`): $mailcellar- and the label, '/' as '_'. Not '.',
+    which RFC 3501 allows but iCloud refuses ("BAD Parse Error"); labels have
+    no '_', so the keyword still reads back as its label. GmailError for a
+    label a keyword can't carry, naming the form it can. Pure.
     """
     if not KEYWORD_SAFE.match(label):
         raise gmailapi.GmailError(
             f"{label!r} can't be marked on an IMAP server: use lowercase letters, digits, "
             "'-' and '/' (as offload-candidate or restored/2026-10-27)"
         )
-    return KEYWORD_PREFIX + label.replace("/", ".")
+    return KEYWORD_PREFIX + label.replace("/", "_")
 
 
 def label_from_keyword(keyword: str) -> str | None:
     """
     The label one of mailcellar's keywords carries, or None for any other flag:
     only keywords in the form keyword_for writes count (any case, as IMAP
-    keywords are), so every mark read can be cleared again. Pure.
+    keywords are), so every mark read can be cleared again. '/' written as
+    '.', as earlier versions wrote it, still counts: only restored/<date>
+    has one, and nothing takes that off. Pure.
     """
     lowered = keyword.lower()
     if not lowered.startswith(KEYWORD_PREFIX) or "/" in lowered:
         return None
-    label = lowered[len(KEYWORD_PREFIX) :].replace(".", "/")
+    label = lowered[len(KEYWORD_PREFIX) :].replace("_", "/").replace(".", "/")
     return label if KEYWORD_SAFE.match(label) else None
 
 

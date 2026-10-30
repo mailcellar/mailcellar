@@ -382,7 +382,7 @@ def test_offload_by_keyword_then_restore_from_trash(
     back = projects(dovecot, user)
     assert all("\\Seen" in m.flags and m.internal == OLD_MS for m in back)  # as they were
     assert not any("$mailcellar-offload-candidate" in m.flags for m in back)  # mark taken off
-    restored = [m for m in back if any(f.startswith("$mailcellar-restored.") for f in m.flags)]
+    restored = [m for m in back if any(f.startswith("$mailcellar-restored_") for f in m.flags)]
     assert len(restored) == 2  # the keyword, '.' and all, kept by a real server
 
 
