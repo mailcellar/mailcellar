@@ -7,12 +7,15 @@ in beta, so commands and options may still change before 1.0.
 
 ## Unreleased
 
-**Upgrading from 0.19.0:** scripts that still run `backup --prune` or
-`offload forget` now fail with a usage error before doing anything; use
-`mailcellar backup` with `mailcellar forget --deleted` at a terminal, and
-`mailcellar forget`, as 0.19.0 said. Nothing reads `<data root>/_pruned/`
-any more: before upgrading, put back what you need from it with
-`restore --from-pruned`, then delete the folder.
+## 0.20.0 (2026-10-30)
+
+**Upgrading from 0.19.0:** no database's schema changes. Scripts that
+still run `backup --prune` or `offload forget` now fail with a usage
+error before doing anything; use `mailcellar backup` with
+`mailcellar forget --deleted` at a terminal, and `mailcellar forget`, as
+0.19.0 said. Nothing reads `<data root>/_pruned/` any more: before
+upgrading, put back what you need from it with `restore --from-pruned`,
+then delete the folder.
 
 ### Removed
 - `backup --prune`, with its `--yes` and `--force`: use
