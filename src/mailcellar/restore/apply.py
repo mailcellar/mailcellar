@@ -645,7 +645,7 @@ def gmail_state(gmail, ids: list[str]) -> dict[str, set[str] | None]:
         with Progress(f"Reading {mailbox_name(gmail.provider)}'s state", len(ids)):
             return gmail.message_labels(ids) if ids else {}
     present = set(gmail.list_message_ids(include_spam_trash=True))
-    trash = set(gmail.list_message_ids("in:trash", include_spam_trash=True))
+    trash = set(gmail.list_message_ids(include_spam_trash=True, label_id="TRASH"))
     return {gid: ({"TRASH"} if gid in trash else set()) if gid in present else None for gid in ids}
 
 

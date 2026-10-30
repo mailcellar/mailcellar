@@ -156,8 +156,6 @@ class FakeMailbox:
     # ── listing ──────────────────────────────────────────────────────────────
     def list_message_ids(self, query=None, include_spam_trash=False, label_id=None):
         self.queries.append(query)
-        if query == "in:trash":
-            return list(self.trashed)
         if label_id is None:
             self.list_calls += 1
         return [

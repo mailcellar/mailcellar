@@ -523,7 +523,6 @@ def test_all_leaves_mail_still_in_gmail_alone(env, capsys, monkeypatch):
     monkeypatch.setattr(restore, "LISTING_THRESHOLD", 0)
     monkeypatch.setattr(env, "message_labels", lambda ids: pytest.fail("looked up one by one"))
     run("--all")
-    assert "in:trash" in env.queries
     got = log()
     assert got["k1"][0] == "already in the mailbox" and "x1" not in got  # x1 was never backed up
     assert (

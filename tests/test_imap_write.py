@@ -13,6 +13,7 @@ from mailcellar.backup import commands, gyb, sidecar
 from mailcellar.dedup.apply import DEDUP_LABEL, apply_plan
 from mailcellar.offload import cli as offload_cli
 from mailcellar.paths import backup_folder
+from mailcellar.restore import apply as restore_apply
 from test_imap_scan import account, ids_by_msgid
 from test_index import make_eml
 
@@ -727,6 +728,15 @@ def test_restore_appends_mail_the_server_no_longer_has(home, tmp_path, capsys):
     capsys.readouterr()
     assert cli.main(["backup", "home"]) == 0
     assert "Downloaded 0 messages" in capsys.readouterr().out  # the same IDs: nothing new
+
+
+def test_a_large_restore_reads_the_servers_state_from_its_listing(
+    home, tmp_path, capsys, monkeypatch
+):
+    offload_two(home, tmp_path)
+    monkeypatch.setattr(restore_apply, "LISTING_THRESHOLD", 0)  # as for over 1,000 messages
+    assert cli.main(["restore", "home", "--offloaded", "--yes"]) == 0
+    assert not home.folders["Trash"]["uids"] and len(home.folders["Projects"]["uids"]) == 3
 
 
 # ── folder review: the review's findings ─────────────────────────────────────
