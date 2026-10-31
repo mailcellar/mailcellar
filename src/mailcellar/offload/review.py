@@ -98,7 +98,7 @@ def _keys(scope: dict[str, list]) -> str:
 
 def rule_text(rule: Rule) -> str:
     """What the rule selects, in one line: its scope, cut-off, keep_if and retention."""
-    text = _keys(rule.scope)
+    text = _keys(rule.scope) or "all mail"
     text += f" · from {day(rule.after_ms)}" if rule.after_ms is not None else ""
     text += f" · before {day(rule.before_ms)}"
     if rule.exceptions:

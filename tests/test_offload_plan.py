@@ -301,7 +301,10 @@ def test_plan_changes_nothing(data):
     ("rules", "error"),
     [
         ('[[rule]]\nname = "x"\nlabel = "a"\n', "before is required"),
-        ('[[rule]]\nname = "x"\nbefore = "5"\n', "needs at least one of"),
+        ('[[rule]]\nname = "x"\nbefore = "5"\n', 'or scope = "all"'),
+        ('[[rule]]\nname = "x"\nbefore = "5"\nscope = "everything"\n', 'can only be "all"'),
+        ('[[rule]]\nname = "x"\nbefore = "5"\nscope = true\n', 'can only be "all"'),
+        ('[[rule]]\nname = "x"\nbefore = "5"\nscope = "all"\nlabel = "a"\n', "takes no label"),
         ('[[rule]]\nname = "x"\nbefore = "5"\nlable = "a"\n', "unknown keys ['lable']"),
         ('[[rule]]\nname = "x"\nbefore = "soon"\nlabel = "a"\n', "give a date"),
         ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nwaive = ["thred"]\n', "thred"),
@@ -599,6 +602,22 @@ def test_a_forget_after_no_longer_than_before_is_warned_about(data, caplog):
     assert "'fine'" not in caplog.text
 
 
+def test_a_scope_all_rule_that_keeps_nothing_is_warned_about(data, caplog):
+    rules = (
+        '[[rule]]\nname = "bare"\nbefore = "7"\nscope = "all"\nkeep = []\n'
+        '[[rule]]\nname = "kept"\nbefore = "7"\nscope = "all"\nkeep = []\n'
+        'keep_if = { label = "work" }\n'
+        '[[rule]]\nname = "default"\nbefore = "7"\nscope = "all"\n'
+        '[[rule]]\nname = "scoped"\nbefore = "7"\nlabel = "a"\nkeep = []\n'
+    )
+    run(data, rules)
+    assert (
+        "rule 'bare': scope = \"all\" with keep = [] selects every message before 7 in every "
+        "account, your own and starred mail included"
+    ) in caplog.text
+    assert not [n for n in ("kept", "default", "scoped") if f"rule '{n}'" in caplog.text]
+
+
 # ── bulk, to, attachment, after ──────────────────────────────────────────────
 
 EARLIER = 1_240_000_000_000  # 2009-04-17
@@ -761,6 +780,16 @@ def test_try_runs_after_the_files_rules(data, capsys):
         rows = list(csv.DictReader(fh))
     assert {r["gmail_id"] for r in rows} == {"w1", "w8", "p2", "t1", "b1"}  # as the file's work
     assert {r["rule"] for r in rows} == {"try"}
+
+
+def test_scope_all_selects_by_date_and_the_protections_still_apply(data, capsys):
+    plan_try(data, 'scope = "all", before = "2020-01-01"', "--rules", "none", "--plan", "all.csv")
+    with open(data / "all.csv", newline="", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    # Everything before the cut-off but mail in Trash, already offloaded, and
+    # what keep's default keeps: yours, starred, conversations, user-labelled
+    assert {r["gmail_id"] for r in rows} == {"p1", "p3", "f1", "f2", "n1", "n2", "n3", "n4", "n5"}
+    assert 'scope = "all"' in capsys.readouterr().out  # the rule to paste says so
 
 
 def test_try_reviews_only_its_rule(data, capsys):

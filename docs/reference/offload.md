@@ -13,12 +13,20 @@ name = "old work mail"
 account = "work"
 label = "work"           # or sender, list, forwarded_from, category, subject, to_me, to,
                          # bulk, attachment, larger_than_mb, query; different keys must all match
+# scope = "all"          # instead of scope keys: every message from after to before
 before = "2022-01-01"    # or a number of years ago, e.g. "5"
 # after = "2012-01-01"   # and no older than this, written like before
 # keep = ["mine", "starred", "labelled"]   # what stays in the mailbox; see below
 # keep_if = [{ subject = "contract" }, { sender = "@client.example", to_me = true }]
 # forget_after = 7       # retention: forget what it offloaded 7 years after its date
 ```
+
+A rule needs at least one scope key, so that leaving them out can't
+select everything by accident. To select by date alone, say so:
+`scope = "all"` selects every message from `after` to `before` and takes
+no scope key beside it. `keep` and `keep_if` still apply, so by default
+your own mail, starred mail, conversations and labelled mail stay; with
+`keep = []` and no `keep_if`, `plan` warns that the rule keeps nothing.
 
 Three scope keys select what the others can't say:
 

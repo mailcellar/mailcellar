@@ -46,6 +46,7 @@ from mailcellar.offload.plan import (
 from mailcellar.offload.review import write_reviews
 from mailcellar.offload.rules import (
     RuleError,
+    keeps_nothing,
     load_rules,
     parse_rule,
     read_try,
@@ -146,6 +147,8 @@ def cmd_plan(args) -> None:
             if rule.accounts and not set(rule.accounts) & set(accounts):
                 logger.warning(f"rule {rule.name!r}: none of its accounts is chosen")
             if why := short_retention(rule):
+                logger.warning(why)
+            if why := keeps_nothing(rule):
                 logger.warning(why)
             if rule.deprecated:
                 logger.warning(rule.deprecated)
