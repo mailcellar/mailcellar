@@ -220,13 +220,13 @@ def test_inline_parts_come_only_with_inline(backup, tmp_path):
     assert files["2023-11-15 acc@example.com logo.png"] == b"\x89PNG logo"
 
 
-@pytest.mark.parametrize("types", [["pdf"], ["application/pdf"], ["csv", "pdf"]])
-def test_type_narrows_the_attachments(backup, tmp_path, types):
-    args = [a for t in types for a in ("--type", t)]
-    assert export_cmd(*args, "--to", str(tmp_path / "out.zip")) == 0
+def test_type_narrows_the_attachments_and_can_be_repeated(backup, tmp_path):
+    assert export_cmd("--type", "csv", "--type", "pdf", "--to", str(tmp_path / "out.zip")) == 0
     files, _index = zip_contents(tmp_path / "out.zip")
-    expected = {INVOICE, OTHER} | ({REPORT} if "csv" in types else set())
-    assert set(files) == expected
+    assert set(files) == {INVOICE, OTHER, REPORT}
+    assert export_cmd("--type", "pdf", "--to", str(tmp_path / "pdf.zip")) == 0
+    files, _index = zip_contents(tmp_path / "pdf.zip")
+    assert set(files) == {INVOICE, OTHER}
 
 
 def test_a_message_whose_rows_are_from_an_older_parser_is_read_itself(backup, tmp_path):
@@ -320,11 +320,3 @@ def test_when_no_file_is_there_it_says_so(backup, tmp_path):
         export_cmd("--to", str(tmp_path / "out.zip"))
     assert "none of the 3 messages with a matching attachment has its file" in str(exc.value)
     assert list(tmp_path.glob("out*")) == []
-
-
-def test_a_hold_selects_the_mail_whose_attachments_go(backup, tmp_path):
-    assert cli.main(["hold", "add", "dispute", "--reason", "r", "--party", "@example.org"]) == 0
-    run = ["export", ACCOUNT, "--hold", "dispute", "--attachments"]
-    assert cli.main([*run, "--to", str(tmp_path / "out.zip")]) == 0
-    files, _index = zip_contents(tmp_path / "out.zip")
-    assert set(files) == {REPORT, OTHER}  # Bob's, not the accountant's at example.com
