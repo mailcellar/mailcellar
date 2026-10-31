@@ -53,6 +53,7 @@ provider's account settings and give that to `setup`.
 | iCloud Mail | `imap.mail.me.com` | `--username` with the part of the address before `@` (Apple: the full address if that fails); it has no MOVE, so offload and dedup are refused and restore only uploads |
 | Yahoo Mail | `imap.mail.yahoo.com` | it keeps no custom keywords: add `--review folder` to offload |
 | Fastmail | `imap.fastmail.com` | not yet tried with mailcellar |
+| Gmail | — | set it up without `--imap`, through the Gmail API, which keeps each message once with all its labels; over IMAP (`imap.gmail.com`, an app password) it is untried |
 
 Outlook.com and Microsoft 365 want OAuth over IMAP (XOAUTH2), which
 mailcellar doesn't do yet, so they aren't supported: `setup` refuses an
