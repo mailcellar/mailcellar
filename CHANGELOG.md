@@ -8,6 +8,8 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 
 ## Unreleased
 
+## 0.23.0 (2026-10-31)
+
 ### Added
 - `export --to NAME/` writes a maildir, for mutt, aerc, mu, notmuch or
   Dovecot: every message in `cur/` with its read, starred and draft flags,
