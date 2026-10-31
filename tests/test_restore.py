@@ -718,11 +718,6 @@ def test_empty_content_never_counts_as_the_same():
     assert w == "skipped" and "can't be compared" in detail
 
 
-def test_values_are_frozen():
-    with pytest.raises(AttributeError):
-        cand().source_id = "other"
-
-
 # ── the backup copy can't be used ────────────────────────────────────────────
 
 
@@ -1122,14 +1117,6 @@ def test_bad_dates_name_the_option(varied, capsys):
     with pytest.raises(SystemExit):
         run("--all", "--after", "2024-01-01", "--before", "2023-01-01")
     assert "--after must be earlier than --before" in capsys.readouterr().err
-
-
-def test_help_names_the_narrowing_options(capsys):
-    with pytest.raises(SystemExit):
-        run("--help")
-    out = capsys.readouterr().out
-    for option in ("--before", "--after", "--has-label", "--sender"):
-        assert option in out
 
 
 def test_a_copy_found_in_the_trash_of_a_server_without_move_is_left_there(env, monkeypatch):

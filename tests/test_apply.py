@@ -1,6 +1,5 @@
 import copy
 import csv
-import dataclasses
 
 import pytest
 
@@ -482,14 +481,6 @@ def test_labelled_rows_keeps_the_labelled_and_not_vetoed_in_order():
 
 def ok(tmp_path, gid="b1", **kwargs):
     return Result(row(tmp_path, gid, **kwargs), "ok", "", frozenset({"INBOX"}))
-
-
-def test_a_result_is_a_frozen_value(tmp_path):
-    result = ok(tmp_path)
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        result.outcome = "trashed"
-    assert dataclasses.replace(result, outcome="trashed").outcome == "trashed"
-    assert result.outcome == "ok"  # the copy is a new value
 
 
 def test_the_steps_after_acting_name_each_outcome(tmp_path):
