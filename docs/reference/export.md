@@ -1,5 +1,5 @@
 ---
-description: "Reference for mailcellar export: every option for copying mail from the backup to an mbox file, a maildir or a zip of .eml files."
+description: "Reference for mailcellar export: every option for copying mail from the backup to an mbox file, a maildir or a zip of .eml files, or just its attachments."
 ---
 
 # Exporting mail: export
@@ -15,6 +15,8 @@ mailcellar export personal --offloaded --to ~/old-mail.mbox      # for a mail cl
 mailcellar export personal --offloaded --to ~/old-mail/          # a maildir, for mutt, aerc, mu
 mailcellar export personal --all --after 2025-01-01 --before 2026-01-01 \
     --sender @example.com --to ~/for-the-accountant.zip                 # the .eml files and an index
+mailcellar export personal --all --after 2020-01-01 --sender @example.com \
+    --attachments --type pdf --to ~/invoices.zip                       # just the attached PDFs
 ```
 
 The selection is `restore`'s: `--batch`, `--rule`, `--id`, `--offloaded` or
@@ -46,10 +48,30 @@ Mail that has been restored is included, once.
   `=`, `+`, `-` or `@` gets a leading `'`, so a spreadsheet doesn't run a
   subject as a formula.
 
+**`--attachments`** writes the attached files themselves rather than the
+messages, to a `.zip` or a folder (a name ending `/`), with `index.csv`:
+
+- Each file is named `<date> <sender's address> <its filename>`, made safe
+  for Windows, macOS and Linux and cut to 150 bytes with its extension
+  kept. A part with no filename is named `attachment-<n>` with an
+  extension from its type; a name taken already gets ` (2)` (so it can
+  be a few bytes longer).
+- Only parts sent as attachments are taken. **`--inline`** adds the inline
+  ones too: images shown in the text, logos, signatures.
+- **`--type TYPE`** keeps only parts of that type, by MIME type
+  (`application/pdf`), subtype (`pdf`) or the filename's extension; it can
+  be repeated.
+- A file with the same content as one already written (the same PDF sent
+  twice) is written once.
+- `index.csv` has a row for every message and attachment, so a file sent
+  twice has two: date (UTC), sender, subject, ID, the attachment's
+  filename, its type and size, and the file it is in. Cells are guarded
+  against spreadsheet formulas as in a `.zip`.
+
 The file or folder is written under another name (ending `.part`) and
 renamed when it is complete, so an interrupted export leaves nothing that
-looks finished. It refuses a file or folder that already exists, a maildir's
-`.part` folder left by an interrupted export, and a place inside the backup. A message whose `.eml` file is
+looks finished. It refuses a file or folder that already exists, a
+`.part` folder left by an interrupted export to a folder, and a place inside the backup. A message whose `.eml` file is
 missing from the backup is left out and reported, and the exit status is 1:
 `mailcellar verify` shows what is missing.
 

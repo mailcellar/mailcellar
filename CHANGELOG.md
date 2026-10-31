@@ -14,6 +14,12 @@ keep stable is in [What stays stable](docs/reference/stability.md).
   its labels in `X-Gmail-Labels` and in `X-Keywords` as OfflineIMAP
   writes it, and `index.csv`. Like the other formats, it is written under
   another name and renamed when complete.
+- `export --attachments` writes the attached files themselves, not the
+  messages, to a zip or a folder, each named by its date, sender and
+  filename, with `index.csv` naming the message each came from: for
+  "every PDF the accountant sent since 2020". `--type` narrows by kind
+  (`pdf`), `--inline` adds images shown in the text, and a file sent
+  more than once is written once.
 
 ### Fixed
 - `restore --limit` and `export --limit` refuse a number below 1, as

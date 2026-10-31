@@ -20,6 +20,8 @@ labels, comma-separated); flags D, F and S from DRAFT, STARRED and UNREAD;
 index.csv at the top.
 zip: the .eml files under their paths in the backup (<year>/<month>/<day>/),
 and index.csv with the date, sender, subject, labels, ID and file.
+--attachments: the attached files instead of the messages, to a zip or a
+folder (attachments.py).
 
 The decisions (export_format, inside, takeout_names, imap_names, mbox_entry,
 maildir_name, maildir_entry, index_row, safe_cell) are pure; reading the backup
@@ -323,11 +325,7 @@ def write_zip(
                 skipped.append(c.source_id)
                 continue
             name = arcname(c, folder)
-            sent = max(time.gmtime(c.internal_date / 1000)[:6], (1980, 1, 1, 0, 0, 0))
-            info = zipfile.ZipInfo(name, date_time=sent)
-            info.compress_type = zipfile.ZIP_DEFLATED
-            info.external_attr = 0o644 << 16
-            zf.writestr(info, raw)
+            zf.writestr(zip_entry(name, c.internal_date), raw)
             sender, subject = details.get(c.source_id, ("", ""))
             rows.append(index_row(c, sender, subject, name))
             written, size = written + 1, size + len(raw)
@@ -365,10 +363,19 @@ def write_maildir(
     return written, size, skipped
 
 
-def index_csv(rows: list[dict[str, str]]) -> str:
+def zip_entry(name: str, internal_date_ms: int) -> zipfile.ZipInfo:
+    """A zip entry dated as the message (zip dates start in 1980), deflated, readable by all."""
+    sent = max(time.gmtime(internal_date_ms / 1000)[:6], (1980, 1, 1, 0, 0, 0))
+    info = zipfile.ZipInfo(name, date_time=sent)
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.external_attr = 0o644 << 16
+    return info
+
+
+def index_csv(rows: list[dict[str, str]], columns: list[str] = INDEX_COLUMNS) -> str:
     """index.csv's text."""
     text = io.StringIO(newline="")
-    writer = csv.DictWriter(text, fieldnames=INDEX_COLUMNS)
+    writer = csv.DictWriter(text, fieldnames=columns)
     writer.writeheader()
     writer.writerows(rows)
     return text.getvalue()
@@ -382,6 +389,15 @@ def discard(part: Path, fmt: str) -> None:
         part.unlink(missing_ok=True)
 
 
+def warn_missing(skipped: list[str]) -> None:
+    """Say which messages were left out for want of their .eml file, if any."""
+    if skipped:
+        logger.warning(
+            f"{len(skipped):,} messages have no .eml file in the backup and were left out, "
+            f"e.g. {skipped[0]}. Run mailcellar verify to see what is missing."
+        )
+
+
 # ── the command ──────────────────────────────────────────────────────────────
 
 
@@ -389,8 +405,9 @@ def main(argv=None, prog: str | None = None) -> int:
     p = argparse.ArgumentParser(
         prog=prog or "mailcellar export",
         description="Copy a selection of the backup out: an mbox file for a mail client, a "
-        "maildir, or a zip of the .eml files with a CSV index. Read-only: nothing changes in "
-        "Gmail or the backup, and no Gmail access is needed.",
+        "maildir, or a zip of the .eml files with a CSV index; or, with --attachments, the "
+        "attached files themselves. Read-only: nothing changes in Gmail or the backup, and no "
+        "Gmail access is needed.",
     )
     p.add_argument("account", help="The backup: address, config folder name or unique part")
     add_selection_arguments(p, all_help="Every message in the backup")
@@ -399,7 +416,26 @@ def main(argv=None, prog: str | None = None) -> int:
         required=True,
         metavar="FILE",
         help="Where to write it: a name ending .mbox or .zip, or ending / for a maildir "
-        "(it must not exist yet)",
+        "(a plain folder with --attachments); it must not exist yet",
+    )
+    p.add_argument(
+        "--attachments",
+        action="store_true",
+        help="The attached files, not the messages, with index.csv naming the message each "
+        "came from: to a .zip, or a folder (--to ending /)",
+    )
+    p.add_argument(
+        "--inline",
+        action="store_true",
+        help="With --attachments: inline parts too (images in the text, logos), left out otherwise",
+    )
+    p.add_argument(
+        "--type",
+        action="append",
+        default=[],
+        metavar="TYPE",
+        help="With --attachments: only parts of this type, by MIME type (application/pdf), "
+        "subtype (pdf) or extension; can be repeated",
     )
     p.add_argument(
         "--hold",
@@ -417,6 +453,10 @@ def main(argv=None, prog: str | None = None) -> int:
         fmt = export_format(args.to)
     except ValueError as exc:
         p.error(str(exc))
+    if args.attachments and fmt == "mbox":
+        p.error("--attachments writes a zip or a folder: name it *.zip, or end it with /")
+    if (args.inline or args.type) and not args.attachments:
+        p.error("--inline and --type go with --attachments")
 
     try:
         folders = resolve_folders([args.account])
@@ -465,14 +505,24 @@ def main(argv=None, prog: str | None = None) -> int:
     if not cands:
         sys.exit("Nothing to export: no matching messages.")
 
-    details = {} if fmt == "mbox" else read_details(folder, [c.source_id for c in cands])
+    if args.attachments or fmt == "mbox":
+        details = {}
+    else:
+        details = read_details(folder, [c.source_id for c in cands])
     part = dest.with_name(dest.name + ".part")
     if fmt == "maildir":
         if part.exists():
             sys.exit(f"error: {part} exists, left by an interrupted export; remove it first")
         part.mkdir()
     try:
-        if fmt == "maildir":
+        if args.attachments:
+            from mailcellar.restore import attachments
+
+            types = attachments.type_names(args.type)
+            # a folder, not a maildir: the files at its top
+            done = attachments.write(cands, part, fmt == "maildir", folder, args.inline, types)
+            written, size, skipped = done.files, done.size, list(done.skipped)
+        elif fmt == "maildir":
             written, size, skipped = write_maildir(cands, part, details)
         else:
             with part.open("wb") as out:
@@ -482,16 +532,32 @@ def main(argv=None, prog: str | None = None) -> int:
                     written, size, skipped = write_zip(cands, out, folder, details)
         if not written:
             discard(part, fmt)
-            sys.exit(f"error: none of the {len(cands):,} messages has its file in the backup")
+            if not args.attachments:
+                sys.exit(f"error: none of the {len(cands):,} messages has its file in the backup")
+            if done.opened and len(skipped) == done.opened:
+                sys.exit(
+                    f"error: none of the {done.opened:,} messages with a matching attachment "
+                    "has its file in the backup"
+                )
+            warn_missing(skipped)
+            sys.exit(
+                f"Nothing to export: none of the {len(cands):,} messages has a matching attachment."
+            )
         os.replace(part, dest)
     except BaseException:
         discard(part, fmt)  # never leave a half-written export behind
         raise
-    print(f"Exported {written:,} messages ({human_size(size)}) to {dest}")
-    if skipped:
-        logger.warning(
-            f"{len(skipped):,} messages have no .eml file in the backup and were left out, "
-            f"e.g. {skipped[0]}. Run mailcellar verify to see what is missing."
+    if args.attachments:
+        print(
+            f"Exported {done.attachments:,} attachments from {done.messages:,} messages "
+            f"({human_size(size)}) to {dest}"
         )
-        return 1
-    return 0
+        if done.files < done.attachments:
+            print(
+                f"{done.attachments - done.files:,} had the same content as one before them "
+                "and were written once; index.csv lists every message."
+            )
+    else:
+        print(f"Exported {written:,} messages ({human_size(size)}) to {dest}")
+    warn_missing(skipped)
+    return 1 if skipped else 0
