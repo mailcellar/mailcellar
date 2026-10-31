@@ -30,6 +30,8 @@ in beta, so commands and options may still change before 1.0.
   still in the inbox, for an IMAP account that keeps its mail there.
   Any other system label (starred, sent, Trash, a category) is now an
   error instead of silently matching nothing.
+- An offload rule's `forget_after` may be written `"7y"`, as `before`
+  and `after` write years; it is still whole years, 1 or more.
 
 ### Fixed
 - Restored mail on iCloud gets its `restored/<date>` keyword: the

@@ -68,7 +68,7 @@ mailcellar forget --batch 2026-01-15-093000 --deleted --yes   # both, in one run
 
 ## Retention: `forget_after`
 
-A rule's `forget_after = N` (a whole number of years) is a standing policy:
+A rule's `forget_after = N` (a whole number of years, or `"Ny"`) is a standing policy:
 mail the rule offloaded is due to be forgotten once it is more than N years
 old, counted from the message's date. `forget --due` forgets what is
 due, through every stage above, so mail still in the mailbox is never touched;

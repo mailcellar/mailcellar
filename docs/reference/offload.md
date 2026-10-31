@@ -18,7 +18,7 @@ before = "2022-01-01"    # or a time ago: "90d", "3w", "6m", "5y" (a bare "5" is
 # after = "2012-01-01"   # and no older than this, written like before
 # keep = ["mine", "starred", "labelled"]   # what stays in the mailbox; see below
 # keep_if = [{ subject = "contract" }, { sender = "@client.example", to_me = true }]
-# forget_after = 7       # retention: forget what it offloaded 7 years after its date
+# forget_after = 7       # retention: forget what it offloaded 7 years after its date ("7y" too)
 ```
 
 `before` and `after` take a date (`YYYY-MM-DD`, UTC) or a time ago in
