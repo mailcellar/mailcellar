@@ -7,7 +7,8 @@ mail to take out of Gmail.
     before = "2022-01-01"              # required: a date, or a number of years ago ("5")
     after = "2012-01-01"               # optional: and no older than this, written like before
     account = "work"                   # optional: address, config name or unique part
-    label = "projects"                 # scope: at least one of the keys below
+    label = "projects"                 # scope: at least one of the keys below, or
+                                       # scope = "all" for every message before the cut-off
     keep = ["mine", "starred"]         # optional: the protections that apply (see below)
     keep_if = [{ subject = "contract" }, { sender = "@a.example", larger_than_mb = 1 }]
                                        # optional: keep what matches any one table
@@ -16,7 +17,8 @@ mail to take out of Gmail.
                                        # offloaded from the backup, once Gmail has deleted it
 
 Scope keys take a string or a list (any value matches); different keys
-must all match:
+must all match. A rule with none is refused unless it says scope = "all",
+which selects every message from after to before, and takes no scope key:
 
     label           user label name (case ignored)
     sender          sender address, or "@domain" (relayed mail: the original sender)
@@ -144,7 +146,18 @@ ATTACHMENT_KINDS = {
     ),
 }
 UNTYPED = ("", "application/octet-stream")  # MIME types that say nothing: go by the extension
-KEYS = {"name", "before", "after", "account", "keep", "keep_if", "forget_after", *OLD_KEYS, *SCOPES}
+KEYS = {
+    "name",
+    "before",
+    "after",
+    "account",
+    "scope",
+    "keep",
+    "keep_if",
+    "forget_after",
+    *OLD_KEYS,
+    *SCOPES,
+}
 
 
 class RuleError(Exception):
@@ -157,7 +170,8 @@ class Rule:
     before: str  # as written
     before_ms: int  # ms since epoch, UTC
     accounts: list[str] = field(default_factory=list)  # [] means every account
-    scope: dict[str, list] = field(default_factory=dict)  # scope key → values
+    # scope key → values; {} only for scope = "all": every message from after to before
+    scope: dict[str, list] = field(default_factory=dict)
     protect: tuple[str, ...] = DEFAULT_PROTECT
     # keep_if: scope tables; a message matching every key of any one is kept
     exceptions: tuple[dict[str, list], ...] = ()
@@ -229,6 +243,21 @@ def short_retention(rule: Rule) -> str:
     )
 
 
+def keeps_nothing(rule: Rule) -> str:
+    """
+    Why the rule selects everything it covers, or "": scope = "all" with
+    keep = [] and no keep_if takes every message before its cut-off, your
+    own and starred mail included. Pure.
+    """
+    if rule.scope or rule.protect or rule.exceptions:
+        return ""
+    where = ", ".join(rule.accounts) if rule.accounts else "every account"
+    return (
+        f'rule {rule.name!r}: scope = "all" with keep = [] selects every message before '
+        f"{rule.before} in {where}, your own and starred mail included"
+    )
+
+
 def fold(text: str) -> str:
     """
     Text for subject matching: HTML entities unescaped, mojibake (UTF-8 read
@@ -291,8 +320,21 @@ def parse_rule(raw: dict, parse_before, resolve_account) -> Rule:
             )
 
     scope = _parse_scope(name, raw, "")
-    if not scope:
-        raise RuleError(f"rule {name!r}: needs at least one of {', '.join(SCOPES)}")
+    all_mail = "scope" in raw
+    if all_mail and raw["scope"] != "all":
+        raise RuleError(
+            f'rule {name!r}: scope can only be "all", for every message before {before}'
+        )
+    if all_mail and scope:
+        raise RuleError(
+            f'rule {name!r}: scope = "all" selects every message, so it takes no '
+            f"{', '.join(scope)}; drop one or the other"
+        )
+    if not all_mail and not scope:
+        raise RuleError(
+            f"rule {name!r}: needs at least one of {', '.join(SCOPES)}, "
+            'or scope = "all" for every message before the cut-off'
+        )
     old = [k for k in OLD_KEYS if k in raw]
     if old and ("keep" in raw or "keep_if" in raw):
         raise RuleError(

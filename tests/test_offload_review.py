@@ -86,6 +86,13 @@ def test_rule_text_says_what_a_rule_selects():
     )
 
 
+def test_rule_text_of_a_rule_for_all_mail():
+    from mailcellar.offload.rules import parse_rule
+
+    rule = parse_rule({"name": "r", "before": "2020-01-01", "scope": "all"}, parse_before, str)
+    assert review.rule_text(rule) == "all mail · before 2020-01-01"
+
+
 def test_html_cells_are_escaped():
     t = review.Table("t", "<Title>", [("Subject", "text"), ("Size", "size")], [("<b>&", 2048)])
     out = review.table_html(t)

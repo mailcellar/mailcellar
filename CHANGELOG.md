@@ -22,6 +22,10 @@ in beta, so commands and options may still change before 1.0.
   uploading: mail still in the server's Trash is skipped, saying why,
   until the Trash is emptied. Offload and dedup are still refused there,
   and setup's report says which of them work.
+- An offload rule may select by date alone with `scope = "all"`:
+  everything from its `after`, if any, to its `before`, less what `keep`
+  and `keep_if` keep. A rule with no scope key at all is still refused,
+  and `plan` warns about a `scope = "all"` rule that keeps nothing.
 
 ### Fixed
 - Restored mail on iCloud gets its `restored/<date>` keyword: the
