@@ -12,6 +12,11 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 - The FAQ's comparison with other tools includes Thunderbird, and why
   dragging Gmail into its Local Folders frees no space.
 
+### Fixed
+- A label with a comma in its name, exported to an mbox file or a maildir
+  and restored with `restore --from-mbox`, came back as two labels. The
+  export's `X-Gmail-Labels` header now puts such a label in double quotes.
+
 ## 0.23.0 (2026-10-31)
 
 ### Added

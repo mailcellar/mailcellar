@@ -110,6 +110,16 @@ def test_labels_header_lists_the_labels_like_takeout():
     assert export.labels_header(("work", "INBOX"), b"\r\n") == b"X-Gmail-Labels: work,INBOX\r\n"
 
 
+def test_labels_header_quotes_a_label_holding_a_comma_or_a_quote():
+    header = export.labels_header(("Clients, Acme", 'say "hi"', "work"), b"\n")
+    assert header == b'X-Gmail-Labels: "Clients, Acme","say ""hi""",work\n'
+
+
+def test_x_keywords_stays_unquoted_as_offlineimap_writes_it():
+    header = export.labels_header(("a,b", "work"), b"\n", "X-Keywords", quoted=False)
+    assert header == b"X-Keywords: a,b,work\n"
+
+
 def test_system_labels_go_by_takeouts_names_after_the_users_own():
     labels = (
         "INBOX",
