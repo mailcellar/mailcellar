@@ -5,8 +5,9 @@ import logging
 import re
 import sys
 import time
+from calendar import monthrange
 from contextlib import closing, contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from mailcellar.backup.gyb import backup_account
@@ -52,24 +53,60 @@ def resolve_folders(names: list[str], config: Path | None = None) -> list[Path]:
     return folders
 
 
-def years_before(when: datetime, years: int) -> datetime:
-    """`when`, `years` years earlier; 29 February becomes the 28th in a year without one."""
-    try:
-        return when.replace(year=when.year - years)
-    except ValueError:
-        return when.replace(year=when.year - years, day=28)
+def months_before(when: datetime, months: int) -> datetime:
+    """`when`, `months` calendar months earlier; a day the month lacks becomes its last."""
+    year, month = divmod(when.year * 12 + when.month - 1 - months, 12)
+    return when.replace(
+        year=year, month=month + 1, day=min(when.day, monthrange(year, month + 1)[1])
+    )
 
 
-def parse_before(value: str | None) -> int | None:
-    """--before: a date (YYYY-MM-DD) or a number of years ago; ms since epoch, UTC."""
+def ago(now: datetime, count: int, unit: str) -> datetime:
+    """`count` days, weeks, months or years (d, w, m, y) before `now`, by the calendar."""
+    match unit:
+        case "d":
+            return now - timedelta(days=count)
+        case "w":
+            return now - timedelta(weeks=count)
+        case "m":
+            return months_before(now, count)
+        case _:
+            return months_before(now, 12 * count)
+
+
+def parse_before(
+    value: str | None, option: str = "--before", now: datetime | None = None
+) -> int | None:
+    """
+    A date (YYYY-MM-DD, UTC) or a time ago: 90d, 3w, 6m or 2y, a bare whole
+    number being years; ms since epoch. `option` names it in errors.
+    """
     if value is None:
         return None
+    now = now or datetime.now(UTC)
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
-        when = datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=UTC)
-    elif re.fullmatch(r"\d+(\.\d+)?", value):
-        when = years_before(datetime.now(UTC), int(float(value)))
+        try:
+            when = datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=UTC)
+        except ValueError:
+            raise AnalyticsError(f"{option} {value!r}: no such date") from None
+    elif m := re.fullmatch(r"(\d+)([dwmy]?)", value.lower()):
+        try:
+            when = ago(now, int(m[1]), m[2] or "y")
+        except ValueError, OverflowError:
+            raise AnalyticsError(f"{option} {value!r}: too far back") from None
+    elif m := re.fullmatch(r"(\d*\.\d+)([dwmy]?)", value.lower()):
+        if m[2] not in ("", "y"):
+            raise AnalyticsError(f"{option} {value!r}: a time ago must be whole, e.g. 90d, 3w, 6m")
+        years = float(m[1])
+        hint = f"{round(years * 12)}m" if years * 12 >= 1 else f"{round(years * 365)}d"
+        raise AnalyticsError(
+            f"{option} {value!r}: a number of years must be whole; write {hint} instead"
+        )
     else:
-        raise AnalyticsError(f"--before {value!r}: give a date (YYYY-MM-DD) or a number of years")
+        raise AnalyticsError(
+            f"{option} {value!r}: give a date (YYYY-MM-DD) or a time ago "
+            "(90d, 3w, 6m or 2y; a bare number is years)"
+        )
     return int(when.timestamp() * 1000)
 
 
@@ -235,9 +272,9 @@ def main(argv=None, prog: str | None = None) -> None:
     s.add_argument(
         "--before",
         default="5",
-        metavar="DATE|YEARS",
+        metavar="DATE|AGO",
         help="Removal candidates: received before this date (YYYY-MM-DD) or "
-        "this many years ago (default: 5)",
+        "this long ago (90d, 3w, 6m, 2y; default: 5 years)",
     )
     s.add_argument(
         "--include-labelled",

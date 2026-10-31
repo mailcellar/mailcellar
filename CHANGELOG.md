@@ -44,6 +44,11 @@ in beta, so commands and options may still change before 1.0.
   your own domain, such as a catch-all Google Group, taken from the
   message body, since the relay replaces the sender's List-Unsubscribe
   with its own. It showed none before.
+- A time ago in `--before`, `--after` and an offload rule's `before` and
+  `after` lost its fraction: `"0.5"` meant now, so a rule with
+  `before = "0.5"` selected mail up to today. A decimal is now refused,
+  and a time ago may be given in days, weeks, months or years: `90d`,
+  `3w`, `6m`, `2y`. A bare whole number is still years (#157).
 
 ## 0.20.0 (2026-10-30)
 

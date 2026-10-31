@@ -36,7 +36,7 @@ mailcellar restore personal --offloaded --has-label projects --sender alex@examp
 ```
 
 - `--before DATE` keeps mail older than the date, `--after DATE` mail from
-  that date on. A date is `YYYY-MM-DD` (UTC) or a number of years ago.
+  that date on. A date is `YYYY-MM-DD` (UTC) or a time ago (`90d`, `3w`, `6m`, `2y`).
 - `--has-label NAME` keeps mail with that user label, by name, ignoring case
   (system labels such as `INBOX` don't count). It is not `--label`, which
   names the label that restored mail gets.
@@ -157,7 +157,7 @@ account restored into. Without `--yes` it is a dry run.
 
 | Option | What it keeps |
 | --- | --- |
-| `--before DATE`, `--after DATE` | Mail older than, or from, the date: `YYYY-MM-DD` (UTC) or a number of years ago |
+| `--before DATE`, `--after DATE` | Mail older than, or from, the date: `YYYY-MM-DD` (UTC) or a time ago (`90d`, `3w`, `6m`, `2y`) |
 | `--has-label NAME` | Mail with this user label, ignoring case (repeatable: any of them) |
 | `--sender ADDRESS`, `--sender @DOMAIN` | Mail from this From address, or any address at the domain (repeatable: any of them) |
 

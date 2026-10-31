@@ -60,7 +60,7 @@ keep_if = { subject = "release" }
 
 - `name` is recorded with every message the rule offloads, and is how you
   select it later.
-- `before` is required: a date, or a number of years ago (`"5"`). Mail
+- `before` is required: a date, or a time ago (`"6m"`, `"5y"`). Mail
   newer than it is never selected. `after`, written the same way, leaves
   out mail older than it.
 - The scope keys say what to select: `label` (a user label, or

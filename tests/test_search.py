@@ -465,6 +465,7 @@ def test_an_account_must_name_one_backup(backup, capsys):
         (["--", "-only"], "only leave words out"),
         (["x", "--after", "2024-01-02", "--before", "2024-01-01"], "earlier than --before"),
         (["x", "--before", "soon"], "give a date"),
+        (["x", "--after", "0.5"], "--after '0.5': a number of years must be whole"),
     ],
 )
 def test_bad_queries_and_dates_are_refused(backup, capsys, args, message):

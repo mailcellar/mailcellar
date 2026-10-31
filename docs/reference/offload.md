@@ -14,12 +14,18 @@ account = "work"
 label = "work"           # or sender, list, forwarded_from, category, subject, to_me, to,
                          # bulk, attachment, larger_than_mb, query; different keys must all match
 # scope = "all"          # instead of scope keys: every message from after to before
-before = "2022-01-01"    # or a number of years ago, e.g. "5"
+before = "2022-01-01"    # or a time ago: "90d", "3w", "6m", "5y" (a bare "5" is years)
 # after = "2012-01-01"   # and no older than this, written like before
 # keep = ["mine", "starred", "labelled"]   # what stays in the mailbox; see below
 # keep_if = [{ subject = "contract" }, { sender = "@client.example", to_me = true }]
 # forget_after = 7       # retention: forget what it offloaded 7 years after its date
 ```
+
+`before` and `after` take a date (`YYYY-MM-DD`, UTC) or a time ago in
+days, weeks, months or years: `90d`, `3w`, `6m`, `2y`. Months and years
+count by the calendar, so `1m` before 31 March is the last day of
+February; a bare whole number is years. A decimal such as `"0.5"` is
+refused: write `"6m"`.
 
 A rule needs at least one scope key, so that leaving them out can't
 select everything by accident. To select by date alone, say so:

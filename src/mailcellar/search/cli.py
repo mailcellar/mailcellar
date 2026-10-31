@@ -83,8 +83,8 @@ def main(argv=None, prog: str | None = None) -> int:
     p.add_argument(
         "--batch", action="append", default=[], help="Only mail in this offload batch (repeatable)"
     )
-    p.add_argument("--before", help="Only mail older than this date (YYYY-MM-DD) or years ago")
-    p.add_argument("--after", help="Only mail from this date (YYYY-MM-DD) on, or years ago")
+    p.add_argument("--before", help="Only mail older than this: YYYY-MM-DD, or a time ago (6m, 2y)")
+    p.add_argument("--after", help="Only mail from this on: YYYY-MM-DD, or a time ago (6m, 2y)")
     p.add_argument(
         "--limit",
         type=int,
@@ -106,7 +106,7 @@ def main(argv=None, prog: str | None = None) -> int:
     args = p.parse_args(argv)
     try:
         match = fts_query(args.query)
-        before_ms, after_ms = parse_before(args.before), parse_before(args.after)
+        before_ms, after_ms = parse_before(args.before), parse_before(args.after, "--after")
         folders = resolve_folders(args.accounts)
     except (QueryError, AnalyticsError) as exc:
         p.error(str(exc))
