@@ -1,6 +1,6 @@
 ---
 title: "Back up Gmail and IMAP email to your own disk"
-description: "mailcellar backs up Gmail, Google Workspace and any IMAP mailbox to your own disk, takes old mail out by rule to free space, and keeps it searchable and restorable."
+description: "mailcellar backs up Gmail, Google Workspace and any IMAP mailbox to your own disk, takes old mail out by rule to free space or declutter, and keeps it searchable and restorable."
 ---
 
 # mailcellar
@@ -10,9 +10,9 @@ description: "mailcellar backs up Gmail, Google Workspace and any IMAP mailbox t
 Your mail lives on one server you don't control: a deletion, a
 compromised account or a lock-out can take it, and it fills up.
 mailcellar keeps an incremental, checked backup on your own disk, then
-frees space by taking old mail out of the mailbox by rules you review,
-keeping it searchable and restorable. It works with Gmail, Google
-Workspace and any IMAP mailbox.
+takes old mail out of the mailbox by rules you review, for space or a
+tidier mailbox, keeping it searchable and restorable. It works with
+Gmail, Google Workspace and any IMAP mailbox.
 
 ```bash
 uv tool install mailcellar      # or: pipx install mailcellar
@@ -23,9 +23,11 @@ mailcellar count alex           # what the mailbox has against what the backup h
 
 ## Why mailcellar
 
-- **Your storage is full.** Offload old mail by rule (older than five
-  years, newsletters, large attachments); `search` and `restore` still
-  reach it ([Offloading old mail](guide/offloading.md)).
+- **Your mailbox is full, or just cluttered.** Offload old mail by rule
+  (older than five years, newsletters, large attachments): it leaves the
+  mailbox, so there's less to wade through and less for anyone who gets
+  into the account to read, and `search` and `restore` still reach it
+  ([Offloading old mail](guide/offloading.md)).
 - **You have no backup of your own.** A provider's redundancy doesn't
   cover a deletion, a compromised account or a lock-out, and its export
   starts from scratch each time. mailcellar fetches only what changed and
@@ -95,7 +97,7 @@ backup, not an organization's archive
 3. [Schedule backups](guide/scheduling.md); for Gmail, at least every four
    weeks. Then [keep the backup safe](guide/backing-up.md): check it, and
    keep a second copy of it.
-4. When you are ready to free space, [offload old mail](guide/offloading.md),
+4. When you want old mail out of the mailbox, [offload it](guide/offloading.md),
    one stage at a time.
 
 Coming from gyb? [Migrating from gyb](guide/from-gyb.md) continues your
