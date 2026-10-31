@@ -296,11 +296,18 @@ def test_restored_since_planned(restored_ms, expected):
 
 
 def test_mail_the_backup_checks_skip_takes_no_place_under_limit(env):
-    (eml,) = env.folder.rglob("w0.eml")
+    (eml,) = env.folder.rglob("w1.eml")
     eml.unlink()  # not safely in the backup: skipped every run, never offloaded
     batches = list(runs_of(*[("--label", "--limit", "2")] * 2))
-    assert [outcomes(b, "labelled") for b in batches] == [["w1", "w2"], ["w3", "w4"]]
-    assert [outcomes(b, "skipped") for b in batches] == [["w0"], ["w0"]]
+    assert [outcomes(b, "labelled") for b in batches] == [["w0", "w2"], ["w3", "w4"]]
+    assert [outcomes(b, "skipped") for b in batches] == [["w1"], ["w1"]]
+    assert [[r["id"] for r in b] for b in batches] == [["w0", "w1", "w2"], ["w1", "w3", "w4"]]
+
+
+def test_limit_must_be_one_or_more(env, capsys):
+    with pytest.raises(SystemExit) as exc:
+        apply("--limit", "0")
+    assert exc.value.code == 2 and "1 or more" in capsys.readouterr().err
 
 
 def test_label_batches_advance_and_vetoes_are_not_retried(env):

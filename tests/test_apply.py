@@ -12,6 +12,7 @@ from mailcellar.dedup.apply import (
     Result,
     apply_plan,
     check_row,
+    interleave,
     unusable_label,
     within_limit,
 )
@@ -554,12 +555,23 @@ def test_within_limit_counts_only_rows_the_local_check_passes():
     assert asked == []  # without a limit apply_plan asks, after the Gmail checks
     chosen, check, skipped = within_limit(rows, 2, local)
     assert [r["id"] for r in chosen] == ["b1", "b2"] and check is None
-    assert [(s.row["id"], s.outcome, s.detail) for s in skipped] == [
-        ("h1", "skipped", "held: x"),
-        ("h2", "skipped", "held: x"),
+    assert [(n, s.row["id"], s.outcome, s.detail) for n, s in skipped] == [
+        (0, "h1", "skipped", "held: x"),
+        (2, "h2", "skipped", "held: x"),
     ]
     assert asked == ["h1", "b1", "h2", "b2"]  # b3 isn't checked
-    assert within_limit(rows, 0, local)[0] == []
+    # the log keeps plan order: skipped rows go back where they were
+    log = interleave([Result(r, "ok") for r in chosen], skipped)
+    assert [e.row["id"] for e in log] == ["h1", "b1", "h2", "b2"]
+    assert interleave([Result(r, "ok") for r in rows], []) == [Result(r, "ok") for r in rows]
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "1.5", "two"])
+def test_limit_must_be_one_or_more(value, capsys):
+    with pytest.raises(SystemExit) as exc:
+        dedup.main(["apply", "--limit", value])
+    assert exc.value.code == 2
+    assert "1 or more" in capsys.readouterr().err
 
 
 def test_checked_asks_the_local_check_only_of_rows_that_pass_the_gmail_checks(tmp_path):

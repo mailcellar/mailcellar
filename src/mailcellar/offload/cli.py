@@ -18,6 +18,8 @@ from mailcellar.backup import sidecar
 from mailcellar.backup.gyb import backup_account
 from mailcellar.dedup.apply import (
     apply_plan,
+    interleave,
+    limit_count,
     log_state,
     unusable_label,
     within_limit,
@@ -366,9 +368,10 @@ def cmd_apply(args) -> None:
         rows, args.limit, lambda row: held(row) or checks(row)
     )
     try:
-        log = skipped + apply_plan(
+        acted = apply_plan(
             rows, mode, gmail_for, confirm, label, local_check=local_check, on_trashed=record
         )
+        log = interleave(acted, skipped)
     except gmailapi.GmailError as exc:
         sys.exit(f"error: {exc}")
     log, recovered = recover_trashed(log, mode, label, checks, record)
@@ -555,7 +558,7 @@ def main(argv=None, prog: str | None = None) -> None:
     ap.add_argument("--rule", action="append", help="Only this rule's rows (repeatable)")
     ap.add_argument(
         "--limit",
-        type=int,
+        type=limit_count,
         default=None,
         help="Only the first N plan rows still to do that no legal hold keeps and that are "
         "safely in the backup; those skipped on the way are logged",

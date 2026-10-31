@@ -30,6 +30,11 @@ has the old names, and `forget --undo` and `--empty` at such a manifest.
   name as in `search` and `export`, and not Gmail's for an IMAP account.
 - `dedup apply` upgrades an apply log written with other columns before
   appending to it, as `offload apply` does.
+- `offload apply --trash --limit` needs a backup newer than the plan for
+  every account the run covers, not only those the first N rows are in,
+  since which rows the limit takes is known only after the checks. Name
+  the accounts to trash in (`offload apply --trash ACCOUNT`) while
+  another's backup is behind.
 
 ### Removed
 - Offload rules' `waive`, `protect` and `except`, deprecated in 0.17.0:
@@ -47,7 +52,10 @@ has the old names, and `forget --undo` and `--empty` at such a manifest.
   Skipped without being labelled, it was picked again first by the next
   run, so enough of it at the front of the plan stopped repeated runs
   moving on. The limit now counts only mail that passes those checks; the
-  skipped mail is still logged, with its reason.
+  skipped mail is still logged, with its reason, in plan order.
+- `offload apply --limit` and `dedup apply --limit` refuse a number below
+  1. A negative one left that many rows off the end of the plan; it would
+  now have taken them all.
 
 ## 0.21.0 (2026-10-31)
 

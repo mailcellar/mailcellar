@@ -12,7 +12,9 @@ from pathlib import Path
 from mailcellar.dedup.apply import (
     DEDUP_LABEL,
     apply_plan,
+    interleave,
     labelled_rows,
+    limit_count,
     log_state,
     read_removals,
     unusable_label,
@@ -164,9 +166,8 @@ def cmd_apply(args) -> None:
     held = HoldCheck(folders, int(time.time() * 1000), rows)
     rows, local_check, skipped = within_limit(rows, args.limit, held)
     try:
-        log = skipped + apply_plan(
-            rows, mode, gmail_for, confirm, dedup_label, local_check=local_check
-        )
+        acted = apply_plan(rows, mode, gmail_for, confirm, dedup_label, local_check=local_check)
+        log = interleave(acted, skipped)
     except gmailapi.GmailError as exc:
         sys.exit(f"error: {exc}")
     # The log's mode column records which label a label or trash run used.
@@ -255,7 +256,7 @@ def main(argv=None, prog: str | None = None) -> None:
     )
     p_apply.add_argument(
         "--limit",
-        type=int,
+        type=limit_count,
         default=None,
         help="Only the first N removals in the plan that no legal hold keeps; held ones "
         "on the way are logged as skipped",

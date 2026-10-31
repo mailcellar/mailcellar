@@ -9,6 +9,7 @@ checked() decide, and act() carries out one account's rows; each step
 returns new frozen Results rather than changing the ones it was given.
 """
 
+import argparse
 import csv
 import logging
 import sys
@@ -281,15 +282,26 @@ def checked(
     )
 
 
+def limit_count(text: str) -> int:
+    """argparse type for --limit: a whole number, 1 or more."""
+    try:
+        n = int(text)
+    except ValueError:
+        n = 0
+    if n < 1:
+        raise argparse.ArgumentTypeError(f"must be a whole number, 1 or more: {text!r}")
+    return n
+
+
 def within_limit(rows: Sequence[dict], limit: int | None, local_check):
     """
-    (rows for apply_plan, the local_check to give it, skipped Results).
-    Without a limit: every row, the local check left to apply_plan, which
-    asks it only of rows that pass the Gmail checks. With one: the first
-    `limit` rows the local check passes, in plan order, already checked, and
-    a skipped Result for each that failed before them, so mail certain to be
-    skipped (held, or not safely in the backup) doesn't use up the limit and
-    repeated runs move past it.
+    (rows for apply_plan, the local_check to give it, skipped (position,
+    Result) pairs for interleave). Without a limit: every row, the local
+    check left to apply_plan, which asks it only of rows that pass the
+    Gmail checks. With one: the first `limit` rows the local check passes,
+    in plan order, already checked, and a skipped Result for each that
+    failed before them, so mail certain to be skipped (held, or not safely
+    in the backup) doesn't use up the limit and repeated runs move past it.
     """
     if limit is None:
         return list(rows), local_check, []
@@ -299,10 +311,18 @@ def within_limit(rows: Sequence[dict], limit: int | None, local_check):
             break
         why = local_check(row) if local_check is not None else ""
         if why:
-            skipped.append(Result(row, "skipped", why))
+            skipped.append((len(chosen) + len(skipped), Result(row, "skipped", why)))
         else:
             chosen.append(row)
     return chosen, None, skipped
+
+
+def interleave(results: Sequence[Result], skipped: Sequence[tuple[int, Result]]) -> list[Result]:
+    """apply_plan's results with within_limit's skipped ones back in plan order. Pure."""
+    log = list(results)
+    for n, result in skipped:  # positions ascend, each counted in the merged log
+        log.insert(n, result)
+    return log
 
 
 def apply_plan(
