@@ -335,6 +335,14 @@ def test_the_selection_and_narrowing_are_restores(backup, tmp_path):
     assert ids("--offloaded", "--limit", "2") == ["m2", "m3"]  # the oldest first
 
 
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_limit_must_be_one_or_more(value, tmp_path, capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["export", ACCOUNT, "--all", "--to", str(tmp_path / "x.mbox"), "--limit", value])
+    assert exc.value.code == 2 and "1 or more" in capsys.readouterr().err
+    assert not (tmp_path / "x.mbox").exists()
+
+
 def test_mail_already_restored_is_exported_once(backup, tmp_path):
     con = sidecar.open_meta(backup)
     sidecar.record_restored(con, "m2", "m2", "untrashed", "run", 5)  # back, under its own ID

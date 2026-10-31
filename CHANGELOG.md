@@ -8,6 +8,11 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 
 ## Unreleased
 
+### Fixed
+- `restore --limit` and `export --limit` refuse a number below 1, as
+  `offload apply --limit` and `dedup apply --limit` do: 0 did nothing,
+  and a negative number left that many messages off the end.
+
 ## 0.22.0 (2026-10-31)
 
 **Upgrading from 0.21.0:** run 0.21.0's `offload plan` once first: rules
