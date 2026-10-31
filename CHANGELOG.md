@@ -12,7 +12,15 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 `except` in any rule is refused; 0.21.0's `offload plan` warns about each
 such rule with its rewrite, so run it once before upgrading.
 `mailcellar dedup auth` is refused: a script or cron line that calls it
-should call `mailcellar auth`.
+should call `mailcellar auth`. Make offload plans again: `offload apply`
+refuses one made by 0.21.0, as it has no `keeps` column.
+
+### Changed
+- The offload plan's `waived` column is `keeps`: the keep names the rule
+  applies (`mine;starred;conversations;labelled` by default), in place of
+  the internal names of the protections it dropped, which no rule can be
+  written in since `waive` was removed. Batch manifests carry it too;
+  older plans and manifests keep `waived`.
 
 ### Removed
 - Offload rules' `waive`, `protect` and `except`, deprecated in 0.17.0:

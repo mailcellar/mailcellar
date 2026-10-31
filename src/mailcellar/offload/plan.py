@@ -42,7 +42,7 @@ PLAN_COLUMNS = [
     "size",
     "labels",
     "rule",
-    "waived",
+    "keeps",  # the rule's keep names, ;-joined
     "planned",  # when the plan was made, UTC (apply checks the backup is newer)
 ]
 
@@ -449,7 +449,7 @@ def plan_rows(results: list[RuleResult], planned_ms: int) -> list[dict]:
             "size": m.size,
             "labels": ";".join(m.labels),
             "rule": r.rule.name,
-            "waived": ";".join(r.rule.waived),
+            "keeps": ";".join(r.rule.keep),
             "planned": planned,
         }
         for r in results

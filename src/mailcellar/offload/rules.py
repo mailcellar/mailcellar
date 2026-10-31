@@ -181,12 +181,8 @@ class Rule:
     after_ms: int | None = None  # ms since epoch, UTC: nothing older is selected
 
     @property
-    def waived(self) -> list[str]:
-        return [p for p in DEFAULT_PROTECT if p not in self.protect]
-
-    @property
     def keep(self) -> list[str]:
-        """The keep names that apply, in KEEP order, a partial one marked as such."""
+        """The keep names that apply, in KEEP order."""
         out = []
         for name, ps in KEEP.items():
             have = [p for p in ps if p in self.protect]

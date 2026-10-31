@@ -170,7 +170,7 @@ def test_plan_csv(data):
     assert list(rows[0]) == PLAN_COLUMNS
     w1 = next(r for r in rows if r["gmail_id"] == "w1")
     assert w1["account"] == A and w1["date"] == "2011-03-13"
-    assert w1["labels"] == "Work" and w1["waived"] == ""
+    assert w1["labels"] == "Work" and w1["keeps"] == "mine;starred;conversations;labelled"
     assert (data / w1["path"]).is_file()
     assert w1["sender"] == "colleague@work.com" and w1["subject"] == "s-w1"
 
@@ -186,7 +186,7 @@ keep = ["conversations", "labelled", "correspondents"]
 """
     rows = run(data, rules)
     assert {r["gmail_id"] for r in rows} == {"w11", "p2"}
-    assert {r["waived"] for r in rows} == {"sent;starred"}
+    assert {r["keeps"] for r in rows} == {"conversations;labelled;correspondents"}
     nothing = rules.replace('["conversations", "labelled", "correspondents"]', "[]")
     assert {r["gmail_id"] for r in run(data, nothing)} == {
         "w1",
@@ -378,7 +378,7 @@ def test_rule_defaults(tmp_path):
     path = tmp_path / "rules.toml"
     path.write_text('[[rule]]\nname = "x"\nbefore = 5\nlabel = "a"\n')
     (rule,) = load_rules(path, parse_before, lambda a: a)
-    assert rule.protect == DEFAULT_PROTECT and rule.waived == [] and rule.accounts == []
+    assert rule.protect == DEFAULT_PROTECT and rule.accounts == []
     assert rule.keep == list(DEFAULT_KEEP) and rule.exceptions == ()
     assert rule.forget_after is None and rule.forget_ms is None  # kept for ever
 
