@@ -8,6 +8,8 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 
 ## Unreleased
 
+## 0.24.0 (2026-10-31)
+
 ### Added
 - `restore --into FOLDER`, for an IMAP account: everything restored goes
   into that one folder, whatever its labels, and mail an earlier restore
