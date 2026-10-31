@@ -1,5 +1,5 @@
 ---
-description: "Export mail from the backup to an mbox file, a maildir or a zip of .eml files, to read in a desktop mail client or hand to an accountant or a lawyer. Read-only."
+description: "Export mail from the backup to an mbox file, a maildir or a zip of .eml files, or just its attachments, to read in a desktop mail client or hand to an accountant or a lawyer. Read-only."
 ---
 
 # Exporting mail
@@ -53,8 +53,8 @@ it says so and writes no file.
 The file or folder is written under another name and renamed only when
 complete, so an interrupted export leaves nothing that looks finished. It will
 not overwrite a file or write into a folder that exists, so choose a new name
-each time, and it will not write inside the backup. If an interrupted maildir
-export left a folder ending `.part`, delete it first.
+each time, and it will not write inside the backup. If an interrupted
+export to a folder left one ending `.part`, delete it first.
 
 When it finishes it says how many messages it wrote and their size.
 
@@ -79,6 +79,26 @@ path inside the zip or folder. A subject or sender that begins with `=`,
 `+`, `-` or `@` is written with a `'` in front. Mail is written by other people, and without the `'` a
 spreadsheet could run such a subject as a formula. If you see a `'`, that is
 why.
+
+## Just the attachments
+
+An accountant who wants every invoice doesn't want the emails they came
+in. `--attachments` writes the attached files themselves, with an index
+of the message each came from:
+
+```bash
+# every PDF example.com sent since 2020, in one zip
+mailcellar export personal --all --after 2020-01-01 --sender @example.com \
+    --attachments --type pdf --to ~/invoices.zip
+```
+
+Each file is named by its date, its sender and its own name
+(`2024-03-01 billing@example.com invoice-0042.pdf`), so a folder of them
+sorts by date. The same file sent twice is written once, and `index.csv`
+lists both messages. `--type` can be repeated (`--type pdf --type xlsx`)
+and takes a MIME type, a short one or an extension. Images in the text
+of a message (logos, signatures) are left out; `--inline` takes them
+too. With a name ending `/` instead of `.zip`, the files go in a folder.
 
 ## Browsing and searching your mail
 

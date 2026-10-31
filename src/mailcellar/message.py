@@ -11,6 +11,7 @@ import email.utils
 import hashlib
 import html
 import re
+from collections.abc import Iterator
 from pathlib import Path
 
 # ── headers ──────────────────────────────────────────────────────────────────
@@ -155,14 +156,14 @@ def visible_text(msg) -> str:
     return " ".join(_TAG_RE.sub(" ", _LINK_RE.sub(" ", body_text(msg))).split())
 
 
-def attachments(msg) -> list[dict]:
+def attachment_parts(msg) -> Iterator[tuple[dict, bytes]]:
     """
     Every part that isn't body text (attachments, inline images, parts of
-    forwarded messages), in message order: idx, filename (decoded; "" if
-    none), mime_type, size (decoded bytes), sha256, inline (True unless the
-    part says Content-Disposition: attachment).
+    forwarded messages), in message order, with its decoded content: idx,
+    filename (decoded; "" if none), mime_type, size (decoded bytes), sha256,
+    inline (True unless the part says Content-Disposition: attachment).
     """
-    out = []
+    idx = 0
     for part in msg.walk():
         if part.is_multipart():
             continue
@@ -170,17 +171,21 @@ def attachments(msg) -> list[dict]:
         if part.get_content_type() in ("text/plain", "text/html") and disposition != "attachment":
             continue
         payload = part.get_payload(decode=True) or b""
-        out.append(
-            {
-                "idx": len(out),
-                "filename": " ".join(decode_header_value(part.get_filename() or "").split()),
-                "mime_type": part.get_content_type(),
-                "size": len(payload),
-                "sha256": hashlib.sha256(payload).hexdigest(),
-                "inline": disposition != "attachment",
-            }
-        )
-    return out
+        details = {
+            "idx": idx,
+            "filename": " ".join(decode_header_value(part.get_filename() or "").split()),
+            "mime_type": part.get_content_type(),
+            "size": len(payload),
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "inline": disposition != "attachment",
+        }
+        yield details, payload
+        idx += 1
+
+
+def attachments(msg) -> list[dict]:
+    """attachment_parts()' details, without the content."""
+    return [details for details, _payload in attachment_parts(msg)]
 
 
 def attachment_hashes(msg) -> list[str]:
@@ -322,14 +327,19 @@ def header_key(msg) -> str:
 PARSER_VERSION = "7"
 
 
+def parse_bytes(raw: bytes):
+    """The message parse_message() reads from raw bytes: mbox From lines dropped, compat32."""
+    return email.parser.BytesParser(policy=email.policy.compat32).parsebytes(
+        strip_mbox_from_lines(raw)
+    )
+
+
 def parse_message(raw: bytes) -> dict:
     """
     The fields dedup and the reports work from, for one message's raw bytes
     (.eml content). Scalars, plus "attachments" and "recipients" lists.
     """
-    raw = strip_mbox_from_lines(raw)
-    msg = email.parser.BytesParser(policy=email.policy.compat32).parsebytes(raw)
-
+    msg = parse_bytes(raw)
     from_raw = str(msg.get("From", ""))
     attachment_list = attachments(msg)
 
