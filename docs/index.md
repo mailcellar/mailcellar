@@ -5,15 +5,14 @@ description: "mailcellar backs up Gmail, Google Workspace and any IMAP mailbox t
 
 # mailcellar
 
-**Gmail full? Keep every email on your own disk, and free the space.**
+**Your own checked copy of your email, and room in your mailbox.**
 
-Your mail lives on someone else's server, in a mailbox with a size limit.
-When it fills up you can pay for more storage, or delete mail you may need
-later. mailcellar gives you a third way: a complete, checked backup on your
-own disk, then old mail taken out of the mailbox by rules you write and
-review, still searchable and restorable whenever you need it. It works
-with Gmail and Google Workspace, and with any IMAP mailbox: iCloud Mail,
-Yahoo Mail, Fastmail, or your own server.
+Your mail lives on one server you don't control: a deletion, a
+compromised account or a lock-out can take it, and it fills up.
+mailcellar keeps an incremental, checked backup on your own disk, then
+frees space by taking old mail out of the mailbox by rules you review,
+keeping it searchable and restorable. It works with Gmail, Google
+Workspace and any IMAP mailbox.
 
 ```bash
 uv tool install mailcellar      # or: pipx install mailcellar
@@ -25,22 +24,26 @@ mailcellar count alex           # what the mailbox has against what the backup h
 ## Why mailcellar
 
 - **Your storage is full.** Offload old mail by rule (older than five
-  years, newsletters, large attachments) and keep it in the backup: the
-  space comes back and nothing is lost.
-- **You have no backup of your own.** Providers keep your mail safe from
-  their own failures, not from a deletion, a compromised account, or being
-  locked out. A provider's export copies everything again each time, with
-  nothing to say it's complete. mailcellar fetches only what changed,
-  compares each account with its backup (`count`) and checks the files
-  (`verify`).
-- **Old mail must stay findable.** `search` covers every backup, offloaded
-  mail included, and `restore` puts back one message, a batch or a whole
-  account.
-- **Your mail is with more than one provider.** One backup, one search and
-  one set of reports cover Gmail and IMAP accounts side by side.
-- **You're moving to another provider.** `restore --to` copies mail from
-  one account to another, Gmail to IMAP or back: labels become folders and
-  folders labels, and the backup records what moved.
+  years, newsletters, large attachments); `search` and `restore` still
+  reach it ([Offloading old mail](guide/offloading.md)).
+- **You have no backup of your own.** A provider's redundancy doesn't
+  cover a deletion, a compromised account or a lock-out, and its export
+  starts from scratch each time. mailcellar fetches only what changed and
+  checks the backup against the mailbox (`count`) and itself (`verify`)
+  ([Scheduled backups](guide/scheduling.md)).
+- **Several providers, or moving.** One backup, search and set of reports
+  across Gmail and IMAP; `restore --to` copies mail between accounts,
+  labels to folders and back ([Restoring mail](guide/restore.md)).
+- **You use gyb.** Your folders work as they are, and gain offloading,
+  search, scoped restore and checks ([Migrating from gyb](guide/from-gyb.md)).
+- **You run a Workspace domain.** Unattended, read-only backups of every
+  mailbox through a service account ([Workspace](guide/workspace-service-account.md)).
+- **A dispute or a records request.** A legal hold keeps the
+  correspondence out of reach of offloading and forgetting,
+  `verify --chain` shows it unchanged, and `export` hands it over, or just its
+  attachments ([Holds](guide/legal-holds.md), [Exporting](guide/exporting.md)).
+- **Mail you mustn't keep.** `forget` removes it from the backup, and a
+  rule's `forget_after` does so on a schedule ([Forgetting mail](reference/forget.md)).
 
 ## What it does
 
@@ -52,12 +55,12 @@ mailcellar count alex           # what the mailbox has against what the backup h
 - **Find and restore**: search the backups, offloaded mail included, and
   put mail back into the same account or another.
 - **Deduplicate, export and report**: remove duplicate copies within and
-  across accounts, copy mail out as an mbox or a zip, and see what takes up
-  the space.
+  across accounts, copy mail out (an mbox, a zip, a maildir, or just the
+  attachments), and see what takes up the space.
 - **Keep mail as it is**: a hash chain shows the backup hasn't changed
   since each message was saved (`verify --chain`), and a legal hold keeps
-  the mail a dispute or an audit needs out of reach of offloading, pruning
-  and dedup, in the mailbox and in the backup.
+  the mail a dispute or an audit needs out of reach of offloading,
+  forgetting and dedup, in the mailbox and in the backup.
 
 Only `offload apply`, `dedup apply` and `restore --yes` change a mailbox,
 each a dry run until you add a flag; on an IMAP server, only where the
@@ -69,6 +72,12 @@ an IMAP account needs only its password (an app password, where the
 provider asks for one). mailcellar is in beta; it runs
 on macOS and Linux and needs Python 3.14, which
 [uv](https://docs.astral.sh/uv/) installs for you.
+
+**Not for everyone.** It's a command-line tool for people who can set up a
+Google Cloud project or an app password. It has no mail reader (export a
+maildir or an mbox for one), doesn't run on Windows, and is one person's
+backup, not an organization's archive
+([how it compares](guide/troubleshooting.md#how-does-it-compare-with-other-tools)).
 
 ## Where to start
 

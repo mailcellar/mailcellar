@@ -139,8 +139,8 @@ README or on its site, in October 2026:
   archival and retention rules, legal hold and audit logs. It is a server
   an organization runs for everyone's mail, where mailcellar is one
   person's command-line backup. Its importer reads EML, Maildir and mbox
-  files, and `mailcellar export` writes mbox or a zip of `.eml` files; that
-  route hasn't been tried.
+  files, and `mailcellar export` writes mbox, a zip of `.eml` files or a
+  maildir; that route hasn't been tried.
 - **Google Takeout:** see [Why not IMAP, or Google
   Takeout?](#why-not-imap-or-google-takeout) above.
 
