@@ -7,6 +7,14 @@ in beta, so commands and options may still change before 1.0.
 
 ## Unreleased
 
+## 0.21.0 (2026-10-31)
+
+**Upgrading from 0.20.0:** no database's schema changes. A time ago
+written as a decimal number of years, in an offload rule's `before` or
+`after` (`before = "0.5"`) or in `--before` and `--after`, is now refused
+instead of being cut to whole years: write it with a unit (`"6m"`).
+`offload plan` stops at such a rule, naming it.
+
 ### Added
 - `backup` checks the files of part of the backup after each run, as
   `verify` does: an eighth of its messages by default, at least 1,000,
