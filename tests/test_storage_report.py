@@ -1,4 +1,6 @@
 import csv
+import re
+from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 
 import pytest
@@ -141,6 +143,45 @@ def test_parse_before():
     assert cli.parse_before(None) is None
     with pytest.raises(AnalyticsError):
         cli.parse_before("last tuesday")
+
+
+NOW = datetime(2026, 3, 31, 12, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    "value, when",
+    [
+        ("0", NOW),
+        ("90d", NOW - timedelta(days=90)),
+        ("3w", NOW - timedelta(weeks=3)),
+        ("1m", datetime(2026, 2, 28, 12, tzinfo=UTC)),
+        ("6M", datetime(2025, 9, 30, 12, tzinfo=UTC)),
+        ("15m", datetime(2024, 12, 31, 12, tzinfo=UTC)),
+        ("2y", datetime(2024, 3, 31, 12, tzinfo=UTC)),
+        ("2", datetime(2024, 3, 31, 12, tzinfo=UTC)),
+    ],
+)
+def test_parse_before_takes_a_time_ago_by_the_calendar(value, when):
+    assert cli.parse_before(value, now=NOW) == int(when.timestamp() * 1000)
+
+
+@pytest.mark.parametrize(
+    "value, message",
+    [
+        ("0.5", "--after '0.5': a number of years must be whole; write 6m instead"),
+        ("1.5", "write 18m instead"),
+        ("0.5y", "write 6m instead"),
+        ("1.5m", "--after '1.5m': a time ago must be whole"),
+        ("2024-02-30", "--after '2024-02-30': no such date"),
+        (".05", "write 18d instead"),
+        ("6 m", "give a date (YYYY-MM-DD) or a time ago"),
+        ("3000y", "--after '3000y': too far back"),
+        ("99999999999d", "too far back"),
+    ],
+)
+def test_parse_before_refuses_a_fraction_and_names_the_option(value, message):
+    with pytest.raises(AnalyticsError, match=re.escape(message)):
+        cli.parse_before(value, "--after", now=NOW)
 
 
 def test_resolve_folders(two_accounts):

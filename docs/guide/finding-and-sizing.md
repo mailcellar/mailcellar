@@ -33,7 +33,7 @@ language is small:
 | `invo*` | words starting with `invo` |
 
 Narrow with `--offloaded` (only mail taken out of Gmail), `--rule`, `--batch`,
-`--after` and `--before`. A date is `YYYY-MM-DD` or a number of years ago.
+`--after` and `--before`. A date is `YYYY-MM-DD` or a time ago (`90d`, `3w`, `6m`, `2y`).
 Results are newest first, at most 50 (`--limit`), each with its date,
 sender, subject and `.eml` file. The exit status is 1 when nothing matches.
 

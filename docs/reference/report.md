@@ -37,7 +37,7 @@ with none named, every backup in the data root.
 | Option | What it does |
 | --- | --- |
 | `--min-size MB` | Removal candidates: at least this size (default 5) |
-| `--before DATE` | Removal candidates: received before this date (`YYYY-MM-DD`) or this many years ago (default 5) |
+| `--before DATE` | Removal candidates: received before this date (`YYYY-MM-DD`) or this long ago (`6m`, `2y`; default 5 years) |
 | `--include-labelled` | Removal candidates: include sent, starred and user-labelled mail |
 
 ### `report bulk`

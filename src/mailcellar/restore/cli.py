@@ -61,12 +61,12 @@ def add_selection_arguments(
     narrow.add_argument(
         "--before",
         metavar="DATE",
-        help="Only mail older than this: YYYY-MM-DD (UTC), or a number of years ago",
+        help="Only mail older than this: YYYY-MM-DD (UTC), or a time ago (90d, 3w, 6m, 2y)",
     )
     narrow.add_argument(
         "--after",
         metavar="DATE",
-        help="Only mail from this date on: YYYY-MM-DD (UTC), or a number of years ago",
+        help="Only mail from this date on: YYYY-MM-DD (UTC), or a time ago (90d, 3w, 6m, 2y)",
     )
     narrow.add_argument(
         "--has-label",
@@ -101,9 +101,9 @@ def selection(p: argparse.ArgumentParser, args, required: bool = True) -> Narrow
 
     def date(option: str, value: str | None) -> int | None:
         try:
-            return parse_before(value)
-        except AnalyticsError:
-            p.error(f"{option} {value!r}: give a date (YYYY-MM-DD) or a number of years")
+            return parse_before(value, option)
+        except AnalyticsError as exc:
+            p.error(str(exc))
 
     narrowing = Narrowing(
         date("--before", args.before),

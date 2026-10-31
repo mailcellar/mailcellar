@@ -4,7 +4,7 @@ mail to take out of Gmail.
 
     [[rule]]
     name = "old work mail"             # unique; recorded with every message
-    before = "2022-01-01"              # required: a date, or a number of years ago ("5")
+    before = "2022-01-01"              # required: a date, or a time ago ("6m", "5y", "5")
     after = "2012-01-01"               # optional: and no older than this, written like before
     account = "work"                   # optional: address, config name or unique part
     label = "projects"                 # scope: at least one of the keys below, or
@@ -286,7 +286,7 @@ def _strings(rule: str, key: str, value) -> list[str]:
 
 def parse_rule(raw: dict, parse_before, resolve_account) -> Rule:
     """
-    One [[rule]] table. parse_before(text) -> ms; resolve_account(name) ->
+    One [[rule]] table. parse_before(text, key) -> ms; resolve_account(name) ->
     address, raising RuleError. Raises RuleError on anything unexpected: a typo must not widen
     or narrow an offload silently.
     """
@@ -300,22 +300,21 @@ def parse_rule(raw: dict, parse_before, resolve_account) -> Rule:
     if isinstance(before, int | float) and not isinstance(before, bool):
         before = str(before)
     if not isinstance(before, str):
-        raise RuleError(f"rule {name!r}: before is required (a date or a number of years)")
+        raise RuleError(f"rule {name!r}: before is required (a date or a time ago)")
     try:
-        before_ms = parse_before(before)
+        before_ms = parse_before(before.strip(), "before")
     except Exception as exc:
         raise RuleError(f"rule {name!r}: {exc}") from None
     after, after_ms = raw.get("after", ""), None
     if "after" in raw:
         if isinstance(after, int | float) and not isinstance(after, bool):
             after = str(after)
-        bad = f"rule {name!r}: after must be a date (YYYY-MM-DD) or a number of years"
         if not isinstance(after, str) or not after.strip():
-            raise RuleError(bad)
+            raise RuleError(f"rule {name!r}: after must be a date (YYYY-MM-DD) or a time ago")
         try:
-            after_ms = parse_before(after.strip())
-        except Exception:
-            raise RuleError(bad) from None
+            after_ms = parse_before(after.strip(), "after")
+        except Exception as exc:
+            raise RuleError(f"rule {name!r}: {exc}") from None
         if after_ms >= before_ms:
             raise RuleError(
                 f"rule {name!r}: after ({after}) must be earlier than before ({before})"

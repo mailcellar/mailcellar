@@ -60,9 +60,9 @@ def cmd_add(p: argparse.ArgumentParser, args) -> int:
 
     def date(option: str, value: str | None) -> int | None:
         try:
-            return parse_before(value)
-        except AnalyticsError:
-            p.error(f"{option} {value!r}: give a date (YYYY-MM-DD) or a number of years")
+            return parse_before(value, option)
+        except AnalyticsError as exc:
+            p.error(str(exc))
 
     until = None
     if args.until is not None:
@@ -224,8 +224,12 @@ def main(argv=None, prog: str | None = None) -> int:
         metavar="ADDRESS|@DOMAIN",
         help="Mail from or to this address, or any address at @domain (repeatable: any)",
     )
-    ad.add_argument("--after", metavar="DATE", help="Mail from this date on (YYYY-MM-DD)")
-    ad.add_argument("--before", metavar="DATE", help="Mail older than this (YYYY-MM-DD)")
+    ad.add_argument(
+        "--after", metavar="DATE", help="Mail from this date on (YYYY-MM-DD, or a time ago: 6m, 2y)"
+    )
+    ad.add_argument(
+        "--before", metavar="DATE", help="Mail older than this (YYYY-MM-DD, or a time ago)"
+    )
     ad.add_argument("--label", metavar="NAME", help="Mail with this user label (case ignored)")
     ad.add_argument(
         "--id", action="append", default=[], metavar="GMAIL_ID", help="A message (repeatable)"

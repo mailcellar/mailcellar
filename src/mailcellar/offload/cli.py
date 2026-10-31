@@ -504,7 +504,7 @@ def main(argv=None, prog: str | None = None) -> None:
     sg.add_argument(
         "--before",
         default="1",
-        help="Each suggestion's before: a date or a number of years ago (default: 1)",
+        help="Each suggestion's before: a date or a time ago, e.g. 6m (default: 1 year)",
     )
     sg.add_argument(
         "--min-messages",

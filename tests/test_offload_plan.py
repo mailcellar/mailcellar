@@ -318,6 +318,16 @@ def test_plan_changes_nothing(data):
         ),
         ('[[rule]]\nname = "x"\nbefore = "5"\nlable = "a"\n', "unknown keys ['lable']"),
         ('[[rule]]\nname = "x"\nbefore = "soon"\nlabel = "a"\n', "give a date"),
+        ('[[rule]]\nname = "x"\nbefore = "0.5"\nlabel = "a"\n', "rule 'x': before '0.5'"),
+        ('[[rule]]\nname = "x"\nbefore = 0.5\nlabel = "a"\n', "write 6m instead"),
+        (
+            '[[rule]]\nname = "x"\nbefore = "2026-02-30"\nlabel = "a"\n',
+            "before '2026-02-30': no such",
+        ),
+        (
+            '[[rule]]\nname = "x"\nbefore = "1y"\nafter = "1.5"\nlabel = "a"\n',
+            "rule 'x': after '1.5': a number of years must be whole; write 18m instead",
+        ),
         ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nwaive = ["thred"]\n', "thred"),
         ('[[rule]]\nname = "x"\nbefore = "5"\ncategory = "spam"\n', "unknown categories"),
         (
@@ -592,15 +602,27 @@ def test_every_plan_is_kept(data, monkeypatch):
         assert {r["planned"] for r in csv.DictReader(fh)} == {"2027-01-15 08:00:00"}
 
 
+def test_a_rule_s_dates_may_have_spaces_around_them():
+    from mailcellar.offload.rules import parse_rule
+
+    raw = {"name": "x", "label": "a"}
+    spaced = parse_rule({**raw, "before": " 6m ", "after": " 2y "}, parse_before, lambda a: a)
+    plain = parse_rule({**raw, "before": "6m", "after": "2y"}, parse_before, lambda a: a)
+    assert abs(spaced.before_ms - plain.before_ms) < 60_000
+    assert abs(spaced.after_ms - plain.after_ms) < 60_000
+
+
 def test_years_before_29_february():
     from datetime import UTC, datetime
 
-    from mailcellar.report.cli import years_before
+    from mailcellar.report.cli import months_before
 
     leap = datetime(2028, 2, 29, 12, tzinfo=UTC)
-    assert years_before(leap, 1) == datetime(2027, 2, 28, 12, tzinfo=UTC)
-    assert years_before(leap, 4) == datetime(2024, 2, 29, 12, tzinfo=UTC)
-    assert years_before(datetime(2026, 10, 27, tzinfo=UTC), 7) == datetime(2019, 10, 27, tzinfo=UTC)
+    assert months_before(leap, 12) == datetime(2027, 2, 28, 12, tzinfo=UTC)
+    assert months_before(leap, 48) == datetime(2024, 2, 29, 12, tzinfo=UTC)
+    assert months_before(datetime(2026, 10, 27, tzinfo=UTC), 84) == datetime(
+        2019, 10, 27, tzinfo=UTC
+    )
 
 
 def test_a_forget_after_no_longer_than_before_is_warned_about(data, caplog):
@@ -712,7 +734,7 @@ def test_the_new_keys_work_in_keep_if(keyed):
     ("keys", "error"),
     [
         ('label = "a"\nafter = "2030-01-01"', "after (2030-01-01) must be earlier than before"),
-        ('label = "a"\nafter = "soon"', "after must be a date (YYYY-MM-DD) or a number"),
+        ('label = "a"\nafter = "soon"', "after 'soon': give a date (YYYY-MM-DD) or a time ago"),
         ('label = "a"\nafter = true', "after must be a date"),
         ('label = "a"\nafter = " "', "after must be a date"),  # not "no lower bound"
         ('bulk = "yes"', "bulk must be true or false"),
