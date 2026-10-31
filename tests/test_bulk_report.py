@@ -66,7 +66,12 @@ def report(tmp_path, monkeypatch):
     monkeypatch.setattr(
         FakeMailbox,
         "LABELS",
-        {**FakeMailbox.LABELS, "SENT": "SENT", "CATEGORY_PROMOTIONS": "CATEGORY_PROMOTIONS"},
+        {
+            **FakeMailbox.LABELS,
+            "SENT": "SENT",
+            "CATEGORY_PROMOTIONS": "CATEGORY_PROMOTIONS",
+            "Label_2": "offload-candidate",
+        },
     )
     a, b = Mailbox(), Mailbox()
     a.series("news", "Shop <news@shop.com>", labels=PROMO, headers=LIST, days_ago=10)
@@ -80,6 +85,8 @@ def report(tmp_path, monkeypatch):
     a.add("sent3", ME, labels=["SENT"], thread="t-promo5")
     a.series("lab", "labelled@x.com", labels=PROMO)
     a.add("lab-user", "labelled@x.com", labels=[*PROMO, "Label_1"])  # user label
+    a.series("out", "out@x.com", labels=PROMO)
+    a.add("out-review", "out@x.com", labels=[*PROMO, "Label_2"])  # offload's label, not yours
     a.series(
         "via",
         "'Shop' via Catchall <catchall@club.org>",
@@ -125,27 +132,28 @@ def test_engagement_rules(report):
     assert s["promo@x.com"][11] == "yes"  # sent in one of their threads
     assert s["news.shop.com"][11] == "no"
     assert s["labelled@x.com"][12] == "yes"
+    assert s["out@x.com"][12] == "no"  # offload-candidate is mailcellar's label
 
 
 def test_candidates(report):
     t = report()["candidates"]
-    assert [r[0] for r in t.rows] == ["news.shop.com", "shop@real.com"]  # still sending first
-    assert t.notes[0].startswith("2 sources, 24 messages")
+    assert [r[0] for r in t.rows] == ["news.shop.com", "out@x.com", "shop@real.com"]
+    assert t.notes[0].startswith("3 sources, 37 messages")
     assert "1 still sending" in t.notes[0]
 
 
 def test_options(report):
     assert "bob@work.com" in sources(report(min_bulk_share=0.05)["sources"])
-    assert report(min_messages=13)["candidates"].rows == []
+    assert report(min_messages=14)["candidates"].rows == []
 
 
 def test_summary_counts(report):
     rows = {r[0]: r for r in report()["summary"].rows}
     me = rows[ME]
-    # all mail (9 series + 4 singles), from others (all but 2 sent + 12 own)
-    assert me[1] == 12 * 9 + 4 and me[2] == me[1] - 2 - 12
+    # all mail (10 series + 5 singles), from others (all but 2 sent + 12 own)
+    assert me[1] == 12 * 10 + 5 and me[2] == me[1] - 2 - 12
     assert me[7] == 24  # relayed (via + kept)
-    assert (me[10], me[11]) == (2, 24)
+    assert (me[10], me[11]) == (3, 37)
 
 
 def test_cli_bulk(report, capsys, tmp_path):
