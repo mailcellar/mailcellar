@@ -8,6 +8,8 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 
 ## Unreleased
 
+## 0.22.0 (2026-10-31)
+
 **Upgrading from 0.21.0:** run 0.21.0's `offload plan` once first: rules
 with `waive`, `protect` or `except` are now refused, and it shows each
 one's rewrite. Scripts and cron lines that call `mailcellar dedup auth`
