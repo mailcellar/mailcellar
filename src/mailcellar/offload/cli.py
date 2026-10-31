@@ -150,8 +150,6 @@ def cmd_plan(args) -> None:
                 logger.warning(why)
             if why := keeps_nothing(rule):
                 logger.warning(why)
-            if rule.deprecated:
-                logger.warning(rule.deprecated)
         hits = {
             (account, q): ids
             for account, queries in searches(rules, accounts).items()

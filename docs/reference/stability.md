@@ -64,8 +64,3 @@ it says: 0.21.0 refused a decimal number of years, which it had cut to
 whole years (`before = "0.5"` meant now). That is a **Fixed** entry,
 saying what to write instead, not a breaking change: keeping the value
 working would keep the harm.
-
-The offload rule keys `waive`, `protect` and `except` are the one
-exception announced before 1.0: they keep working, with a warning, until
-1.0 and are removed then. `offload plan` shows each rule that uses them
-written with `keep` and `keep_if`.

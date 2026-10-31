@@ -21,7 +21,6 @@ from mailcellar.offload.plan import (
 from mailcellar.offload.rules import (
     DEFAULT_KEEP,
     DEFAULT_PROTECT,
-    KEEP,
     PROTECTIONS,
     Rule,
     RuleError,
@@ -176,23 +175,6 @@ def test_plan_csv(data):
     assert w1["sender"] == "colleague@work.com" and w1["subject"] == "s-w1"
 
 
-def test_waive_and_protect(data):
-    rules = """
-[[rule]]
-name = "work"
-label = "Work"
-account = ["a@x.com"]
-before = "2020-01-01"
-waive = ["sent", "starred"]
-protect = ["correspondents"]
-"""
-    rows = run(data, rules)
-    # colleague@work.com and friend@p.com are written to (s6, s5); w3 is its own thread
-    # you wrote in; b1 is in another account
-    assert {r["gmail_id"] for r in rows} == {"w11", "p2"}
-    assert {r["waived"] for r in rows} == {"sent;starred"}
-
-
 def test_keep_says_what_stays(data):
     rules = """
 [[rule]]
@@ -202,7 +184,7 @@ account = ["a@x.com"]
 before = "2020-01-01"
 keep = ["conversations", "labelled", "correspondents"]
 """
-    rows = run(data, rules)  # the same as waive = ["sent", "starred"], protect = [...]
+    rows = run(data, rules)
     assert {r["gmail_id"] for r in rows} == {"w11", "p2"}
     assert {r["waived"] for r in rows} == {"sent;starred"}
     nothing = rules.replace('["conversations", "labelled", "correspondents"]', "[]")
@@ -244,7 +226,6 @@ def test_the_rules_table_says_what_each_rule_keeps():
     assert keeps(keep=[*DEFAULT_KEEP, "correspondents"]) == "default, correspondents"
     assert keeps(keep=["starred", "mine"]) == "mine, starred"
     assert keeps(keep=[]) == "nothing"
-    assert keeps(waive="thread") == "mine, starred, conversations (replied only), labelled"
 
 
 def scoped(gid, size=10, account=A, **flags):
@@ -328,27 +309,13 @@ def test_plan_changes_nothing(data):
             '[[rule]]\nname = "x"\nbefore = "1y"\nafter = "1.5"\nlabel = "a"\n',
             "rule 'x': after '1.5': a number of years must be whole; write 18m instead",
         ),
-        ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nwaive = ["thred"]\n', "thred"),
         ('[[rule]]\nname = "x"\nbefore = "5"\ncategory = "spam"\n', "unknown categories"),
-        (
-            '[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nwaive = "sent"\nprotect = "sent"\n',
-            "both waived and protected",
-        ),
         ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\n' * 2, "must be unique"),
         ('[rules]\nname = "x"\n', "unknown tables"),
         ("", "no [[rule]] tables"),
         ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nto_me = "yes"\n', "true or false"),
         ('[[rule]]\nname = "x"\nbefore = "5"\nsubject = " "\n', "must not be empty"),
         ('[[rule]]\nname = "x"\nbefore = "5"\nquery = ["a", ""]\n', "query must not be empty"),
-        ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nexcept = "b"\n', "table of scope"),
-        (
-            '[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nexcept = { before = "1" }\n',
-            "except: unknown keys",
-        ),
-        (
-            '[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nexcept = { category = "x" }\n',
-            "except: unknown categories",
-        ),
         ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nforget_after = 0\n', "1 or more"),
         ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nforget_after = 1.5\n', "whole"),
         ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nforget_after = "7"\n', "whole"),
@@ -372,8 +339,6 @@ def test_rule_errors(tmp_path, rules, error):
         ('keep = ["labels"]', "'labels' is called 'labelled' in keep"),
         ('keep = ["mine", "friends"]', "keep: unknown names ['friends']"),
         ("keep = true", "keep must be a list"),
-        ('keep = ["mine"]\nwaive = ["starred"]', "waive can't be mixed with keep"),
-        ('keep_if = { sender = "a" }\nexcept = { label = "b" }', "except can't be mixed"),
         ('keep_if = "b"', "keep_if must be a table or a list of tables"),
         ("keep_if = []", "keep_if must be a table or a list of tables"),
         ("keep_if = [{}]", "each table needs scope keys"),
@@ -389,52 +354,24 @@ def test_keep_errors(tmp_path, rules, error):
 
 
 @pytest.mark.parametrize(
-    ("old", "new"),
+    ("old", "said"),
     [
-        ('waive = ["thread", "replied"]', 'keep = ["mine", "starred", "labelled"]'),
-        ('protect = "correspondents"', f"keep = {list(KEEP)}".replace("'", '"')),
-        ('waive = ["sent", "starred", "thread", "replied", "labels"]', "keep = []"),
-        ('waive = "correspondents"', ""),  # off by default already
-        (
-            'except = { subject = "Invoice", larger_than_mb = 1 }',
-            'keep_if = [{ subject = "Invoice" }, { larger_than_mb = 1 }]',
-        ),
-        (
-            'waive = ["labels"]\nexcept = { sender = ["@a.example", "b@c.example"] }',
-            'keep = ["mine", "starred", "conversations"]\n'
-            'keep_if = [{ sender = ["@a.example", "b@c.example"] }]',
-        ),
+        ('waive = ["labels"]', "waive"),
+        ('protect = "correspondents"', "protect"),
+        ('except = { subject = "Invoice" }', "except"),
+        ('waive = "replied"\nexcept = { sender = "a" }', "waive, except"),
+        ('keep = ["mine"]\nwaive = ["starred"]', "waive"),
     ],
 )
-def test_old_keys_read_as_their_new_form_says(tmp_path, old, new):
+def test_the_removed_keys_are_refused_saying_what_to_use(tmp_path, old, said):
     path = tmp_path / "rules.toml"
-    base = '[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\n'
-    path.write_text(base + old + "\n")
-    (was,) = load_rules(path, parse_before, lambda a: a)
-    path.write_text(base + new + "\n")
-    (now,) = load_rules(path, parse_before, lambda a: a)
-    assert (was.protect, was.exceptions) == (now.protect, now.exceptions)
-    assert now.deprecated == ""
-    assert was.deprecated.startswith("rule 'x': ") and "will be removed in 1.0" in was.deprecated
-    said = new.replace("\n", "; ") or "nothing; keep's default is the same"
-    assert was.deprecated.endswith("write it as: " + said)
-
-
-def test_waiving_one_of_thread_and_replied_still_works_and_says_keep_cant(tmp_path):
-    path = tmp_path / "rules.toml"
-    path.write_text('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nwaive = "replied"\n')
-    (rule,) = load_rules(path, parse_before, lambda a: a)
-    assert rule.protect == ("sent", "starred", "thread", "labels")
-    assert rule.keep == ["mine", "starred", "conversations (thread only)", "labelled"]
-    assert "keep can't say this rule's protections" in rule.deprecated
-
-
-def test_plan_warns_about_the_old_keys(data, caplog):
-    run(data, '[[rule]]\nname = "w"\nlabel = "work"\nbefore = "2020"\nwaive = "labels"\n')
-    assert (
-        "rule 'w': waive will be removed in 1.0; write it as: "
-        'keep = ["mine", "starred", "conversations"]'
-    ) in caplog.text
+    path.write_text(f'[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\n{old}\n')
+    with pytest.raises(RuleError) as caught:
+        load_rules(path, parse_before, lambda a: a)
+    assert str(caught.value) == (
+        f"rule 'x': {said}: removed; write the rule with keep and keep_if "
+        "(the offload reference shows how)"
+    )
 
 
 def test_rule_defaults(tmp_path):
@@ -442,7 +379,7 @@ def test_rule_defaults(tmp_path):
     path.write_text('[[rule]]\nname = "x"\nbefore = 5\nlabel = "a"\n')
     (rule,) = load_rules(path, parse_before, lambda a: a)
     assert rule.protect == DEFAULT_PROTECT and rule.waived == [] and rule.accounts == []
-    assert rule.keep == list(DEFAULT_KEEP) and rule.exceptions == () and rule.deprecated == ""
+    assert rule.keep == list(DEFAULT_KEEP) and rule.exceptions == ()
     assert rule.forget_after is None and rule.forget_ms is None  # kept for ever
 
 
@@ -494,16 +431,16 @@ def test_to_me(data):
     assert {r["gmail_id"] for r in run(data, base + "to_me = false\n")} == {"w1", "w8", "p2"}
 
 
-def test_except_keeps_matches_of_any_key(data, capsys):
+def test_keep_if_keeps_matches_of_any_table(data, capsys):
     rules = """
 [[rule]]
 name = "work"
 label = "work"
 before = "2020-01-01"
-except = { subject = ["S-W1"], sender = "@shop.com", to_me = true }
+keep_if = [{ subject = ["S-W1"] }, { sender = "@shop.com" }, { to_me = true }]
 """
     rows = run(data, rules)
-    assert {r["gmail_id"] for r in rows} == {"w8", "b1"}  # w1, p2, t1 excepted
+    assert {r["gmail_id"] for r in rows} == {"w8", "b1"}  # w1, p2, t1 kept
     assert "kept: keep_if" in capsys.readouterr().out
 
 
@@ -531,17 +468,17 @@ def test_a_query_selects_what_gmail_finds_and_the_protections_still_apply(
     # w1, w4 and w8 carry Work, a user label the rule doesn't name
     assert {r["gmail_id"] for r in run(data, rule)} == {"p1"}
     assert gmail_search == [(A, ("has:attachment",)), (B, ("has:attachment",))]
-    rows = run(data, rule + 'waive = ["labels"]\n')
+    rows = run(data, rule + 'keep = ["mine", "starred", "conversations"]\n')
     assert {r["gmail_id"] for r in rows} == {"w1", "w8", "p1"}  # w4 is starred
     assert "1 messages Gmail finds for 'has:attachment' aren't in the backup" in caplog.text
 
 
-def test_a_query_narrows_like_any_scope_key_and_works_in_except(data, gmail_search):
+def test_a_query_narrows_like_any_scope_key_and_works_in_keep_if(data, gmail_search):
     both = '[[rule]]\nname = "w"\nlabel = "work"\nquery = "has:attachment"\nbefore = "2020-01-01"\n'
     assert {r["gmail_id"] for r in run(data, both)} == {"w1", "w8"}  # p1 has no Work label
     excepted = (
         '[[rule]]\nname = "w"\nlabel = "work"\nbefore = "2020-01-01"\n'
-        'except = { query = "has:attachment" }\n'
+        'keep_if = { query = "has:attachment" }\n'
     )
     assert {r["gmail_id"] for r in run(data, excepted)} == {"p2", "t1", "b1"}
 
@@ -594,7 +531,7 @@ def test_searches_are_per_account_and_asked_once():
     rules = [
         rule(name="one", query=["a", "b"], account=A),
         rule(name="two", query="a"),
-        rule(name="three", label="x", **{"except": {"query": "c"}}),
+        rule(name="three", label="x", keep_if={"query": "c"}),
         rule(name="four", label="y"),
     ]
     assert searches(rules, [A, B]) == {A: ["a", "b", "c"], B: ["a", "c"]}

@@ -104,10 +104,6 @@ to see what the rule now takes. A `query` rule finds mail across your
 labels, so **labelled** often keeps much of what it finds: the plan's
 "kept: labelled" line says how much.
 
-Older rules say this with `waive`, `protect` and `except`. They work until
-1.0, and `plan` warns about each, with the rule written in `keep` and
-`keep_if` ([the reference](../reference/offload.md) has the translation).
-
 ## 2. Plan
 
 ```bash
