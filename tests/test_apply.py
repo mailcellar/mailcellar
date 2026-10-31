@@ -236,6 +236,15 @@ def test_the_log_is_upgraded_before_rows_are_appended(tmp_path):
     assert [(r["id"], r["outcome"]) for r in rows] == [("a1", "would label"), ("b0", "labelled")]
 
 
+def test_a_log_with_a_column_it_would_drop_is_left_alone(tmp_path):
+    log_path = tmp_path / "log.csv"
+    old = "time,mode,account,gmail_id,outcome\nt0,dry-run,a@x.com,a1,would label\n"
+    log_path.write_text(old)
+    with pytest.raises(SystemExit, match="columns this version doesn't write: gmail_id"):
+        dedup_apply.write_apply_log([Result(row(tmp_path, "b0"), "labelled")], "label", log_path)
+    assert log_path.read_text() == old
+
+
 # ── within-account rows: the keeper is in the same account ───────────────────
 
 

@@ -55,10 +55,10 @@ says so under **Changed** or **Removed**.
 
 Something stable that is renamed or replaced keeps working under its old
 name for at least one minor version after its replacement ships, and says
-so when it is used (`dedup auth` became `auth` this way, kept from 0.9.0
-to 0.21.0). It is removed
-only in the next major version, with a **Removed** entry in the changelog
-that names the replacement.
+so when it is used. It is removed only in the next major version, with a
+**Removed** entry in the changelog that names the replacement. Before 1.0,
+`dedup auth` became `auth` this way: it was kept from 0.9.0 to 0.21.0 and
+removed in a minor version, as 0.x allowed.
 
 A fix may refuse a value that was accepted but did something other than
 it says: 0.21.0 refused a decimal number of years, which it had cut to
