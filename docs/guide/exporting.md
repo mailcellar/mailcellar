@@ -1,5 +1,5 @@
 ---
-description: "Export mail from the backup to an mbox file or a zip of .eml files, to read in a desktop mail client or hand to an accountant or a lawyer. Read-only."
+description: "Export mail from the backup to an mbox file, a maildir or a zip of .eml files, to read in a desktop mail client or hand to an accountant or a lawyer. Read-only."
 ---
 
 # Exporting mail
@@ -13,16 +13,18 @@ sign-in. The README has the reference
 
 ## Which format
 
-The format comes from the file name, which must end `.mbox` or `.zip`.
+The format comes from the name: one ending `.mbox` or `.zip`, or one
+ending `/` for a maildir folder.
 
-| | `.mbox` | `.zip` |
-| --- | --- | --- |
-| Good for | reading the mail in a mail client | handing it to a person; a spreadsheet of what is in it |
-| Holds | all the messages in one file, each with its Gmail labels | one `.eml` file per message, and `index.csv` |
-| Opens with | a mail client's import | any unzip tool, then a mail client or a text editor for the `.eml` files; a spreadsheet for the index |
+| | `.mbox` | maildir (`name/`) | `.zip` |
+| --- | --- | --- | --- |
+| Good for | reading the mail in a mail client | reading it in a tool that reads a maildir | handing it to a person; a spreadsheet of what is in it |
+| Holds | all the messages in one file, each with its Gmail labels | one file per message, each with its Gmail labels, and `index.csv` | one `.eml` file per message, and `index.csv` |
+| Opens with | a mail client's import | mutt or neomutt, aerc, mu, notmuch, or Dovecot | any unzip tool, then a mail client or a text editor for the `.eml` files; a spreadsheet for the index |
 
-Both hold the messages exactly as the backup stores them, attachments
-included.
+All three hold the messages as the backup stores them, attachments
+included; a maildir's files have LF line endings, as maildir readers
+expect.
 
 ## Choosing the mail
 
@@ -48,9 +50,11 @@ it says so and writes no file.
 
 ## What you get
 
-The file is written under another name and renamed only when complete, so an
-interrupted export leaves nothing that looks finished. It will not overwrite a
-file, so choose a new name each time, and it will not write inside the backup.
+The file or folder is written under another name and renamed only when
+complete, so an interrupted export leaves nothing that looks finished. It will
+not overwrite a file or write into a folder that exists, so choose a new name
+each time, and it will not write inside the backup. If an interrupted maildir
+export left a folder ending `.part`, delete it first.
 
 When it finishes it says how many messages it wrote and their size.
 
@@ -60,10 +64,19 @@ option for "mbox" or "Unix mailbox" files. Each message carries an
 ignore. This has not been tried in every client, so check a small export
 first (`--limit 20`) before exporting a lot.
 
-**The zip's index.** `index.csv` has one row per message: date (UTC), sender,
-subject, labels (separated by `;`), ID and the file's path inside the
-zip. A subject or sender that begins with `=`, `+`, `-` or `@` is written with
-a `'` in front. Mail is written by other people, and without the `'` a
+**In a maildir reader.** Point the reader at the folder, for example
+`mutt -f ~/old-mail/` or a mu or notmuch configuration whose mail root is
+it. Messages read in Gmail are marked read, starred ones flagged. Each
+message carries its labels twice: `X-Gmail-Labels`, as in an mbox, and
+`X-Keywords`, the header OfflineIMAP reads, with Gmail's system labels by
+their IMAP names (`\Inbox`, `\Important`). mu takes `X-Keywords` as its
+tags: `mu find tag:work`, or `mu find 'tag:\\Inbox'` for a system
+label. As with mbox, check a small export first (`--limit 20`).
+
+**The index.** In a zip or a maildir, `index.csv` has one row per message:
+date (UTC), sender, subject, labels (separated by `;`), ID and the file's
+path inside the zip or folder. A subject or sender that begins with `=`,
+`+`, `-` or `@` is written with a `'` in front. Mail is written by other people, and without the `'` a
 spreadsheet could run such a subject as a formula. If you see a `'`, that is
 why.
 
