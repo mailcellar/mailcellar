@@ -112,13 +112,14 @@ mailcellar` and `python -m mailcellar` both work.
 | `imap.py` | An IMAP account as a read-only `Mailbox`: a scan reads folders, UIDs, flags and new headers (EXAMINE, BODY.PEEK) and decides with pure functions over frozen values (IDs from Message-ID, date and size or content, folders and flags as labels, what is gone); the UID map is kept in `meta.sqlite` (`imap_map`) and written only through backup's connection (`save_state`). Writes raise |
 | `message.py` | Message parsing: `parse_message()`, `content_hash()`, `header_key()`, `extract_address()`, `PARSER_VERSION` |
 | `setup/cli.py` | `setup`: from a downloaded OAuth client to a configured, signed-in account. `check_client`, `accounts_entries`, `pick_name`, `add_account`, `latest_download` are pure; `accounts.toml` is only appended to, the client is written owner-only, and the sign-in is `mailcellar auth`'s read-only one |
+| `setup/auth.py` | `auth`: obtains or renews each account's Gmail token, for every command; changes nothing in the mailbox. It was `dedup auth` until 0.21.0 |
 | `backup/commands.py` | `backup` (history-based or full listing), `count`, `meta` (sidecar backfill); the runs log |
 | `backup/gyb.py` | gyb's format: writes `msg-db.sqlite` and `<y>/<m>/<d>/<id>.eml`, reads them back (`iter_backup`, `backup_account`), `prune` (moving files out, with a manifest) for `forget` |
 | `backup/schedule.py` | `schedule`: installs `backup --unattended` as a launchd agent on macOS (a cron line elsewhere), `status` from the sidecars' runs and the token files, `remove`. The decisions (`describe`, `launchd_plist`, `cron_line`, `overdue`) are pure |
 | `backup/verify.py` | `verify`: for each backup, every indexed message's `.eml` exists, parses and matches the content hash in `meta.sqlite`; the two databases agree on which messages exist (`--offloaded`, `--sample`). Both are opened read-only; the decisions (`judge`, `select`, `disagreements`) are pure |
 | `backup/chain.py` | The hash chain (`chain.jsonl`): one link per command that adds to or removes from a backup, appended before the change is committed, and its anchor in `<config>/anchors/`; `verify --chain` replays it against every file. `next_link`, `replay`, `compare`, `check_anchor` are pure |
 | `backup/sidecar.py` | The per-account sidecar `meta.sqlite`: schema, migrations, runs, the offload record |
-| `dedup/cli.py` | argparse and one `cmd_*` per subcommand (`index`, `match`, `plan`, `apply`, `auth`); `mailcellar auth` is its `auth`, since authorisation serves every command, and `dedup auth` stays as an alias |
+| `dedup/cli.py` | argparse and one `cmd_*` per subcommand (`index`, `match`, `plan`, `apply`) |
 | `dedup/db.py` | `dedup.sqlite` schema and migrations |
 | `dedup/index.py` | Catalogue backups into `dedup.sqlite`, from the sidecars where possible |
 | `dedup/match.py` | Group copies of the same message |

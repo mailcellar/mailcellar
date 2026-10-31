@@ -459,12 +459,10 @@ def run(args) -> int:
         print(f"\nSign in when ready: mailcellar auth {name} --scope readonly")
         return 0
     print(f"\nSigning in {address} (read-only access; nothing in Gmail changes)...")
-    from mailcellar.dedup.cli import main as dedup_main
+    from mailcellar.setup.auth import main as auth_main
 
     try:
-        dedup_main(
-            ["auth", name, "--scope", "readonly", "--config", str(config)], prog="mailcellar"
-        )
+        auth_main([name, "--scope", "readonly", "--config", str(config)])
     except SystemExit as exc:
         if exc.code not in (None, 0):
             print(f"\nThe account is set up; to finish: mailcellar auth {name} --scope readonly")

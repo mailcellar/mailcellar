@@ -75,15 +75,16 @@ def _schedule(argv: list[str]) -> int:
 
 
 def _auth(argv: list[str]) -> int:
-    from mailcellar.dedup.cli import main
+    from mailcellar.setup.auth import main
 
-    main(["auth", *argv], prog="mailcellar")
-    return 0
+    return main(argv, prog="mailcellar auth")
 
 
 def _dedup(argv: list[str]) -> int:
     from mailcellar.dedup.cli import main
 
+    if argv[:1] == ["auth"]:
+        sys.exit("error: 'mailcellar dedup auth' was removed; use 'mailcellar auth'")
     main(argv, prog="mailcellar dedup")
     return 0
 

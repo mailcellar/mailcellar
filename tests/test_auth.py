@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from mailcellar import gmailapi
-from mailcellar.dedup import cli as dedup
 from mailcellar.paths import write_private
+from mailcellar.setup import auth
 
 ACCOUNTS = {"work": "alex@example.org", "personal": "alex@example.com"}
 
@@ -95,7 +95,7 @@ def fake_auth(monkeypatch):
 
 
 def test_auth_defaults_to_every_account(config, fake_auth, capsys):
-    dedup.main(["auth", "--scope", "readonly", "--config", str(config)])
+    auth.main(["--scope", "readonly", "--config", str(config)])
     assert sorted(fake_auth) == [
         ("personal", "alex@example.com", "readonly"),
         ("work", "alex@example.org", "readonly"),
@@ -104,20 +104,20 @@ def test_auth_defaults_to_every_account(config, fake_auth, capsys):
 
 
 def test_auth_named_account_by_substring(config, fake_auth):
-    dedup.main(["auth", "personal", "--scope", "readonly", "--config", str(config)])
+    auth.main(["personal", "--scope", "readonly", "--config", str(config)])
     assert fake_auth == [("personal", "alex@example.com", "readonly")]
 
 
 def test_auth_rejects_ambiguous_account(config, fake_auth):
     with pytest.raises(SystemExit):
-        dedup.main(["auth", "alex", "--scope", "modify", "--config", str(config)])
+        auth.main(["alex", "--scope", "modify", "--config", str(config)])
     assert fake_auth == []
 
 
 def test_auth_reports_failure_and_continues(config, fake_auth, capsys):
     write_config(config, {**ACCOUNTS, "other": "bad@example.com"})
     with pytest.raises(SystemExit) as exc:
-        dedup.main(["auth", "--scope", "readonly", "--config", str(config)])
+        auth.main(["--scope", "readonly", "--config", str(config)])
     assert exc.value.code == 1
     out = capsys.readouterr().out
     assert "bad@example.com: FAILED — scope not granted" in out
@@ -398,7 +398,7 @@ def test_auth_readonly_gets_its_own_token_beside_a_stored_modify_one(
     monkeypatch.setattr(gmailapi, "GmailAccount", lambda account, creds: None)
     (config / "settings.toml").write_text("keep_modify_token = true\n")
     write_token(account_folder, "modify")
-    dedup.main(["auth", "work", "--scope", "readonly", "--config", str(config)])
+    auth.main(["work", "--scope", "readonly", "--config", str(config)])
     assert consent == ["alex@example.org"]  # signed in for a read-only token
     assert gmailapi.token_file(account_folder, "readonly").is_file()
     assert gmailapi.token_file(account_folder, "modify").is_file()  # kept, as configured
@@ -407,12 +407,12 @@ def test_auth_readonly_gets_its_own_token_beside_a_stored_modify_one(
 
     # From now on a read uses the read-only token, not the modify one.
     assert gmailapi.effective_scope(account_folder, "readonly") == "readonly"
-    dedup.main(["auth", "work", "--scope", "readonly", "--config", str(config)])
+    auth.main(["work", "--scope", "readonly", "--config", str(config)])
     assert consent == ["alex@example.org"]  # no second sign-in
 
 
 def test_auth_asks_for_exactly_the_scope_named(config, fake_auth):
-    dedup.main(["auth", "work", "--scope", "readonly", "--config", str(config)])
+    auth.main(["work", "--scope", "readonly", "--config", str(config)])
     assert fake_auth.exact == [True]
 
 
@@ -429,11 +429,11 @@ def test_keep_modify_token_stores_it_as_before(config, account_folder, consent):
 
 
 def test_auth_for_modify_says_it_is_not_stored_unless_kept(config, fake_auth, capsys):
-    dedup.main(["auth", "work", "--scope", "modify", "--config", str(config)])
+    auth.main(["work", "--scope", "modify", "--config", str(config)])
     assert fake_auth == []
     assert "tokens aren't stored" in capsys.readouterr().out
     (config / "settings.toml").write_text("keep_modify_token = true\n")
-    dedup.main(["auth", "work", "--scope", "modify", "--config", str(config)])
+    auth.main(["work", "--scope", "modify", "--config", str(config)])
     assert fake_auth == [("work", "alex@example.org", "modify")]
 
 
@@ -538,7 +538,7 @@ def test_auth_prints_when_consent_was_given(config, monkeypatch, capsys):
     write_token(config / "personal")
     monkeypatch.setattr(gmailapi, "load_credentials", lambda *a, **k: object())
     monkeypatch.setattr(gmailapi, "GmailAccount", lambda account, creds: None)
-    dedup.main(["auth", "--scope", "readonly", "--config", str(config)])
+    auth.main(["--scope", "readonly", "--config", str(config)])
     out = capsys.readouterr().out
     work = next(line for line in out.splitlines() if "alex@example.org" in line)
     assert "authorised" in work and "(3 days ago)" in work
@@ -547,27 +547,23 @@ def test_auth_prints_when_consent_was_given(config, monkeypatch, capsys):
 
 
 def test_auth_passes_renew_on(config, fake_auth):
-    dedup.main(["auth", "work", "--scope", "readonly", "--renew", "--config", str(config)])
+    auth.main(["work", "--scope", "readonly", "--renew", "--config", str(config)])
     assert fake_auth.renewals == [True]
-    dedup.main(["auth", "work", "--scope", "readonly", "--config", str(config)])
+    auth.main(["work", "--scope", "readonly", "--config", str(config)])
     assert fake_auth.renewals == [True, False]
 
 
-def test_mailcellar_auth_is_the_command_and_dedup_auth_an_alias(config, fake_auth, capsys):
+def test_mailcellar_auth_is_the_command_and_dedup_auth_is_refused(config, fake_auth, capsys):
     from mailcellar import cli
 
     assert cli.main(["auth", "work", "--scope", "readonly", "--config", str(config)]) == 0
-    captured = capsys.readouterr()
-    assert "gmail.readonly OK" in captured.out and "is now" not in captured.err
+    assert "gmail.readonly OK" in capsys.readouterr().out
     assert fake_auth == [("work", "alex@example.org", "readonly")]
 
-    assert (
-        cli.main(["dedup", "auth", "personal", "--scope", "readonly", "--config", str(config)]) == 0
-    )
-    captured = capsys.readouterr()
-    assert "gmail.readonly OK" in captured.out  # the old name still works
-    assert "'mailcellar dedup auth' is now 'mailcellar auth'" in captured.err
-    assert fake_auth[-1] == ("personal", "alex@example.com", "readonly")
+    with pytest.raises(SystemExit) as caught:
+        cli.main(["dedup", "auth", "personal", "--scope", "readonly", "--config", str(config)])
+    assert caught.value.code == "error: 'mailcellar dedup auth' was removed; use 'mailcellar auth'"
+    assert len(fake_auth) == 1  # nothing signed in
 
 
 def test_mailcellar_auth_help_names_itself(capsys):

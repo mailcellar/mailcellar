@@ -11,15 +11,18 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 **Upgrading from 0.21.0:** a rules file with `waive`, `protect` or
 `except` in any rule is refused; 0.21.0's `offload plan` warns about each
 such rule with its rewrite, so run it once before upgrading.
+`mailcellar dedup auth` is refused: a script or cron line that calls it
+should call `mailcellar auth`.
 
 ### Removed
 - Offload rules' `waive`, `protect` and `except`, deprecated in 0.17.0:
   `offload plan`, `offload suggest` and `forget --due` stop at a rule that
   uses them, saying to write it with `keep` and `keep_if` (the offload
   reference shows how), and the reports warn that what is due isn't known.
-  A rule
-  that waived one of `thread` and `replied` but not the other has no
-  equivalent: `conversations` is both.
+  A rule that waived one of `thread` and `replied` but not the other has
+  no equivalent: `conversations` is both.
+- `mailcellar dedup auth`, an alias of `mailcellar auth` since 0.9.0: it
+  now stops, naming `mailcellar auth`.
 
 ## 0.21.0 (2026-10-31)
 

@@ -44,9 +44,8 @@ they need a browser; with `keep_modify_token = true` in `settings.toml`,
 instead.
 
 `auth` changes nothing in the mailbox and takes every account if none is
-named. (It used to be `mailcellar dedup auth`, which still works.) To avoid
-the error, renew a token that is getting old before it runs out: add
-`--renew`, which asks for consent again and starts Google's 7 days afresh.
+named. To avoid the error, renew a token that is getting old before it runs
+out: add `--renew`, which asks for consent again and starts Google's 7 days afresh.
 mailcellar warns when a token is 5 days past consent, and `mailcellar config`
 and `report health` show how old each one is. If it ends with `Google did not grant gmail.…`, the Gmail
 permission box was not ticked; delete the token file it names, in the

@@ -140,7 +140,6 @@ mailcellar records when consent was given, shows it in `config` and
 past consent, printing the `auth --renew` command. It can't see the consent
 screen's publishing status, so the warning goes by the time since consent;
 if your tokens don't expire, set `token_warn_days = 0` in `settings.toml`.
-`dedup auth` still works, as an alias.
 
 ### `schedule`
 
