@@ -12,20 +12,21 @@ refuses an existing file or folder, and a place inside the backup itself.
 
 mbox: one `From ` line per message (the message's date, UTC), then the
 message as stored, preceded by an X-Gmail-Labels header (comma-separated,
-system labels by Takeout's English names, as Google Takeout writes it, and
-user labels first), with lines that start with `From ` escaped the mboxrd way.
+a label holding a comma or a quote in double quotes, system labels by
+Takeout's English names, as Google Takeout writes it, and user labels
+first), with lines that start with `From ` escaped the mboxrd way.
 maildir: every message in cur/, with LF line endings, X-Gmail-Labels as in
 mbox and X-Keywords as OfflineIMAP writes it (Gmail's IMAP names for system
-labels, comma-separated); flags D, F and S from DRAFT, STARRED and UNREAD;
-index.csv at the top.
+labels, comma-separated, unquoted); flags D, F and S from DRAFT, STARRED and
+UNREAD; index.csv at the top.
 zip: the .eml files under their paths in the backup (<year>/<month>/<day>/),
 and index.csv with the date, sender, subject, labels, ID and file.
 --attachments: the attached files instead of the messages, to a zip or a
 folder (attachments.py).
 
-The decisions (export_format, inside, takeout_names, imap_names, mbox_entry,
-maildir_name, maildir_entry, index_row, safe_cell) are pure; reading the backup
-and writing the export are a thin layer around them.
+The decisions (export_format, inside, takeout_names, imap_names, csv_quoted,
+mbox_entry, maildir_name, maildir_entry, index_row, safe_cell) are pure;
+reading the backup and writing the export are a thin layer around them.
 """
 
 import argparse
@@ -184,16 +185,29 @@ def imap_names(labels: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(sorted(IMAP_NAMES.get(label, label) for label in kept))
 
 
-def labels_header(labels: tuple[str, ...], newline: bytes, name: str = "X-Gmail-Labels") -> bytes:
+def csv_quoted(label: str) -> str:
+    """
+    A label as one CSV field: in double quotes, its own doubled, if it holds
+    a comma or a quote, so restore's CSV reading gives it back whole. Pure.
+    """
+    return '"' + label.replace('"', '""') + '"' if "," in label or '"' in label else label
+
+
+def labels_header(
+    labels: tuple[str, ...], newline: bytes, name: str = "X-Gmail-Labels", quoted: bool = True
+) -> bytes:
     """
     A labels header (X-Gmail-Labels unless `name` says otherwise) with the
-    labels comma-separated, as Takeout writes it; empty for no labels. Control
-    characters become spaces and non-ASCII names are encoded (RFC 2047), so
-    the header is always one valid header.
+    labels comma-separated, as Takeout writes it, a label holding a comma or
+    a quote CSV-quoted unless `quoted` is false (OfflineIMAP's X-Keywords
+    knows no quoting); empty for no labels. Control characters become spaces
+    and non-ASCII names are encoded (RFC 2047), so the header is always one
+    valid header.
     """
     if not labels:
         return b""
-    value = ",".join(re.sub(r"[\x00-\x1f\x7f]", " ", label) for label in labels)
+    clean = (re.sub(r"[\x00-\x1f\x7f]", " ", label) for label in labels)
+    value = ",".join(csv_quoted(label) if quoted else label for label in clean)
     if not value.isascii():
         value = email.header.Header(value, "utf-8").encode().replace("\n", newline.decode())
     return name.encode("ascii") + b": " + value.encode("ascii") + newline
@@ -227,7 +241,7 @@ def maildir_entry(raw: bytes, labels: tuple[str, ...]) -> bytes:
     """
     return (
         labels_header(takeout_names(labels), b"\n")
-        + labels_header(imap_names(labels), b"\n", "X-Keywords")
+        + labels_header(imap_names(labels), b"\n", "X-Keywords", quoted=False)
         + raw.replace(b"\r\n", b"\n")
     )
 

@@ -28,17 +28,19 @@ Mail that has been restored is included, once.
 
 - **`.mbox`** holds one message after another, each preceded by an
   `X-Gmail-Labels` header with its labels (comma-separated, as Google Takeout
-  writes it): yours first, then Gmail's system labels by Takeout's English
-  names (`Inbox`, `Important`, `Category Updates`), so a reader that keeps
-  one label as the folder keeps yours. The usual mboxrd form: a line
+  writes it, a label with a comma or a quote in it in double quotes): yours
+  first, then Gmail's system labels by Takeout's English names (`Inbox`,
+  `Important`, `Category Updates`), so a reader that keeps one label as the
+  folder keeps yours. The usual mboxrd form: a line
   starting with `From ` is written with a `>` before it. Messages are
   otherwise as stored. `index.csv` names labels the same way.
 - **A name ending `/`** is a maildir: a folder with `cur/`, `new/` and
   `tmp/`, every message in `cur/` with LF line endings, and `index.csv` at
   the top. Each message carries `X-Gmail-Labels`, as in an mbox, and
-  `X-Keywords`, as OfflineIMAP writes it: comma-separated, sorted, Gmail's
-  system labels by their IMAP names (`\Inbox`, `\Important`, `\Starred`)
-  and labels IMAP lacks (categories, unread) left out. The file name's flags
+  `X-Keywords`, as OfflineIMAP writes it: comma-separated, unquoted (so a
+  label with a comma in it reads as two there), sorted, Gmail's system
+  labels by their IMAP names (`\Inbox`, `\Important`, `\Starred`) and
+  labels IMAP lacks (categories, unread) left out. The file name's flags
   say draft (`D`), starred (`F`) and read (`S`).
 - **`.zip`** holds the `.eml` files under their paths in the backup
   (`<year>/<month>/<day>/<id>.eml`) and `index.csv` with each message's date

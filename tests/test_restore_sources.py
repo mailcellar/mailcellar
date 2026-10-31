@@ -140,6 +140,16 @@ def test_an_export_mbox_round_trips_non_ascii_labels():
     assert mbox.labels(entry) == ("Café", "Москва")
 
 
+@pytest.mark.parametrize(
+    "labels", [("Clients, Acme", "INBOX"), ('say "hi"', '"quoted"'), ("Café, Paris", "Москва")]
+)
+def test_an_export_mbox_round_trips_labels_with_commas_and_quotes(labels):
+    from mailcellar.restore.export import labels_header, takeout_names
+
+    entry = labels_header(takeout_names(labels), b"\r\n") + b"Subject: x\r\n\r\nbody\r\n"
+    assert set(mbox.labels(entry)) == set(labels)
+
+
 def test_labels_come_from_the_x_gmail_labels_header():
     entry = b'X-Gmail-Labels: Inbox,"Clients, Acme",Opened\nSubject: x\n\nbody\n'
     assert mbox.labels(entry) == ("INBOX", "Clients, Acme")
