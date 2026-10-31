@@ -110,6 +110,10 @@ class Mailbox(Protocol):
         """Whether untrash() can work here: an IMAP server without MOVE can't."""
         raise NotImplementedError
 
+    def review_problem(self) -> str:
+        """Why add_label(review=True) would be refused here, or "": for a dry run."""
+        raise NotImplementedError
+
     # ── upload ───────────────────────────────────────────────────────────────
     def find_message_ids(self, message_ids: dict[str, str]) -> dict[str, list[str]]:
         """{key: Message-ID header} → {key: IDs of the messages with it}, Trash included."""

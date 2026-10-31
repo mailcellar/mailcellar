@@ -32,6 +32,11 @@ in beta, so commands and options may still change before 1.0.
   error instead of silently matching nothing.
 - An offload rule's `forget_after` may be written `"7y"`, as `before`
   and `after` write years; it is still whole years, 1 or more.
+- `setup --imap` says how offload and dedup will mark mail for review,
+  and whether the server keeps keywords in INBOX; where it keeps none,
+  it says to review by folder. The dry run of `offload apply` and
+  `dedup apply` warns where `--label` would be refused, by a server
+  without MOVE or one keeping no keywords.
 - `setup --imap` refuses an Outlook.com, Hotmail, Live or MSN address,
   or Microsoft's servers, before asking for a password, saying why:
   Microsoft takes only OAuth over IMAP.

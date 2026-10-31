@@ -166,6 +166,8 @@ On an IMAP account (one the server lets mailcellar move mail on), the
 label is a `$mailcellar-` keyword, or with `setup --review folder` a move
 into `mailcellar/review/<label>`: clearing the keyword, or moving the
 message out, vetoes it. Trash is the folder the server marks `\Trash`.
+The dry run warns where `--label` would be refused: a server without
+MOVE or a marked Trash, or, marking by keyword, an INBOX that keeps none.
 See [Backing up an IMAP account](../guide/imap.md#3-offload-and-remove-duplicates).
 
 **How long it takes:**

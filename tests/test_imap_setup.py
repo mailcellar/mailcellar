@@ -14,18 +14,26 @@ ADDRESS = "alex@example.org"
 @pytest.fixture
 def server(tmp_path, monkeypatch):
     s = FakeImap()
+    s.writable = True  # setup SELECTs INBOX to see whether it keeps keywords: checked below
     s.add_folder("Trash", special=["\\Trash"])
     s.add("INBOX", msgid="<a@x>", flags={"\\Seen"})
     monkeypatch.setattr(imap.ImapAccount, "_connect_ssl", lambda self: s)
     monkeypatch.setattr(setup.getpass, "getpass", lambda prompt: "secret")
     monkeypatch.setenv("MAILCELLAR_CONFIG", str(tmp_path / "config"))
-    return s
+    yield s
+    assert_changed_nothing(s)  # setup never changes the server, whatever the test
 
 
 def run(tmp_path, *args):
     return setup.main(
         [ADDRESS, "--imap", "imap.example.org", *args, "--config", str(tmp_path / "config")]
     )
+
+
+def assert_changed_nothing(server):
+    changes = {"STORE", "MOVE", "COPY", "CREATE", "APPEND", "EXPUNGE", "DELETE"}
+    sent = {c[0] for c in server.commands} | {c[1] for c in server.commands if c[0] == "UID"}
+    assert not sent & changes
 
 
 def test_setup_signs_in_then_writes_the_account(server, tmp_path, capsys):
@@ -38,6 +46,8 @@ def test_setup_signs_in_then_writes_the_account(server, tmp_path, capsys):
     out = capsys.readouterr().out
     assert "folders backed up: 1 (INBOX)" in out and "read, not backed up: TRASH" in out
     assert "offload and dedup: possible" in out  # MOVE named only after LOGIN, as Dovecot does
+    assert "review marks: a keyword (the server keeps them)" in out
+    assert ("SELECT", '"INBOX"') in server.commands  # the check: a SELECT, changing nothing
     assert "restore: possible\n" in out
     assert "secret" not in out
     assert server.commands[-1] == ("LOGOUT",)  # setup's session ended, not left open
@@ -196,6 +206,33 @@ def test_an_unusable_imap_toml_keeps_nothing(server, tmp_path, text):
 def test_imap_options_need_imap(tmp_path):
     with pytest.raises(SystemExit, match="--port, --username: only with --imap"):
         setup.main([ADDRESS, "--port", "9993", "--username", "alex", "--no-auth"])
+
+
+# ── review marks (whether the server keeps keywords) ────────────────────────
+
+
+def test_setup_says_when_inbox_keeps_no_keywords(server, tmp_path, capsys):
+    server.keywordless.add("INBOX")
+    assert run(tmp_path) == 0  # said, never chosen: the account is set up as asked
+    out = capsys.readouterr().out
+    assert "review marks: the server keeps no keywords in INBOX, so marking would fail" in out
+    assert f"mailcellar setup {ADDRESS} --review folder" in out
+    assert "review" not in (tmp_path / "config" / "alex" / gmailapi.IMAP_SETTINGS).read_text()
+
+
+def test_setup_checks_no_keywords_where_they_arent_used(server, tmp_path, capsys):
+    assert run(tmp_path, "--review", "folder") == 0
+    assert "review marks: a move into mailcellar/review/<label>" in capsys.readouterr().out
+    assert ("SELECT", '"INBOX"') not in server.commands
+    server.signed_in = ("IMAP4rev1",)  # no MOVE: offload is refused, so marks don't matter
+    assert run(tmp_path, "--review", "keyword", "--force") == 0
+    out = capsys.readouterr().out
+    assert "review marks" not in out and ("SELECT", '"INBOX"') not in server.commands
+
+
+def test_review_report_when_the_check_couldnt_say():
+    line = setup.review_report("keyword", None, ADDRESS)
+    assert line.endswith("a keyword (not known whether the server keeps them)")
 
 
 # ── Microsoft: OAuth only ────────────────────────────────────────────────────

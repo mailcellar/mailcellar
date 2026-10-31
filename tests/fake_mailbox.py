@@ -291,6 +291,9 @@ class FakeMailbox:
     def can_move(self):
         return True
 
+    def review_problem(self):
+        return ""
+
     def close(self):
         self.closed = True
 
