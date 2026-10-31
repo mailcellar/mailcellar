@@ -16,6 +16,10 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 - A label with a comma in its name, exported to an mbox file or a maildir
   and restored with `restore --from-mbox`, came back as two labels. The
   export's `X-Gmail-Labels` header now puts such a label in double quotes.
+- `export --to NAME.mbox` or `NAME.zip` wrote into a `NAME.part` file
+  already there, and deleted it if the export failed, though it might not
+  be the export's own. It now refuses one, as a maildir export already
+  refused a `NAME.part` folder.
 
 ## 0.23.0 (2026-10-31)
 

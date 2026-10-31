@@ -524,10 +524,13 @@ def main(argv=None, prog: str | None = None) -> int:
     else:
         details = read_details(folder, [c.source_id for c in cands])
     part = dest.with_name(dest.name + ".part")
-    if fmt == "maildir":
-        if part.exists():
-            sys.exit(f"error: {part} exists, left by an interrupted export; remove it first")
-        part.mkdir()
+    try:  # made here, never found: discard() below removes only what this run made
+        if fmt == "maildir":
+            part.mkdir()
+        else:
+            part.touch(exist_ok=False)
+    except FileExistsError:
+        sys.exit(f"error: {part} exists, perhaps left by an interrupted export; remove it first")
     try:
         if args.attachments:
             from mailcellar.restore import attachments

@@ -416,6 +416,24 @@ def test_a_maildir_left_by_an_interrupted_export_is_not_touched(backup, tmp_path
     assert not (tmp_path / "out").exists()
 
 
+@pytest.mark.parametrize("name", ["out.mbox", "out.zip"])
+def test_a_part_file_already_there_is_never_overwritten_or_deleted(backup, tmp_path, name):
+    part = tmp_path / f"{name}.part"
+    part.write_text("not this export's")
+    with pytest.raises(SystemExit, match="left by an interrupted export"):
+        export_cmd("--all", "--to", str(tmp_path / name))
+    assert part.read_text() == "not this export's"
+    assert not (tmp_path / name).exists()
+
+
+def test_a_part_file_already_there_stops_an_attachments_export_too(backup, tmp_path):
+    part = tmp_path / "out.zip.part"
+    part.write_text("not this export's")
+    with pytest.raises(SystemExit, match="left by an interrupted export"):
+        export_cmd("--all", "--attachments", "--to", str(tmp_path / "out.zip"))
+    assert part.read_text() == "not this export's"
+
+
 def test_the_selection_and_narrowing_are_restores(backup, tmp_path):
     def ids(*args):
         dest = tmp_path / f"out-{len(list(tmp_path.glob('out-*')))}.zip"
