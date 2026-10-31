@@ -402,10 +402,11 @@ def newest_messages(con, opts: Options) -> list[tuple]:
     """
     (account, source, kind, sender, last_ms, filename, gmail_id) for each
     unsubscribe candidate's most recent message (of two at the same time, the
-    larger ID), newest first. After build().
+    larger ID), newest first; kind is that message's own, as a relayed
+    source's sender may also write to you directly. After build().
     """
     return con.execute(
-        f"""SELECT s.account, s.source, s.kind, m.sender, s.last_ms,
+        f"""SELECT s.account, s.source, m.kind, m.sender, s.last_ms,
                    coalesce(i.filename, ''), max(m.gmail_id)
             FROM (SELECT * FROM sources WHERE {CANDIDATE}) s
             JOIN src_msg m ON m.account = s.account AND m.source = s.source
@@ -424,22 +425,49 @@ def _host(url: str) -> str:
         return ""
 
 
+def relay_link(links: list[str], own: list[str]) -> str:
+    """
+    The first of body_unsubscribe_links() not on the relay itself: a Google
+    Group's own link, or one on your own domains, would unsubscribe you from
+    the relay, not the sender. Pure.
+    """
+    for link in links:
+        host = _host(link)
+        if (
+            host
+            and host != "groups.google.com"
+            and base_domain(host) not in {*own, "googlegroups.com"}
+        ):
+            return link
+    return ""
+
+
 def read_newest(rows: list[tuple], folders: dict) -> list[Newest]:
     """
     Newest values for newest_messages()'s rows, with each message's
     unsubscribe targets read from the head of its .eml (folders: account →
-    backup folder).
+    backup folder). Relayed mail's header is the relay's, so for it the
+    link comes from the whole message's body (relay_link), with no mailto:
+    or one-click.
     """
-    from email.parser import BytesHeaderParser
+    from email.parser import BytesHeaderParser, BytesParser
     from email.policy import compat32
 
-    from mailcellar.message import strip_mbox_from_lines, unsubscribe_targets
+    from mailcellar.message import (
+        body_unsubscribe_links,
+        strip_mbox_from_lines,
+        unsubscribe_targets,
+    )
 
+    own = own_domains(list(folders))
     out = []
     for account, source, kind, sender, last_ms, filename, _gmail_id in rows:
         targets = None
         path = folders[account] / filename if filename else None
-        if path is not None and path.is_file():
+        if path is not None and path.is_file() and kind == "relayed":
+            msg = BytesParser(policy=compat32).parsebytes(strip_mbox_from_lines(path.read_bytes()))
+            targets = (relay_link(body_unsubscribe_links(msg), own), "", False)
+        elif path is not None and path.is_file():
             with path.open("rb") as fh:
                 head = strip_mbox_from_lines(fh.read(HEAD_BYTES))
             targets = unsubscribe_targets(BytesHeaderParser(policy=compat32).parsebytes(head))
@@ -452,9 +480,8 @@ def unsubscribe_table(newest: list[Newest], active_ms: int) -> Table:
     rows = []
     for n in newest:
         when = (n.source, n.account, day(n.last_ms), "yes" if n.last_ms >= active_ms else "no")
-        if n.kind == "relayed" or n.targets is None:
-            note = "relayed: the header is your own list's" if n.kind == "relayed" else "no .eml"
-            rows.append((*when, "", "", "", note, ""))
+        if n.targets is None:
+            rows.append((*when, "", "", "", "no .eml", ""))
             continue
         https, mailto, one_click = n.targets
         address = mailto.split(":", 1)[1] if mailto else ""  # with any ?subject= it asks for
@@ -463,7 +490,10 @@ def unsubscribe_table(newest: list[Newest], active_ms: int) -> Table:
         sender = base_domain(n.sender.rsplit("@", 1)[-1]) if "@" in n.sender else ""
         other = sorted({base_domain(h) for h in (host, mail_host) if h} - {sender})
         note = f"not the sender's domain: {', '.join(other)}" if sender and other else ""
-        if not https and not mailto:
+        if n.kind == "relayed":
+            found = "from the body" if https else "relayed: no unsubscribe link in the body"
+            note = "; ".join(filter(None, (found, note)))
+        elif not https and not mailto:
             note = "no https: or mailto: unsubscribe"
         rows.append((*when, "yes" if one_click else "no", host, address, note, https))
     return Table(
@@ -484,7 +514,9 @@ def unsubscribe_table(newest: list[Newest], active_ms: int) -> Table:
         notes=[
             "From each candidate's most recent message: its List-Unsubscribe link (https: "
             "only) and address (mailto:), and whether it offers one-click unsubscribe "
-            "(RFC 8058: the link alone does it, no page to fill in). These come from the mail "
+            "(RFC 8058: the link alone does it, no page to fill in). Relayed mail's header is "
+            "your own list's, so its link is the body's, found by its wording: a guess, "
+            "http: or https:. These come from the mail "
             "itself: check the host before opening a link, especially one not on the "
             "sender's domain (mailing services are common, but so are lookalikes). "
             "mailcellar opens nothing and sends nothing.",

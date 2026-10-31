@@ -57,7 +57,11 @@ opening the link is all it takes), the message's date and whether the
 source is still sending. The link's host is shown on its own, with a note
 when its domain isn't the sender's. Mailing services are common, but the
 link comes from the mail itself, so check it before opening it. Relayed
-mail shows no link: its header is your own list's. The `Link`
+mail's header is your own list's, so for it the link is the first one in
+the message body whose wording or URL says unsubscribe (opt out, darse de
+baja, email preferences, ...), leaving out the relay's own links. That is
+a guess, may be `http:`, and never offers one-click; its note says "from
+the body". The `Link`
 column is never cut, so it can be copied; with `--csv` it is in
 `bulk-unsubscribe.csv`. mailcellar opens no link and sends no mail.
 

@@ -14,7 +14,7 @@ NOW = 1_792_711_800_000  # 2026-10-22
 PROMO = ["CATEGORY_PROMOTIONS"]
 
 
-def mail(sender, subject, *, msgid, headers=(), to=None, in_reply_to=None):
+def mail(sender, subject, *, msgid, headers=(), to=None, in_reply_to=None, body=None):
     lines = [
         f"From: {sender}",
         f"Subject: {subject}",
@@ -26,7 +26,7 @@ def mail(sender, subject, *, msgid, headers=(), to=None, in_reply_to=None):
     if in_reply_to:
         lines.append(f"In-Reply-To: <{in_reply_to}>")
     lines += [f"{k}: {v}" for k, v in headers]
-    return ("\r\n".join(lines) + f"\r\n\r\nabout {subject}\r\n").encode()
+    return ("\r\n".join(lines) + f"\r\n\r\n{body or 'about ' + subject}\r\n").encode()
 
 
 class Mailbox:
@@ -215,6 +215,50 @@ def test_unsubscribe_targets(headers, targets):
 
 
 @pytest.mark.parametrize(
+    ("body", "links"),
+    [
+        (  # by its text first, then by its URL; entities unescaped
+            '<a href="https://a.example/p?x=1&amp;y=2">Manage email preferences</a>'
+            '<a href="https://a.example/unsub/9">here</a>',
+            ["https://a.example/p?x=1&y=2", "https://a.example/unsub/9"],
+        ),
+        ('<a href="https://a.example/x"><b>Darse de baja</b></a>', ["https://a.example/x"]),
+        ("To stop these: https://a.example/optout?id=3\n", ["https://a.example/optout?id=3"]),
+        ('<a href="[[UNSUB_LINK]]">Unsubscribe</a>', []),  # an unfilled placeholder
+        ('<a href="mailto:u@a.example">Unsubscribe</a>', []),
+        ('<a href="https://a.example/help">Help</a>', []),
+        (  # baja as a word in the URL, not inside trabaja
+            '<a href="https://a.es/trabaja-con-nosotros">Empleo</a> https://a.es/baja?id=1',
+            ["https://a.es/baja?id=1"],
+        ),
+        (  # href, not data-href
+            '<a data-href="https://t.example/x" href="https://a.example/u">Unsubscribe</a>',
+            ["https://a.example/u"],
+        ),
+    ],
+)
+def test_body_unsubscribe_links(body, links):
+    from email.message import Message
+
+    from mailcellar.message import body_unsubscribe_links
+
+    msg = Message()
+    msg["Content-Type"] = "text/html"
+    msg.set_payload(body)
+    assert body_unsubscribe_links(msg) == links
+
+
+def test_relay_link_skips_the_relay():
+    links = [
+        "https://groups.google.com/a/club.org/d/optout",
+        "https://lists.club.org/u",
+        "http://e.shop.example/u",
+    ]
+    assert bulk.relay_link(links, ["club.org"]) == "http://e.shop.example/u"
+    assert bulk.relay_link(links[:2], ["club.org"]) == ""
+
+
+@pytest.mark.parametrize(
     ("host", "base"),
     [
         ("shop.example", "shop.example"),
@@ -248,6 +292,27 @@ def unsubscribe(tmp_path, monkeypatch):
         labels=PROMO,
         headers=[*RELAY, ("Reply-To", "shop@real.com")],
     )
+    a.series(  # relayed, with the relay's footer link first
+        "deal",
+        "'Deals' via Catchall <catchall@club.org>",
+        labels=PROMO,
+        headers=[*RELAY, ("Reply-To", "deals@deals.example"), ("Content-Type", "text/html")],
+        body='<p>Offers. <a href="https://groups.google.com/a/club.org/d/optout">Unsubscribe'
+        ' from this group</a> <a href="https://e.deals.example/u?id=1&amp;s=2">Unsubscribe</a>',
+    )
+    a.series(  # relayed before, then writes to you directly
+        "both",
+        "'Both' via Catchall <catchall@club.org>",
+        labels=PROMO,
+        headers=[*RELAY, ("Reply-To", "both@both.example")],
+    )
+    a.add(
+        "both-direct",
+        "Both <both@both.example>",
+        labels=PROMO,
+        headers=[("List-Unsubscribe", "<https://both.example/u>")],
+        days_ago=5,
+    )
     commands.backup(FakeMailbox(a.messages), ME, tmp_path / "data" / ME)
     monkeypatch.chdir(tmp_path)
     cli.main(["bulk", "--unsubscribe", "--csv", "csv"])
@@ -269,7 +334,19 @@ def test_unsubscribe_notes_what_it_cant_show(unsubscribe):
     assert unsubscribe["offers@plain.example"]["Note"] == "no https: or mailto: unsubscribe"
     assert unsubscribe["offers@plain.example"]["Still sending"] == "no"
     relayed = unsubscribe["shop@real.com"]
-    assert relayed["Note"].startswith("relayed") and relayed["Link"] == ""
+    assert relayed["Note"] == "relayed: no unsubscribe link in the body" and relayed["Link"] == ""
+
+
+def test_unsubscribe_reads_relayed_mail_s_body(unsubscribe):
+    deals = unsubscribe["deals@deals.example"]
+    assert deals["Link"] == "https://e.deals.example/u?id=1&s=2"  # not the group's own link
+    assert deals["Note"] == "from the body" and deals["One-click"] == "no"
+    assert deals["Mail to"] == ""
+
+
+def test_unsubscribe_uses_the_header_when_the_newest_came_directly(unsubscribe):
+    both = unsubscribe["both@both.example"]
+    assert both["Link"] == "https://both.example/u" and both["Note"] == ""
 
 
 def test_unsubscribe_section_only_when_asked(report, tmp_path, capsys):

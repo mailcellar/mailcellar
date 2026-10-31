@@ -9,6 +9,7 @@ import email.parser
 import email.policy
 import email.utils
 import hashlib
+import html
 import re
 from pathlib import Path
 
@@ -267,6 +268,36 @@ def unsubscribe_targets(msg) -> tuple[str, str, bool]:
             mailto = target
     post = "".join(unfold(msg.get("List-Unsubscribe-Post", "")).split()).lower()
     return https, mailto, bool(https) and post == "list-unsubscribe=one-click"
+
+
+# What an unsubscribe link says (English, Spanish, French, German), and what its URL has.
+_UNSUB_TEXT_RE = re.compile(
+    r"unsubscri|opt[ -]?out|\bbaja\b|desuscrib|(?:e-?mail|subscription) preferences|"
+    r"preference cent(?:re|er)|abmelden|d[ée]sinscri|d[ée]sabonn",
+    re.I,
+)
+_UNSUB_URL_RE = re.compile(r"unsub|opt-?out|(?<![a-z])baja(?![a-z])|abmelden|desinscri", re.I)
+_ANCHOR_RE = re.compile(
+    r"""<a\b[^>]*?(?<![\w-])href\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a\s*>""", re.I | re.S
+)
+_URL_RE = re.compile(r"""https?://[^\s<>"']+""")
+
+
+def body_unsubscribe_links(msg) -> list[str]:
+    """
+    http(s) links in a message's body that look like its unsubscribe link,
+    best first: those whose text says so (unsubscribe, opt out, darse de
+    baja, email preferences, ...), then those whose URL does. For mail whose
+    List-Unsubscribe isn't the sender's, as when a list relays it. A guess
+    from the mail itself, to be shown, never opened. Pure.
+    """
+    text = body_text(msg)
+    anchors = [(html.unescape(href).strip(), label) for href, label in _ANCHOR_RE.findall(text)]
+    found = [href for href, label in anchors if _UNSUB_TEXT_RE.search(_TAG_RE.sub(" ", label))]
+    found += [href for href, _label in anchors if _UNSUB_URL_RE.search(href)]
+    found += [url for url in _URL_RE.findall(text) if _UNSUB_URL_RE.search(url)]
+    links = [u for u in found if u.lower().startswith(("https://", "http://"))]
+    return list(dict.fromkeys(links))
 
 
 def header_key(msg) -> str:

@@ -32,6 +32,10 @@ in beta, so commands and options may still change before 1.0.
   `offload apply --label` or `dedup apply --label` adds as one of yours:
   a sender whose mail you had labelled for offloading dropped out of the
   candidates and of `--unsubscribe`'s list.
+- `report bulk --unsubscribe` shows a link for mail relayed by a list on
+  your own domain, such as a catch-all Google Group, taken from the
+  message body, since the relay replaces the sender's List-Unsubscribe
+  with its own. It showed none before.
 
 ## 0.20.0 (2026-10-30)
 
