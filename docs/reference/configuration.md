@@ -92,7 +92,10 @@ restore works into it too, by upload only where it has no MOVE
 ([Backing up an IMAP account](../guide/imap.md)).
 Setting an account up again (for a new password, say) keeps the port, username, CA
 file and review mode its `imap.toml` holds, unless an option changes them.
-Microsoft's servers (Outlook.com,
+Where the server would allow offloading, setup also says how mail will be
+marked for review, and whether the server keeps keywords in INBOX (a
+SELECT that changes nothing); where it keeps none, it says to review by
+folder, without choosing that for you. Microsoft's servers (Outlook.com,
 Hotmail, Live, Microsoft 365) take only OAuth over IMAP, so setup refuses
 them before asking for a password.
 

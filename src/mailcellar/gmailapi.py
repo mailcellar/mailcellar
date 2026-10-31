@@ -1259,6 +1259,10 @@ class GmailAccount:
         """Always: Gmail untrashes by label."""
         return True
 
+    def review_problem(self) -> str:
+        """None: Gmail labels and trashes any message."""
+        return ""
+
     def close(self) -> None:
         """Nothing held open: each API call is a request of its own."""
 

@@ -1364,6 +1364,24 @@ class ImapAccount:
         """Whether the server has MOVE, which untrash() needs."""
         return "MOVE" in self._capabilities()
 
+    def review_problem(self) -> str:
+        """
+        Why offload and dedup couldn't mark mail for review here, or "": what
+        open_mailbox refuses for "modify", or, marking by keyword, an INBOX
+        that keeps none (a SELECT that changes nothing). For a dry run, which
+        opens the account read-only.
+        """
+        refusal = write_refusal(self.server_info())
+        if refusal:
+            return refusal
+        if self.settings.review != "folder" and self.keywords_kept_in("INBOX") is False:
+            return (
+                "the server keeps no keywords in INBOX (PERMANENTFLAGS has no \\*), so "
+                f"--label would fail; mailcellar setup {self.account} --review folder marks "
+                "mail by moving it into a review folder instead"
+            )
+        return ""
+
     def unread(self) -> tuple[str, ...]:
         """The folders this run's scan skipped: refused, or listed short."""
         return tuple(sorted(self._cache[1].skipped)) if self._cache is not None else ()
@@ -1668,7 +1686,7 @@ class ImapAccount:
         fn(conn, chunk) for each chunk of `uids`, with `folder` SELECTed for
         writing (the only place mailcellar SELECTs rather than EXAMINEs);
         selected(conn, folder), if given, first, to check what SELECT answered.
-        With no `uids` it only SELECTs: _keywords_kept_in reads PERMANENTFLAGS
+        With no `uids` it only SELECTs: keywords_kept_in reads PERMANENTFLAGS
         so, as EXAMINE reports none, changing nothing.
         """
 
@@ -1736,7 +1754,7 @@ class ImapAccount:
         failures = self._carry_out(marking, f"marking {label_name}", store, keeps_keywords)
         if keywordless and set(keywordless) == set(marking.copies):
             # Known to keep none (not just unknown, the check failing): the account's setup.
-            if "INBOX" in keywordless or self._keywords_kept_in("INBOX") is False:
+            if "INBOX" in keywordless or self.keywords_kept_in("INBOX") is False:
                 raise KeywordsRefused(
                     f"{self.account}: the server keeps no keywords of mailcellar's "
                     f"({', '.join(sorted({'INBOX', *keywordless}))}: PERMANENTFLAGS has no \\*); "
@@ -1751,7 +1769,7 @@ class ImapAccount:
         if b"\\*" not in (permanent or b""):
             raise KeywordsRefused(f"{folder} keeps no keywords (PERMANENTFLAGS has no \\*)")
 
-    def _keywords_kept_in(self, folder: str) -> bool | None:
+    def keywords_kept_in(self, folder: str) -> bool | None:
         """
         Whether `folder` keeps keywords, by a SELECT that changes nothing; None
         when the check itself fails (the folder refused, the connection gave

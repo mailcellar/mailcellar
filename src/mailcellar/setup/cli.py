@@ -23,7 +23,7 @@ refused before the password is asked: they take only OAuth over IMAP.
 
 The decisions (check_client, accounts_entries, pick_name, add_account,
 latest_download, imap_toml, microsoft_refusal,
-server_report) are pure; reading, writing and asking are a thin layer
+review_report, server_report) are pure; reading, writing and asking are a thin layer
 around them. Prompts are skipped for what the command line already gives, so
 a fully specified call (ADDRESS and --client) asks nothing.
 """
@@ -280,8 +280,30 @@ def gmail_files(folder: Path) -> list[str]:
     return named + sorted(p.name for p in folder.glob("*token-*.json"))
 
 
-def server_report(info) -> list[str]:
-    """What setup says about an IMAP server: its folders, and what it allows. Pure."""
+def review_report(review: str, keywords: bool | None, account: str) -> str:
+    """
+    How offload and dedup will mark mail for review: `keywords` is whether
+    INBOX keeps them (None: not checked, or the check failed). Pure.
+    """
+    if review == "folder":
+        return "  review marks: a move into mailcellar/review/<label>"
+    if keywords is False:
+        return (
+            "  review marks: the server keeps no keywords in INBOX, so marking would fail; "
+            f"mailcellar setup {account} --review folder marks by moving mail instead"
+        )
+    return "  review marks: a keyword" + (
+        " (the server keeps them)" if keywords else " (not known whether the server keeps them)"
+    )
+
+
+def server_report(
+    info, review: str = gmailapi.DEFAULT_REVIEW, keywords: bool | None = None, account: str = ""
+) -> list[str]:
+    """
+    What setup says about an IMAP server: its folders, and what it allows;
+    how review marks are made where offloading is possible. Pure.
+    """
     from mailcellar.imap import BY_NAME, HIDDEN
 
     kept = [f for f in info.folders if f.label not in HIDDEN]
@@ -320,6 +342,7 @@ def server_report(info) -> list[str]:
             if info.can_offload
             else "refused on this server (they need MOVE and a special-use Trash)"
         ),
+        *([review_report(review, keywords, account)] if info.can_offload else []),
         "  restore: possible"
         + ("" if info.can_move else " (uploads only: without MOVE, mail in its Trash stays there)"),
     ]
@@ -528,7 +551,7 @@ def run_imap(args, config: Path, text: str, entries) -> int:
     if not password:
         raise SetupError("no password given")
     # Everything is checked before anything is written: signing in, unless --no-auth.
-    info = None
+    info = keywords = None
     if not args.no_auth:
         from mailcellar import imap
 
@@ -536,6 +559,10 @@ def run_imap(args, config: Path, text: str, entries) -> int:
         try:
             with closing(imap.ImapAccount(address, settings, password)) as box:
                 info = box.server_info()
+                # Keywords are kept per folder, and only a SELECT says: one of INBOX, which
+                # changes nothing. Only said, never chosen for the user.
+                if info.can_offload and settings.review != "folder":
+                    keywords = box.keywords_kept_in("INBOX")
         except gmailapi.GmailError as exc:
             raise SetupError(f"{exc}; nothing was written") from None
 
@@ -550,7 +577,7 @@ def run_imap(args, config: Path, text: str, entries) -> int:
     if info is None:
         print(f"\nNot signed in (--no-auth): mailcellar backup {name} will check it.")
         return 0
-    print("\n".join(server_report(info)))
+    print("\n".join(server_report(info, settings.review, keywords, address)))
     print(f"\nNext: mailcellar backup {name}")
     return 0
 

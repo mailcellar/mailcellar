@@ -1306,3 +1306,48 @@ def test_restore_into_an_account_set_up_with_the_other_provider_is_refused(home,
     (tmp_path / "config" / "home" / gmailapi.IMAP_SETTINGS).unlink()  # now a Gmail account
     with pytest.raises(SystemExit, match="holds imap IDs but the account is now set up as gmail"):
         cli.main(["restore", "home", "--all"])
+
+
+# ── a dry run's checks ───────────────────────────────────────────────────────
+
+
+def dry_run(home, tmp_path):
+    assert cli.main(["backup", "home"]) == 0
+    (tmp_path / "rules.toml").write_text(
+        '[[rule]]\nname = "old"\nlabel = "Projects"\nbefore = "2020-01-01"\n'
+    )
+    cli.main(["offload", "plan", "--rules", "rules.toml", "--plan", "plan.csv"])
+    home.commands.clear()
+    cli.main(["offload", "apply", "--plan", "plan.csv", "--log", "log.csv"])
+    sent = {c[0] for c in home.commands} | {c[1] for c in home.commands if c[0] == "UID"}
+    assert not sent & {"STORE", "MOVE", "COPY", "CREATE", "APPEND", "EXPUNGE"}
+
+
+def test_a_dry_run_says_when_inbox_keeps_no_keywords(home, tmp_path, capsys):
+    home.keywordless.add("INBOX")
+    dry_run(home, tmp_path)
+    err = capsys.readouterr().err
+    assert "the server keeps no keywords in INBOX" in err
+    assert f"mailcellar setup {ADDRESS} --review folder" in err
+
+
+def test_a_dry_run_says_when_the_server_cant_move(home, tmp_path, capsys):
+    home.signed_in = ("IMAP4rev1", "SPECIAL-USE", "UIDPLUS")
+    dry_run(home, tmp_path)
+    assert "the server has no MOVE (RFC 6851)" in capsys.readouterr().err
+
+
+def test_a_dry_run_says_nothing_where_marking_would_work(home, tmp_path, capsys):
+    dry_run(home, tmp_path)
+    assert "keeps no keywords" not in capsys.readouterr().err
+
+
+def test_a_dry_run_whose_check_fails_carries_on(home, tmp_path, capsys, monkeypatch):
+    def gives_out(self):
+        raise gmailapi.GmailError("CAPABILITY failed: connection reset")
+
+    monkeypatch.setattr(imap.ImapAccount, "review_problem", gives_out)
+    dry_run(home, tmp_path)
+    assert "couldn't check that --label would work here" in capsys.readouterr().err
+    with open("log.csv", newline="", encoding="utf-8") as fh:
+        assert {r["mode"] for r in csv.DictReader(fh)} == {"dry-run"}  # the run finished

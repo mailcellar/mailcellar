@@ -40,7 +40,7 @@ If the login is refused, nothing is written. Options:
 | `--port PORT` | The server doesn't use 993 (IMAP over TLS) |
 | `--username NAME` | You log in with something other than the address |
 | `--cafile FILE` | Your own server has a certificate from a private CA |
-| `--review folder` | For offload and dedup: your mail client doesn't show keywords, so mark mail for review by moving it to a `mailcellar/review/` folder instead |
+| `--review folder` | For offload and dedup: your mail client doesn't show keywords, or the server doesn't keep them (setup says which), so mark mail for review by moving it to a `mailcellar/review/` folder instead |
 | `--name NAME` | You want another config name than the one from the address |
 | `--no-auth` | Write the account without signing in now |
 
@@ -103,7 +103,8 @@ delete it for good.
    - **keyword** (the default): `$mailcellar-` and the label
      (`$mailcellar-offload-candidate`) on every copy. Most mail clients
      show keywords as tags; **clear it on a message to keep it.** A server
-     that keeps no custom keywords is refused here: review by folder. One
+     that keeps no custom keywords is refused here: review by folder
+     (`setup` and the dry run say so beforehand). One
      that keeps none in some folders only fails those folders' mail, saying
      which, and marks the rest.
    - **folder**: every copy is moved into `mailcellar/review/<label>`

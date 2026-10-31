@@ -338,6 +338,17 @@ def apply_plan(
                     "they are skipped, and the next run tries them again"
                 )
 
+        if mode == "dry-run":  # opened read-only: say now what --label would be refused
+            from mailcellar.gmailapi import GmailError
+
+            for account in sorted(remove_accounts):
+                try:
+                    problem = client(account).review_problem()
+                except GmailError as exc:  # a warning's check: the dry run goes on without it
+                    problem = f"couldn't check that --label would work here: {exc}"
+                if problem:
+                    logger.warning(f"{account}: {problem}")
+
         results = [
             unreadable(r, unread)
             or checked(
