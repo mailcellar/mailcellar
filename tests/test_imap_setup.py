@@ -258,3 +258,82 @@ def test_microsoft_is_refused_before_the_password_is_asked(
 def test_other_servers_are_not_microsoft():
     assert setup.microsoft_refusal("alex@live.example", "imap.example.org") == ""
     assert setup.microsoft_refusal("alex@example.org", "outlook.example.org") == ""
+
+
+# ── setup ACCOUNT --review MODE: imap.toml alone ─────────────────────────────
+
+
+def review(tmp_path, account, mode):
+    return setup.main([account, "--review", mode, "--config", str(tmp_path / "config")])
+
+
+def test_review_mode_changes_without_the_password(server, tmp_path, monkeypatch, capsys):
+    assert run(tmp_path, "--no-auth", "--port", "9993", "--name", "home") == 0
+    toml = tmp_path / "config" / "home" / gmailapi.IMAP_SETTINGS
+    password = (tmp_path / "config" / "home" / gmailapi.IMAP_PASSWORD).read_text()
+    monkeypatch.setattr(setup.getpass, "getpass", lambda prompt: pytest.fail("asked"))
+    assert review(tmp_path, "home", "folder") == 0
+    assert toml.read_text() == 'host = "imap.example.org"\nport = 9993\nreview = "folder"\n'
+    assert "review keyword → folder" in capsys.readouterr().out
+    assert review(tmp_path, ADDRESS.upper(), "keyword") == 0  # by address, case ignored
+    assert toml.read_text() == 'host = "imap.example.org"\nport = 9993\n'
+    assert review(tmp_path, "home", "keyword") == 0
+    assert "already keyword; nothing changed" in capsys.readouterr().out
+    assert (tmp_path / "config" / "home" / gmailapi.IMAP_PASSWORD).read_text() == password
+    assert toml.stat().st_mode & 0o777 == 0o600
+    assert server.commands == []  # no sign-in
+
+
+@pytest.mark.parametrize(
+    "args, problem",
+    [
+        (["nobody", "--review", "folder"], "'nobody' is not a configured account"),
+        (["gmail", "--review", "folder"], "is a Gmail account"),
+        (["--review", "folder"], "needs the account"),
+        (["home", "--review", "folder", "--name", "x"], "takes no --name"),
+        (["home", "--review", "folder", "--port", "1"], "--port: only with --imap"),
+    ],
+)
+def test_review_mode_change_refusals(server, tmp_path, args, problem):
+    assert run(tmp_path, "--no-auth", "--name", "home") == 0
+    config = tmp_path / "config"
+    (config / "gmail").mkdir()
+    with (config / "accounts.toml").open("a") as fh:
+        fh.write('gmail = "someone@example.com"\n')
+    before = (config / "home" / gmailapi.IMAP_SETTINGS).read_text()
+    with pytest.raises(SystemExit, match=problem):
+        setup.main([*args, "--config", str(config)])
+    assert (config / "home" / gmailapi.IMAP_SETTINGS).read_text() == before
+
+
+@pytest.mark.parametrize(
+    "text, review, edited",
+    [
+        ('host = "h"\n', "folder", 'host = "h"\nreview = "folder"\n'),
+        ('host = "h"', "folder", 'host = "h"\nreview = "folder"\n'),
+        ('# mine\nreview = "folder"  # why\nport = 1\n', "keyword", "# mine\nport = 1\n"),
+        ('host = "h"\n# review = "folder"\n', "keyword", 'host = "h"\n# review = "folder"\n'),
+        ('  review="keyword"\nhost = "h"\n', "folder", 'review = "folder"\nhost = "h"\n'),
+    ],
+)
+def test_with_review_changes_only_the_review_line(text, review, edited):
+    assert setup.with_review(text, review) == edited
+
+
+def test_review_mode_change_keeps_the_files_comments(server, tmp_path):
+    assert run(tmp_path, "--no-auth", "--name", "home") == 0
+    toml = tmp_path / "config" / "home" / gmailapi.IMAP_SETTINGS
+    toml.write_text('# app password made in October\nhost = "imap.example.org"\n')
+    assert review(tmp_path, "home", "folder") == 0
+    assert toml.read_text() == (
+        '# app password made in October\nhost = "imap.example.org"\nreview = "folder"\n'
+    )
+
+
+def test_a_review_line_it_cant_edit_is_left_alone(server, tmp_path):
+    assert run(tmp_path, "--no-auth", "--name", "home") == 0
+    toml = tmp_path / "config" / "home" / gmailapi.IMAP_SETTINGS
+    toml.write_text('host = "imap.example.org"\n"review" = "keyword"\n')  # a quoted key
+    with pytest.raises(SystemExit, match="couldn't change its review line; edit it by hand"):
+        review(tmp_path, "home", "folder")
+    assert '"review" = "keyword"' in toml.read_text()

@@ -1308,7 +1308,27 @@ def test_restore_into_an_account_set_up_with_the_other_provider_is_refused(home,
         cli.main(["restore", "home", "--all"])
 
 
-# ── a dry run's checks ───────────────────────────────────────────────────────
+# ── switching review mode, and a dry run's checks ────────────────────────────
+
+
+@pytest.mark.parametrize("first, then", [("keyword", "folder"), ("folder", "keyword")])
+def test_switching_review_mode_mid_review_keeps_what_was_marked(server, tmp_path, first, then):
+    server.add("INBOX", msgid="<a@x>", flags={"\\Seen"})
+    server.add("INBOX", msgid="<b@x>", flags={"\\Seen"})
+    box = by_folder(server, first, tmp_path)
+    ids = ids_by_msgid(box, server)
+    a, b = row(tmp_path, ids["<a@x>"]), row(tmp_path, ids["<b@x>"])
+    assert [e.outcome for e in apply_plan([a], "label", lambda n, s: box, lambda p: True)] == [
+        "labelled"
+    ]
+    box = by_folder(server, then, tmp_path)  # setup ACCOUNT --review THEN, mid-review
+    assert [e.outcome for e in apply_plan([b], "label", lambda n, s: box, lambda p: True)] == [
+        "labelled"
+    ]
+    box = by_folder(server, then, tmp_path)
+    log = apply_plan([a, b], "trash", lambda n, s: box, lambda p: True)
+    assert [e.outcome for e in log] == ["trashed", "trashed"]  # each found by its own mark
+    assert len(server.folders["Trash"]["uids"]) == 2
 
 
 def dry_run(home, tmp_path):
