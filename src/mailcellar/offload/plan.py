@@ -34,7 +34,7 @@ from mailcellar.report.output import Table, day
 
 PLAN_COLUMNS = [
     "account",
-    "gmail_id",
+    "id",
     "path",
     "date",
     "sender",
@@ -441,7 +441,7 @@ def plan_rows(results: list[RuleResult], planned_ms: int) -> list[dict]:
     return [
         {
             "account": m.account,
-            "gmail_id": m.gmail_id,
+            "id": m.gmail_id,
             "path": m.path,
             "date": day(m.internal_date),
             "sender": m.sender,

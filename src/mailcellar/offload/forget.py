@@ -58,7 +58,7 @@ RUN_FORMAT = "%Y-%m-%d-%H%M%S"
 DELETED = "(deleted)"  # forgotten.rule for mail deleted in its mailbox, never offloaded
 MAX_DELETED_SHARE = 0.10  # --deleted stops without --force if more of the backup would go
 SCRUBBED = ("sender", "subject")  # blanked in the CSVs; IDs, dates, rules and sizes stay
-ROW_KEYS = (("account", "gmail_id"), ("keeper_account", "keeper_gmail_id"))
+ROW_KEYS = (("account", "id"), ("keeper_account", "keeper_id"))
 
 
 @dataclass(frozen=True)
@@ -411,7 +411,7 @@ def runs_under_hold(
     out = {}
     for run in runs:
         with (runs_dir(account) / run / MANIFEST).open(newline="", encoding="utf-8") as fh:
-            ids = [row["gmail_id"] for row in csv.DictReader(fh)]
+            ids = [row["id"] for row in csv.DictReader(fh)]
         names = sorted(set(holds.held(folder, now_ms, ids).values()))
         if names:
             out[run] = names
@@ -564,7 +564,7 @@ def forget(
         compact(con)
     finally:
         con.close()
-    moved = {m["gmail_id"] for m in manifest}
+    moved = {m["id"] for m in manifest}
     mcon = sidecar.open_meta(folder)
     try:
         mcon.executemany(
@@ -648,7 +648,7 @@ def empty(folder: Path, account: str, runs: list[str], now_ms: int) -> int:
         for run in runs:
             src = runs_dir(account) / run
             with (src / MANIFEST).open(newline="", encoding="utf-8") as fh:
-                ids = [row["gmail_id"] for row in csv.DictReader(fh)]
+                ids = [row["id"] for row in csv.DictReader(fh)]
             chain.append(folder, account, "empty", removed=[(gid, "") for gid in ids])
             shutil.rmtree(src)
             mcon.executemany(
@@ -684,9 +684,9 @@ def returning(folder: Path, src: Path) -> list[tuple[str, str]]:
         rows = list(csv.DictReader(fh))
     have = chain.index_paths(folder)
     return [
-        (row["gmail_id"], chain.file_hash(src / row["path"]) or "")
+        (row["id"], chain.file_hash(src / row["path"]) or "")
         for row in rows
-        if row["gmail_id"] not in have
+        if row["id"] not in have
     ]
 
 

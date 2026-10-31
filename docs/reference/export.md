@@ -32,9 +32,9 @@ Mail that has been restored is included, once.
   otherwise as stored. `index.csv` names labels the same way.
 - **`.zip`** holds the `.eml` files under their paths in the backup
   (`<year>/<month>/<day>/<id>.eml`) and `index.csv` with each message's date
-  (UTC), sender, subject, labels, ID (column `id`: the ID that plans,
-  apply logs and manifests call `gmail_id`, and the restore log
-  `source_id`) and file. A cell that begins with
+  (UTC), sender, subject, labels, ID (column `id`, as in plans, apply logs
+  and manifests; the restore log calls it `source_id`) and file. A cell
+  that begins with
   `=`, `+`, `-` or `@` gets a leading `'`, so a spreadsheet doesn't run a
   subject as a formula.
 

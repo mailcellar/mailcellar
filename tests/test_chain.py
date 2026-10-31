@@ -341,7 +341,7 @@ def test_an_interrupted_prune_leaves_the_index_as_it_was(backed_up, monkeypatch)
     con = gyb.open_backup(folder, ACCOUNT)  # the next run finds g1's file in run1
     manifest = gyb.prune(con, folder, ["g1", "g2"], folder.parent / "_pruned" / "run2")
     con.close()
-    assert [(m["gmail_id"], m["file"]) for m in manifest] == [("g1", "moved"), ("g2", "moved")]
+    assert [(m["id"], m["file"]) for m in manifest] == [("g1", "moved"), ("g2", "moved")]
     assert not dest.exists()  # its one file moved on: no folder left that nothing lists
 
 
@@ -355,7 +355,7 @@ def test_a_prune_run_again_after_a_crash_finds_the_file_the_first_moved(backed_u
     con = gyb.open_backup(folder, ACCOUNT)
     manifest = gyb.prune(con, folder, ["g1"], second)
     con.close()
-    assert [(m["gmail_id"], m["file"]) for m in manifest] == [("g1", "moved")]
+    assert [(m["id"], m["file"]) for m in manifest] == [("g1", "moved")]
     assert (second / rel).stat().st_nlink == 1  # one copy, under the one manifest
     assert not first.exists()
     assert "g1" not in pruned_rows(folder)
@@ -381,7 +381,7 @@ def test_a_file_a_finished_run_still_lists_is_linked_not_moved(backed_up):
     rel = src.relative_to(folder)
     (first / rel).parent.mkdir(parents=True)
     src.rename(first / rel)
-    (first / gyb.PRUNE_MANIFEST).write_text("gmail_id,path,internal_date,labels,file\n")
+    (first / gyb.PRUNE_MANIFEST).write_text("id,path,internal_date,labels,file\n")
     con = gyb.open_backup(folder, ACCOUNT)
     gyb.prune(con, folder, ["g1"], second)
     con.close()
@@ -397,7 +397,7 @@ def test_an_interrupted_runs_copy_is_moved_before_an_older_finished_runs_is_link
     for run in (finished, stopped):
         (run / rel).parent.mkdir(parents=True)
         (run / rel).write_bytes(src.read_bytes())
-    (finished / gyb.PRUNE_MANIFEST).write_text("gmail_id,path,internal_date,labels,file\n")
+    (finished / gyb.PRUNE_MANIFEST).write_text("id,path,internal_date,labels,file\n")
     src.unlink()
     con = gyb.open_backup(folder, ACCOUNT)
     gyb.prune(con, folder, ["g1"], rerun)

@@ -52,11 +52,11 @@ from pathlib import Path
 from types import MappingProxyType
 
 from mailcellar.backup import chain, gyb, sidecar
-from mailcellar.dedup.apply import DEDUP_LABEL
+from mailcellar.dedup.apply import DEDUP_LABEL, upgrade_log
 from mailcellar.dedup.rules import is_user_label
 from mailcellar.mailbox import mailbox_name
 from mailcellar.message import PARSER_VERSION, parse_message
-from mailcellar.offload.apply import OFFLOAD_LABEL, upgrade_log
+from mailcellar.offload.apply import OFFLOAD_LABEL
 from mailcellar.progress import Progress
 
 logger = logging.getLogger(__name__)

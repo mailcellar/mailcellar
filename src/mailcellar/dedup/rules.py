@@ -69,7 +69,7 @@ def removal_decision(c: dict, keepers: list[dict], ignored: set[str]) -> tuple[s
 def plan_fixed_group(group: list[dict], keep: str, ignored: set[str]):
     """--keep <account>: keep that account's copies, remove the rest."""
     keepers = [c for c in group if c["account"] == keep]
-    keeper_id = keepers[0]["gmail_id"] if keepers else ""
+    keeper_id = keepers[0]["id"] if keepers else ""
     for c in group:
         if c["account"] == keep:
             yield c, "keep", "", keep, keeper_id
@@ -108,7 +108,7 @@ def plan_origin_group(group: list[dict], _keep: str, ignored: set[str]):
 
     (origin,) = origins
     keepers = [c for c in group if c["account"] == origin]
-    keeper_id = keepers[0]["gmail_id"]
+    keeper_id = keepers[0]["id"]
     for c, o in origins_by_copy:
         if c["account"] == origin:
             yield c, "keep", "", origin, keeper_id
@@ -138,9 +138,9 @@ def plan_within_group(group: list[dict], ignored: set[str]):
     classes: dict[frozenset, list[dict]] = {}
     for c in group:
         classes.setdefault(frozenset(c["label_set"]), []).append(c)
-    best = min(classes.values(), key=lambda cs: (-len(cs), min(c["gmail_id"] for c in cs)))
-    keeper = min(best, key=lambda c: c["gmail_id"])
-    account, keeper_id = keeper["account"], keeper["gmail_id"]
+    best = min(classes.values(), key=lambda cs: (-len(cs), min(c["id"] for c in cs)))
+    keeper = min(best, key=lambda c: c["id"])
+    account, keeper_id = keeper["account"], keeper["id"]
     for c in group:
         if c is keeper:
             yield c, "keep", "", account, keeper_id

@@ -92,7 +92,7 @@ def env(tmp_path, monkeypatch):
         word = marker(gid).decode()
         sender = f"Notices <notices-{word}@example.com>" if notice else "Alice <alice@example.com>"
         subject = f"Notice {word}" if notice else f"Lunch {gid}"
-        return {"account": A, "gmail_id": gid, "sender": sender, "subject": subject, **more}
+        return {"account": A, "id": gid, "sender": sender, "subject": subject, **more}
 
     off = data_root() / "offload"
     plan_rows = [row(g, p, rule="notices") for g, p in gids.items()]
@@ -105,7 +105,7 @@ def env(tmp_path, monkeypatch):
         off / "batches" / BATCH / "offloaded.csv",
         [row(g, True, batch=BATCH) for g in gids if gids[g]],
     )
-    keeper = {"keeper_account": A, "keeper_gmail_id": "p0"}
+    keeper = {"keeper_account": A, "keeper_id": "p0"}
     write_csv(data_root() / "dedup" / "dedup-plan.csv", [row("l1", False, **keeper)])
     (off / "review").mkdir(parents=True)
     (off / "review" / "notices.html").write_text("<p>Notice p0zqxj</p>")
@@ -164,22 +164,22 @@ def test_due_after_the_hold():
 
 def test_scrub_rows_blanks_sender_and_subject_of_forgotten_messages_and_their_keepers():
     rows = [
-        {"account": A, "gmail_id": "p0", "sender": "s", "subject": "t", "size": "10"},
+        {"account": A, "id": "p0", "sender": "s", "subject": "t", "size": "10"},
         {
             "account": A,
-            "gmail_id": "l1",
+            "id": "l1",
             "keeper_account": A,
-            "keeper_gmail_id": "p0",
+            "keeper_id": "p0",
             "sender": "s",
             "subject": "t",
         },
-        {"account": A, "gmail_id": "l0", "sender": "s", "subject": "t"},
-        {"account": "b@x.com", "gmail_id": "p0", "sender": "s", "subject": "t"},
+        {"account": A, "id": "l0", "sender": "s", "subject": "t"},
+        {"account": "b@x.com", "id": "p0", "sender": "s", "subject": "t"},
     ]
     before = [dict(r) for r in rows]
     out, changed = scrub_rows(rows, {(A, "p0")})
     assert changed == 2 and rows == before  # new rows; the given ones untouched
-    assert out[0] == {"account": A, "gmail_id": "p0", "sender": "", "subject": "", "size": "10"}
+    assert out[0] == {"account": A, "id": "p0", "sender": "", "subject": "", "size": "10"}
     assert out[1]["subject"] == "" and out[2] == rows[2] and out[3] == rows[3]
 
 
@@ -236,7 +236,7 @@ def test_forget_leaves_no_trace_of_the_messages_in_the_data_root(env, monkeypatc
 def test_forget_scrubs_sender_and_subject_but_keeps_the_rest(env, monkeypatch):
     run("--batch", BATCH, "--yes", typed="2", monkeypatch=monkeypatch)
     off = data_root() / "offload"
-    plan = {r["gmail_id"]: r for r in read_csv(off / "offload-plan.csv")}
+    plan = {r["id"]: r for r in read_csv(off / "offload-plan.csv")}
     assert (plan["p0"]["sender"], plan["p0"]["subject"], plan["p0"]["rule"]) == ("", "", "notices")
     assert plan["p2"]["subject"] == "Notice p2zqxj"  # not forgotten, untouched
     assert read_csv(data_root() / "dedup" / "dedup-plan.csv")[0]["subject"] == ""  # p0 kept it
@@ -408,7 +408,7 @@ def test_deleted_mail_leaves_no_trace_in_the_indexes_or_plans(deleted, monkeypat
     assert cli.main(["forget", "--deleted", "--force", "--yes"]) == 0
     for store in stores:
         assert "l1@x" not in dump(store) and "Lunch l1" not in dump(store), store
-    plan = {r["gmail_id"]: r for r in read_csv(data_root() / "offload" / "offload-plan.csv")}
+    plan = {r["id"]: r for r in read_csv(data_root() / "offload" / "offload-plan.csv")}
     assert (plan["l1"]["sender"], plan["l1"]["subject"]) == ("", "")
     assert plan["l0"]["subject"] == "Lunch l0"  # offloaded, not forgotten: kept
 

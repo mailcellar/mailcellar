@@ -94,7 +94,7 @@ def export_match_csv(con: sqlite3.Connection, csv_path: Path) -> None:
                 "method",
                 "key",
                 "account",
-                "gmail_id",
+                "id",
                 "message_id",
                 "internal_date",
                 "sender",

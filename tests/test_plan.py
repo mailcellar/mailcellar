@@ -15,7 +15,7 @@ def run_plan(tmp_path, keep, *args):
         ["plan", "--db", str(tmp_path / "dedup.sqlite"), "--keep", keep, "--out", str(out), *args]
     )
     with out.open(newline="", encoding="utf-8") as fh:
-        return {(r["account"], r["gmail_id"]): r for r in csv.DictReader(fh)}
+        return {(r["account"], r["id"]): r for r in csv.DictReader(fh)}
 
 
 def pair(tmp_path, a_labels=(), b_labels=(), a_body="same", b_body="same"):
@@ -36,7 +36,7 @@ def test_confirmed_copy_outside_keep_account_is_removed(tmp_path):
     plan = run_plan(tmp_path, A)
     assert actions(plan) == {(A, "a1"): ("keep", ""), (B, "b1"): ("remove", "")}
     assert plan[(B, "b1")]["keeper_account"] == A
-    assert plan[(B, "b1")]["keeper_gmail_id"] == "a1"
+    assert plan[(B, "b1")]["keeper_id"] == "a1"
 
 
 def test_plan_paths_are_absolute_and_follow_a_moved_folder(tmp_path):
@@ -161,7 +161,7 @@ def test_origin_removes_forwarded_copy_and_keeps_original(tmp_path):
     )
     plan = run_plan(tmp_path, "origin")
     assert actions(plan) == {(A, "a1"): ("keep", ""), (B, "b1"): ("remove", "")}
-    assert (plan[(B, "b1")]["keeper_account"], plan[(B, "b1")]["keeper_gmail_id"]) == (A, "a1")
+    assert (plan[(B, "b1")]["keeper_account"], plan[(B, "b1")]["keeper_id"]) == (A, "a1")
 
 
 def test_origin_follows_forwarding_direction(tmp_path):
@@ -275,7 +275,7 @@ def run_scope(tmp_path, scope, *args):
         ["plan", "--db", str(tmp_path / "dedup.sqlite"), "--scope", scope, "--out", str(out), *args]
     )
     with out.open(newline="", encoding="utf-8") as fh:
-        return {(r["account"], r["gmail_id"]): r for r in csv.DictReader(fh)}
+        return {(r["account"], r["id"]): r for r in csv.DictReader(fh)}
 
 
 def within_backup(tmp_path, copies):
@@ -291,7 +291,7 @@ def test_within_same_labels_removable_and_keeper_in_same_account(tmp_path):
     within_backup(tmp_path, [("a1", ["INBOX"]), ("a2", ["INBOX"])])
     plan = run_scope(tmp_path, "within")
     assert actions(plan) == {(A, "a1"): ("keep", ""), (A, "a2"): ("remove", "")}
-    assert (plan[(A, "a2")]["keeper_account"], plan[(A, "a2")]["keeper_gmail_id"]) == (A, "a1")
+    assert (plan[(A, "a2")]["keeper_account"], plan[(A, "a2")]["keeper_id"]) == (A, "a1")
     assert plan[(A, "a2")]["scope"] == "within"
 
 

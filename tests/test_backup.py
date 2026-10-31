@@ -366,7 +366,7 @@ def test_forget_deleted_moves_permanently_deleted_messages_out(tmp_path, listing
         manifest = list(csv.DictReader(fh))
     assert manifest == [
         {
-            "gmail_id": "g0",
+            "id": "g0",
             "path": "2026/10/22/g0.eml",
             "internal_date": gyb.sqlite_internaldate(MS),
             "labels": "INBOX;work",

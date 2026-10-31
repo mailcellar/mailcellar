@@ -33,7 +33,6 @@ from mailcellar.offload.apply import (
     recover_trashed,
     remaining,
     second_copy_report,
-    upgrade_log,
 )
 from mailcellar.offload.plan import (
     PLAN_COLUMNS,
@@ -313,9 +312,7 @@ def cmd_apply(args) -> None:
     # Messages this tool labelled carry the label in a plan made after the next
     # backup; only a label already there for other reasons makes it unusable.
     labelled = log_state(Path(args.log), label).labelled
-    problem = unusable_label(
-        [r for r in rows if (r["account"], r["gmail_id"]) not in labelled], label
-    )
+    problem = unusable_label([r for r in rows if (r["account"], r["id"]) not in labelled], label)
     if problem:
         sys.exit(f"error: can't use {label!r} as the offload label: {problem}.")
 
@@ -377,7 +374,6 @@ def cmd_apply(args) -> None:
         print(f"Recorded {recovered:,} messages an earlier run trashed without recording.")
     logged_mode = mode if mode == "dry-run" else f"{mode} ({label})"
     report_apply(log, logged_mode)
-    upgrade_log(Path(args.log), APPLY_LOG_COLUMNS)
     write_apply_log(log, logged_mode, Path(args.log), APPLY_LOG_COLUMNS)
     print(f"Log → {args.log}")
     trashed = [e for e in log if e.outcome in ("trashed", "recorded")]
