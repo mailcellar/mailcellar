@@ -26,9 +26,9 @@ Batch names are the folders in `<data root>/offload/batches/`. `--limit`
 takes the oldest messages first, and repeated runs carry on where the
 last one stopped.
 
-**Narrowing a selection.** Any of the selections above can be narrowed, so
-"last year's mail from one sender" needs no ID lookup first:
-{: #narrowing-a-selection }
+<a id="narrowing-a-selection"></a>**Narrowing a selection.** Any of the
+selections above can be narrowed, so "last year's mail from one sender"
+needs no ID lookup first:
 
 ```bash
 mailcellar restore personal --all --after 2025-01-01 --before 2026-01-01 --sender @example.com
