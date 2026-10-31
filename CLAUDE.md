@@ -23,7 +23,7 @@ uvx --exclude-newer 2026-10-11 --from zensical==0.0.69 zensical build --strict  
 uv run mailcellar config               # where the config and data are; each account's state
 uv run mailcellar setup [ADDRESS] [--client FILE] [--name N] [--no-auth] [--force]   # add an account
 uv run mailcellar <backup|count|meta|verify> [ACCOUNT ...] [options]   # all accounts by default
-uv run mailcellar auth [ACCOUNT ...] [--scope readonly|modify] [--renew]   # `dedup auth` still works
+uv run mailcellar auth [ACCOUNT ...] [--scope readonly|modify] [--renew]
 uv run mailcellar schedule <install|remove|status>   # the unattended backup job
 uv run mailcellar dedup <index|match|plan|apply> [options]
 uv run mailcellar offload <plan [--review]|apply> [options]
@@ -52,10 +52,10 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
   `dedup apply --label/--trash`, `offload apply --label/--trash`,
   `restore --yes`, `forget --yes`,
   `forget --empty --yes` and `--undo` (they delete from, or move
-  within, the backup), `auth --scope modify` (also as
-  `dedup auth`), `setup` (it installs an OAuth client or a
-  service-account key and opens a sign-in), `schedule install/remove`, and
-  moving or deleting the data root or config folder. Fine without asking:
+  within, the backup), `auth --scope modify`, `setup` (it installs an
+  OAuth client or a service-account key and opens a sign-in),
+  `schedule install/remove`, and moving or deleting the data root or
+  config folder. Fine without asking:
   - dry runs, `config`, `count`, `verify`, `schedule status`, the reports;
   - `export`, read-only, with `--to` in the scratchpad (it copies mail);
   - `dedup index/match/plan`, `offload plan` and `search`, which write

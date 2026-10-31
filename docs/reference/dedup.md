@@ -71,5 +71,3 @@ A dry run unless `--label` or `--trash` is given.
 | `--plan PLAN` | Plan CSV to apply (default `<data root>/dedup/dedup-plan.csv`) |
 | `--log LOG` | Apply log, appended to (default `<data root>/dedup/dedup-apply-log.csv`) |
 | `--config CONFIG` | Config folder |
-
-`dedup auth` still works, as an alias of [`auth`](configuration.md#auth).

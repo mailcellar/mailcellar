@@ -55,7 +55,8 @@ says so under **Changed** or **Removed**.
 
 Something stable that is renamed or replaced keeps working under its old
 name for at least one minor version after its replacement ships, and says
-so when it is used (`dedup auth` became `auth` this way). It is removed
+so when it is used (`dedup auth` became `auth` this way, kept from 0.9.0
+to 0.21.0). It is removed
 only in the next major version, with a **Removed** entry in the changelog
 that names the replacement.
 

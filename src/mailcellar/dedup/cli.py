@@ -1,7 +1,6 @@
 """
 Command line for mailcellar dedup: argparse and one cmd_* per subcommand
-(index, match, plan, apply, auth). `mailcellar auth` is the same code under
-its own name, since it serves every command; `dedup auth` stays as an alias.
+(index, match, plan, apply).
 """
 
 import argparse
@@ -175,70 +174,6 @@ def cmd_apply(args) -> None:
     print(f"Log → {args.log}")
 
 
-def cmd_auth(args) -> None:
-    """Obtain or renew the Gmail token for each account, changing nothing in the mailbox."""
-    from datetime import UTC, datetime
-
-    from mailcellar import gmailapi
-
-    config_root = Path(args.config)
-    try:
-        known = gmailapi.config_accounts(config_root)
-        accounts = [gmailapi.resolve_account(config_root, n)[0] for n in args.accounts] or sorted(
-            known
-        )
-    except gmailapi.GmailError as exc:
-        sys.exit(f"error: {exc}")
-
-    failed = 0
-    for account in accounts:
-        folder = known[account]
-        if gmailapi.is_imap(folder):
-            print(f"  {account}: an IMAP account, signing in with its password: nothing to do")
-            continue
-        try:
-            if args.scope == "modify" and not gmailapi.stores_modify_token(folder):
-                print(
-                    f"  {account}: gmail.modify tokens aren't stored; dedup apply, offload "
-                    "apply and restore --yes sign in when they run. To store one, set "
-                    "keep_modify_token = true in settings.toml"
-                )
-                continue
-            # exact: a read-only token of its own, not the stored modify token's
-            creds = gmailapi.load_credentials(
-                folder, account, args.scope, renew=args.renew, exact=True
-            )
-            gmailapi.GmailAccount(account, creds)  # confirms the mailbox identity
-        except gmailapi.GmailError as exc:
-            print(f"  {account}: FAILED — {exc}")
-            failed += 1
-            continue
-        used = args.scope
-        if used == "readonly" and (key := gmailapi.service_account_key(folder, account)):
-            print(f"  {account}: gmail.readonly OK, through the service account in {key}")
-            if args.renew:
-                marker = folder / gmailapi.SERVICE_ACCOUNT_MARKER
-                print(
-                    "    --renew doesn't apply: the service account has no token to renew. To "
-                    f"have {account} sign in for itself instead, delete {marker} and run "
-                    "this again."
-                )
-            continue
-        authorised = gmailapi.token_authorised_at(folder, used)
-        print(
-            f"  {account}: gmail.{args.scope} OK"
-            + (
-                f", authorised {authorised:%Y-%m-%d}"
-                f" ({gmailapi.token_age_days(authorised, datetime.now(UTC)):.0f} days ago)"
-                if authorised
-                else ", authorised before mailcellar recorded when"
-            )
-            + f" → {gmailapi.token_file(folder, used)}"
-        )
-    if failed:
-        sys.exit(1)
-
-
 def main(argv=None, prog: str | None = None) -> None:
     db, plan, log = default_db(), default_plan(), default_log()
     p = argparse.ArgumentParser(
@@ -334,42 +269,5 @@ def main(argv=None, prog: str | None = None) -> None:
     p_apply.add_argument("--log", default=str(log), help=f"Apply log, appended to (default: {log})")
     p_apply.set_defaults(func=cmd_apply)
 
-    p_auth = sub.add_parser(
-        "auth",
-        help="Authorise Gmail access for accounts, or renew it; changes nothing in the mailbox",
-    )
-    p_auth.add_argument(
-        "accounts",
-        nargs="*",
-        help="Accounts (full address, config folder name, or a "
-        "unique part of an address); default: every account "
-        "in <config>/accounts.toml",
-    )
-    p_auth.add_argument(
-        "--scope",
-        required=True,
-        choices=["readonly", "modify"],
-        help="readonly for backups, counts and reports; modify for the account "
-        "apply --label/--trash or restore --yes changes, stored only with "
-        "keep_modify_token = true in settings.toml",
-    )
-    p_auth.add_argument(
-        "--renew",
-        action="store_true",
-        help="Ask for consent again even if the token still works, starting Google's "
-        "7 days afresh (the Testing-status expiry); use it before a token runs out",
-    )
-    p_auth.add_argument(
-        "--config",
-        default=str(config_root()),
-        help="Config folder: accounts.toml, settings.toml, one folder per account "
-        f"(default: {config_root()})",
-    )
-    p_auth.set_defaults(func=cmd_auth)
-
     args = p.parse_args(argv)
-    if args.command == "auth" and (prog or "mailcellar dedup").endswith("dedup"):
-        logger.warning(
-            "'mailcellar dedup auth' is now 'mailcellar auth'; the old name still works."
-        )
     args.func(args)

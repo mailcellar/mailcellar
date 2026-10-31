@@ -38,7 +38,7 @@ def auth_calls(monkeypatch):
     """Stand in for `mailcellar auth`: record its arguments, and succeed."""
     calls = []
     monkeypatch.setattr(
-        "mailcellar.dedup.cli.main", lambda argv, prog=None: calls.append(argv) or None
+        "mailcellar.setup.auth.main", lambda argv, prog=None: calls.append(argv) or None
     )
     return calls
 
@@ -118,7 +118,7 @@ def test_setup_adds_an_account_and_signs_in(tmp_path, download, auth_calls, caps
     client = config / "alex" / "client_secrets.json"
     assert json.loads(client.read_text()) == CLIENT
     assert client.stat().st_mode & 0o777 == 0o600
-    assert auth_calls == [["auth", "alex", "--scope", "readonly", "--config", str(config)]]
+    assert auth_calls == [["alex", "--scope", "readonly", "--config", str(config)]]
     out = capsys.readouterr().out
     assert "mailcellar backup alex" in out
     assert "not-a-real-secret" not in out
@@ -211,7 +211,7 @@ def test_setup_reports_a_failed_sign_in(tmp_path, download, monkeypatch, capsys)
     def failing(argv, prog=None):
         raise SystemExit(1)
 
-    monkeypatch.setattr("mailcellar.dedup.cli.main", failing)
+    monkeypatch.setattr("mailcellar.setup.auth.main", failing)
     assert cli.main(["setup", "alex@example.org", "--client", str(download)]) == 1
     out = capsys.readouterr().out
     assert "The account is set up; to finish: mailcellar auth alex --scope readonly" in out
