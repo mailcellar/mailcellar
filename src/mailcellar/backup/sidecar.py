@@ -272,6 +272,7 @@ CREATE TABLE IF NOT EXISTS restored (
     target      TEXT NOT NULL DEFAULT '', -- the account restored into; '' = this one
     new_id      TEXT NOT NULL,            -- its ID there now; = source_id if untrashed
     how         TEXT NOT NULL,            -- 'untrashed' | 'in gmail' | 'found' | 'imported'
+                                          -- | 'moved into'
     restored_ms INTEGER NOT NULL,         -- ms since epoch, UTC
     run         TEXT NOT NULL,            -- the restore run
     PRIMARY KEY (source_id, target)
@@ -804,9 +805,13 @@ def record_restored(
         )
 
 
-def restored_as(con: sqlite3.Connection, target: str = "") -> dict[str, str]:
-    """Source ID → the ID it was restored under, in `target` ('' = this backup's own account)."""
-    return dict(con.execute("SELECT source_id, new_id FROM restored WHERE target = ?", (target,)))
+def restored_as(con: sqlite3.Connection, target: str = "", hows=()) -> dict[str, str]:
+    """
+    Source ID → the ID it was restored under, in `target` ('' = this backup's
+    own account); only those recorded one of these ways, if `hows` names any.
+    """
+    rows = con.execute("SELECT source_id, new_id, how FROM restored WHERE target = ?", (target,))
+    return {source: new for source, new, how in rows if not hows or how in hows}
 
 
 def restored_ids(con: sqlite3.Connection, target: str = "") -> set[str]:

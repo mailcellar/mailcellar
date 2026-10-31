@@ -1371,3 +1371,204 @@ def test_a_dry_run_whose_check_fails_carries_on(home, tmp_path, capsys, monkeypa
     assert "couldn't check that --label would work here" in capsys.readouterr().err
     with open("log.csv", newline="", encoding="utf-8") as fh:
         assert {r["mode"] for r in csv.DictReader(fh)} == {"dry-run"}  # the run finished
+
+
+# ── restore --into: everything into one folder ──────────────────────────────
+
+
+@pytest.fixture
+def work(home, tmp_path, monkeypatch):
+    """A second IMAP account `work` beside `home`, which has three messages in Projects."""
+    server = FakeImap()
+    server.writable = True
+    server.signed_in = home.signed_in
+    server.add_folder("Trash", special=["\\Trash"])
+    root = tmp_path / "config"
+    (root / "work").mkdir()
+    (root / "accounts.toml").write_text(f'home = "{ADDRESS}"\nwork = "sam@example.org"\n')
+    (root / "work" / gmailapi.IMAP_SETTINGS).write_text('host = "imap.example.net"\n')
+    (root / "work" / gmailapi.IMAP_PASSWORD).write_text("secret\n")
+    (root / "work" / gmailapi.IMAP_PASSWORD).chmod(0o600)
+    servers = {"imap.example.org": home, "imap.example.net": server}
+    monkeypatch.setattr(imap.ImapAccount, "_connect_ssl", lambda self: servers[self.settings.host])
+    assert cli.main(["backup", "home"]) == 0
+    return server
+
+
+def outcomes(log="restore.csv") -> list[str]:
+    with open(log, newline="", encoding="utf-8") as fh:
+        return sorted(r["outcome"] for r in csv.DictReader(fh) if r["mode"] == "restore")
+
+
+def test_restore_into_puts_every_upload_in_one_folder(work, capsys):
+    assert cli.main(["restore", "home", "--all", "--to", "work", "--into", "import", "--yes"]) == 0
+    assert len(work.folders["import"]["uids"]) == 3 and "Projects" not in work.folders
+    assert all("\\Seen" in m["flags"] for m in work.folders["import"]["uids"].values())
+    capsys.readouterr()
+    assert cli.main(["backup", "work"]) == 0  # the target's backup already has them
+    assert "Downloaded 0 messages" in capsys.readouterr().out
+
+
+def test_restore_into_moves_mail_restored_before_and_then_leaves_it(work, capsys):
+    assert cli.main(["restore", "home", "--all", "--to", "work", "--yes"]) == 0
+    assert len(work.folders["Projects"]["uids"]) == 3  # by its labels, the first time
+    into = ["restore", "home", "--all", "--to", "work", "--into", "import", "--log", "restore.csv"]
+    assert cli.main(into) == 0
+    assert "would move into the folder" in capsys.readouterr().out
+    assert len(work.folders["Projects"]["uids"]) == 3  # a dry run changes nothing
+    assert cli.main([*into, "--yes"]) == 0
+    assert not work.folders["Projects"]["uids"] and len(work.folders["import"]["uids"]) == 3
+    assert outcomes() == [restore_apply.MOVED] * 3
+    assert cli.main([*into, "--yes", "--log", "again.csv"]) == 0
+    assert outcomes("again.csv") == [restore_apply.ALREADY] * 3  # in the folder now
+    assert len(work.folders["import"]["uids"]) == 3
+
+
+def test_restore_into_moves_one_copy_and_leaves_the_others(work, home, capsys):
+    home.add("INBOX", msgid="<p0@x>", flags={"\\Seen"}, date=OLD)  # p0 in INBOX and Projects
+    assert cli.main(["backup", "home"]) == 0
+    assert cli.main(["restore", "home", "--all", "--to", "work", "--yes"]) == 0
+    assert len(work.folders["INBOX"]["uids"]) == 1  # p0's second copy
+    capsys.readouterr()
+    into = ["restore", "home", "--all", "--to", "work", "--into", "import", "--yes"]
+    assert cli.main(into) == 0
+    assert len(work.folders["import"]["uids"]) == 3  # one copy each, no duplicate
+    assert len(work.folders["INBOX"]["uids"]) + len(work.folders["Projects"]["uids"]) == 1
+    assert "1 messages in import also have copies in other folders" in capsys.readouterr().err
+
+
+def test_restore_into_takes_offloaded_mail_out_of_trash_into_the_folder(home, tmp_path):
+    offload_two(home, tmp_path)
+    assert cli.main(["restore", "home", "--offloaded", "--into", "Old/2015", "--yes"]) == 0
+    assert not home.folders["Trash"]["uids"] and len(home.folders["Projects"]["uids"]) == 1
+    assert len(home.folders["Old/2015"]["uids"]) == 2  # made, nested at /
+
+
+def test_restore_into_without_move_uploads_there_and_leaves_the_rest(work):
+    assert cli.main(["restore", "home", "--all", "--to", "work", "--yes"]) == 0
+    work.signed_in = tuple(c for c in work.signed_in if c != "MOVE")
+    work.folders["Projects"]["uids"].pop(1)  # gone since: uploaded again, into the folder
+    into = ["restore", "home", "--all", "--to", "work", "--into", "import", "--yes"]
+    assert cli.main([*into, "--log", "restore.csv"]) == 0
+    with open("restore.csv", newline="", encoding="utf-8") as fh:
+        details = [
+            r["detail"] for r in csv.DictReader(fh) if r["outcome"] == "already in the mailbox"
+        ]
+    assert len(details) == 2 and all(
+        "has no MOVE (RFC 6851) to put it in import" in d for d in details
+    )
+    assert len(work.folders["import"]["uids"]) == 1 and len(work.folders["Projects"]["uids"]) == 2
+
+
+@pytest.mark.parametrize(
+    ("extra", "said"),
+    [
+        (["--strip-labels"], "leave out --label-prefix and --strip-labels"),
+        (["--label-prefix", "old"], "leave out --label-prefix and --strip-labels"),
+    ],
+)
+def test_restore_into_refuses_the_other_label_options(home, capsys, extra, said):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["restore", "home", "--all", "--into", "import", *extra])
+    assert exc.value.code == 2 and said in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("name", ["restored/2026", "TRASH", "SPAM", "CATEGORY_SOCIAL", "UNREAD"])
+def test_restore_into_refuses_a_name_that_is_no_folder(home, capsys, name):
+    with pytest.raises(SystemExit):
+        cli.main(["restore", "home", "--all", "--into", name])
+    assert "not a folder restore can put mail in" in capsys.readouterr().err
+
+
+def test_restore_into_a_gmail_account_is_refused(gmail, home):
+    assert cli.main(["backup", "home"]) == 0
+    with pytest.raises(SystemExit, match="--into is for an IMAP account"):
+        cli.main(["restore", "home", "--all", "--to", "g", "--into", "import"])
+
+
+def test_into_labels_keep_only_the_read_and_starred_state():
+    keep, dropped = restore_apply.import_labels(
+        ("INBOX", "Work", "UNREAD", "STARRED", "IMPORTANT"), {"INBOX"}, into="import"
+    )
+    assert keep == ["import", "UNREAD", "STARRED"]
+    assert dropped == ["INBOX", "Work", "IMPORTANT"]
+
+
+def test_into_moves_pick_a_copy_outside_trash_and_skip_one_already_there(server):
+    for folder, special in (("Archive", ["\\Archive"]), ("import", [])):
+        server.add_folder(folder, special=special)
+    server.add("Archive", msgid="<a@x>")
+    server.add("Trash", msgid="<a@x>")
+    server.add("Trash", msgid="<t@x>")
+    server.add("import", msgid="<i@x>")
+    box = by_folder(server, "keyword")
+    ids = ids_by_msgid(box, server)
+    scan = box._scan()[1]
+    plan = imap.into_moves(scan, [ids["<a@x>"], ids["<t@x>"], ids["<i@x>"], "nope"], "import")
+    assert plan.moves == {"Archive": {"import": (1,)}, "Trash": {"import": (2,)}}
+    assert plan.failures == ("nope: not on the server",) and plan.create == ()
+
+
+def test_restore_from_an_mbox_into_one_folder(work, tmp_path):
+    assert cli.main(["export", "home", "--all", "--to", str(tmp_path / "home.mbox")]) == 0
+    restore = ["restore", "work", "--from-mbox", str(tmp_path / "home.mbox"), "--into", "import"]
+    assert cli.main([*restore, "--yes"]) == 0
+    assert len(work.folders["import"]["uids"]) == 3 and "Projects" not in work.folders
+
+
+def test_restore_into_leaves_mail_restored_before_and_trashed_since(work):
+    assert cli.main(["restore", "home", "--all", "--to", "work", "--yes"]) == 0
+    uid = next(iter(work.folders["Projects"]["uids"]))
+    work.move("Projects", uid, "Trash")  # the user deleted one of the restored messages
+    into = ["restore", "home", "--all", "--to", "work", "--into", "import", "--yes"]
+    assert cli.main([*into, "--log", "restore.csv"]) == 0
+    assert len(work.folders["Trash"]["uids"]) == 1 and len(work.folders["import"]["uids"]) == 2
+    assert outcomes() == [restore_apply.ALREADY, restore_apply.MOVED, restore_apply.MOVED]
+
+
+def test_restore_into_gathers_copies_a_restore_of_the_target_put_there(work, capsys):
+    assert cli.main(["restore", "home", "--all", "--to", "work", "--yes"]) == 0
+    assert cli.main(["backup", "work"]) == 0
+    work.folders["Projects"]["uids"].clear()  # the account emptied, then restored from its backup
+    assert cli.main(["backup", "work"]) == 0
+    work.append_adds = b"X-Server: added\r\n"  # as Yahoo adds a header: new IDs this time
+    assert cli.main(["restore", "work", "--all", "--yes"]) == 0
+    assert cli.main(["backup", "work"]) == 0
+    capsys.readouterr()
+    into = ["restore", "home", "--all", "--to", "work", "--into", "import"]
+    assert cli.main([*into, "--log", "dry.csv"]) == 0  # home's records name the old IDs
+    assert "would move into the folder" in capsys.readouterr().out
+    assert cli.main([*into, "--yes", "--log", "restore.csv"]) == 0
+    assert outcomes() == [restore_apply.MOVED] * 3
+    assert len(work.folders["import"]["uids"]) == 3 and not work.folders["Projects"]["uids"]
+    assert cli.main([*into, "--yes", "--log", "again.csv"]) == 0  # recorded now, and there
+    assert outcomes("again.csv") == [restore_apply.ALREADY] * 3
+
+
+def test_restore_into_leaves_a_found_copy_no_restore_put_there(work):
+    work.add_folder("Projects")
+    for n in range(3):  # the user's own copies of the same mail, filed by hand
+        work.add("Projects", msgid=f"<p{n}@x>", flags={"\\Seen"}, date=OLD)
+    assert cli.main(["backup", "work"]) == 0
+    into = ["restore", "home", "--all", "--to", "work", "--into", "import", "--yes"]
+    assert cli.main([*into, "--log", "restore.csv"]) == 0
+    assert outcomes() == ["recorded"] * 3
+    assert len(work.folders["Projects"]["uids"]) == 3 and "import" not in work.folders
+    assert cli.main([*into, "--log", "again.csv"]) == 0  # recorded now, but not put there
+    assert outcomes("again.csv") == [restore_apply.ALREADY] * 3
+    assert len(work.folders["Projects"]["uids"]) == 3 and "import" not in work.folders
+
+
+def test_restore_into_gathers_a_found_copy_a_restore_took_out_of_trash(work):
+    work.add_folder("Projects")
+    work.add("Projects", msgid="<p0@x>", flags={"\\Seen"}, date=OLD)  # the user's own
+    for n in (1, 2):
+        work.add("Trash", msgid=f"<p{n}@x>", flags={"\\Seen"}, date=OLD)
+    assert cli.main(["backup", "work"]) == 0
+    assert cli.main(["restore", "home", "--all", "--to", "work", "--yes"]) == 0
+    assert len(work.folders["Archive"]["uids"]) == 2 and not work.folders["Trash"]["uids"]
+    into = ["restore", "home", "--all", "--to", "work", "--into", "import", "--yes"]
+    assert cli.main([*into, "--log", "restore.csv"]) == 0
+    assert outcomes() == [restore_apply.ALREADY, restore_apply.MOVED, restore_apply.MOVED]
+    assert len(work.folders["Projects"]["uids"]) == 1 and len(work.folders["import"]["uids"]) == 2
+    assert not work.folders["Archive"]["uids"]

@@ -422,3 +422,21 @@ def test_offload_by_folder_then_restore_after_trash_is_emptied(
     capsys.readouterr()
     assert cli.main(["backup", "home"]) == 0
     assert "Downloaded 0 messages" in capsys.readouterr().out  # the same IDs on a real server
+
+
+def test_restore_into_one_folder_takes_offloaded_mail_there(
+    dovecot, monkeypatch, tmp_path, no_second_copy_check
+):
+    user = "into@example.org"
+    seeded(dovecot, monkeypatch, tmp_path, user)
+    cli.main([*OFFLOAD, "--label"])
+    assert cli.main(["backup", "home"]) == 0
+    cli.main([*OFFLOAD, "--trash", "--yes"])
+    assert counts(dovecot, user)["Trash"] == 3
+    into = ["restore", "home", "--offloaded", "--into", "import", "--yes"]
+    assert cli.main(into) == 0
+    now = counts(dovecot, user)
+    assert now["Trash"] == 0 and now["Projects"] == 0 and now["import"] == 3
+    assert cli.main([*into, "--log", "again.csv"]) == 0  # in the folder now: nothing moves
+    assert {r["outcome"] for r in log_rows(tmp_path / "again.csv")} == {"already in the mailbox"}
+    assert counts(dovecot, user)["import"] == 3

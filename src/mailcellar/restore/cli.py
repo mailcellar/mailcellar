@@ -24,6 +24,7 @@ from mailcellar.restore.apply import (
     DRY_RUN,
     IMPORT,
     IMPORTS_PER_SECOND,
+    PUT_BACK,
     Narrowing,
     RestoreLog,
     apply,
@@ -159,6 +160,43 @@ def same_account_problem(source: str, target: str) -> str:
     )
 
 
+def into_problem(name: str) -> str:
+    """Why --into can't name this folder, or "": it must be one restore can file mail in. Pure."""
+    from mailcellar import imap
+
+    if imap.place_label(name, {}, {}, "/").kind != "folder":
+        return (
+            f"--into {name}: not a folder restore can put mail in "
+            "(restored/…, Trash, Spam and Gmail's own labels aren't)"
+        )
+    return ""
+
+
+def restored_there(folder: Path, target: str = "") -> frozenset[str]:
+    """
+    The IDs, in `target` ('' = its own account), of mail a restore from the
+    backup in `folder` put where it is (PUT_BACK): for --into, mail restore
+    may gather. Empty for a backup not made yet; exits if its sidecar can't
+    be read.
+    """
+    if not sidecar.meta_path(folder).is_file():
+        return frozenset()
+    try:
+        return frozenset(restored_into(folder, target, PUT_BACK).values())
+    except sidecar.MetaError as exc:
+        sys.exit(f"error: {exc}")
+
+
+def gmail_into(provider: str, into: str) -> str:
+    """Why --into doesn't apply to the account restored into, or "". Pure."""
+    if into and provider == "gmail":
+        return (
+            "--into is for an IMAP account; into a Gmail account, "
+            "--strip-labels --label NAME gives every message that one label"
+        )
+    return ""
+
+
 def main(argv=None, prog: str | None = None) -> int:
     log = restore_dir() / "restore-log.csv"
     p = argparse.ArgumentParser(
@@ -215,6 +253,13 @@ def main(argv=None, prog: str | None = None) -> int:
         action="store_true",
         help="Restore no backed-up labels, only the restored/ label (messages are archived)",
     )
+    labels.add_argument(
+        "--into",
+        default="",
+        metavar="FOLDER",
+        help="IMAP: put everything restored into this one folder (created if missing), mail "
+        "restored before included, whatever its labels",
+    )
     p.add_argument("--yes", action="store_true", help="Restore; without it, a dry run")
     p.add_argument(
         "--config",
@@ -232,6 +277,10 @@ def main(argv=None, prog: str | None = None) -> int:
     if source and args.to:
         p.error("with --from-mbox or --from-folder, name the account to restore into as ACCOUNT")
     narrowing = selection(p, args, required=not source)
+    if args.into and (args.label_prefix or args.strip_labels):
+        p.error("--into puts mail in one folder: leave out --label-prefix and --strip-labels")
+    if args.into and (problem := into_problem(args.into)):
+        p.error(problem)
     if source:
         return restore_from_elsewhere(p, args, narrowing, log)
 
@@ -246,6 +295,8 @@ def main(argv=None, prog: str | None = None) -> int:
     except gmailapi.GmailError as exc:
         sys.exit(f"error: {exc}")
     other = target != account
+    if problem := gmail_into(provider_of(target_config), args.into):
+        sys.exit(f"error: {problem}")
     folder = backup_folder(account)
     if not sidecar.meta_path(folder).is_file():
         sys.exit(f"error: {folder} has no meta.sqlite; run mailcellar meta")
@@ -298,7 +349,18 @@ def main(argv=None, prog: str | None = None) -> int:
             )
         ) as gmail:
             decisions = plan(
-                gmail, cands, same_account=not other, progress=progress, restored=restored
+                gmail,
+                cands,
+                same_account=not other,
+                progress=progress,
+                restored=restored,
+                into=args.into,
+                recorded=(
+                    restored_there(backup_folder(target))
+                    | restored_there(folder, target if other else "")
+                    if args.into
+                    else frozenset()
+                ),
             )
             with RestoreLog(Path(args.log), mode, account, target if other else "") as log:
                 if args.yes:
@@ -313,6 +375,7 @@ def main(argv=None, prog: str | None = None) -> int:
                         target_folder=target_folder,
                         prefix=args.label_prefix,
                         strip=args.strip_labels,
+                        into=args.into,
                         progress=progress,
                         on_result=log.add,
                     )
@@ -347,6 +410,8 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
             target, target_config = gmailapi.resolve_account(config, args.to)
     except gmailapi.GmailError as exc:
         sys.exit(f"error: {exc}")
+    if problem := gmail_into(provider_of(target_config), args.into):
+        sys.exit(f"error: {problem}")
     try:
         if args.from_mbox:
             where = args.from_mbox
@@ -383,7 +448,14 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
                 folder=backup_folder(target),  # an IMAP account's map, and where mail lived
             )
         ) as gmail:
-            decisions = plan(gmail, cands, same_account=False, progress=progress)
+            decisions = plan(
+                gmail,
+                cands,
+                same_account=False,
+                progress=progress,
+                into=args.into,
+                recorded=restored_there(backup_folder(target)) if args.into else frozenset(),
+            )
             target_name = target if target != account else ""
             with RestoreLog(Path(args.log), mode, account, target_name) as log:
                 if args.yes:
@@ -397,6 +469,7 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
                         target=target,
                         prefix=args.label_prefix,
                         strip=args.strip_labels,
+                        into=args.into,
                         progress=progress,
                         on_result=log.add,
                     )

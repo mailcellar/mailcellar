@@ -1004,6 +1004,69 @@ def untrash_result(plan: PutBack, stuck: Mapping[str, str], after: Scan) -> list
     return [*plan.failures, *stuck.values(), *still]
 
 
+def into_moves(scan: Scan, ids, into: str) -> PutBack:
+    """
+    restore --into: one copy of each message moved into the folder `into`
+    (created first if the server lacks it), from Trash only when it has no
+    other copy; one already there moves nowhere. Its other copies stay where
+    they are; a message with one copy has that copy moved, so the caller
+    passes only mail a restore put where it is. Pure.
+    """
+    trash = {f.name for f in scan.folders if f.label == "TRASH"}
+    moves: dict[str, list[int]] = {}
+    owners: dict[str, set[str]] = {}
+    homes, failures = {}, []
+    for gid in ids:
+        if gid not in scan.messages:
+            failures.append(f"{gid}: not on the server")
+            continue
+        homes[gid] = (into,)
+        places = scan.messages[gid].places
+        if any(name == into for name, _uid in places):
+            continue
+        name, uid = min(places, key=lambda p: (p[0] in trash, p))
+        moves.setdefault(name, []).append(uid)
+        owners.setdefault(name, set()).add(gid)
+    return PutBack(
+        MappingProxyType(
+            {src: MappingProxyType({into: tuple(sorted(u))}) for src, u in moves.items()}
+        ),
+        MappingProxyType({(src, into): frozenset(g) for src, g in owners.items()}),
+        MappingProxyType(homes),
+        tuple(failures),
+        (into,) if homes and into not in {f.name for f in scan.folders} else (),
+    )
+
+
+def into_result(plan: PutBack, stuck: Mapping[str, str], after: Scan, into: str) -> list[str]:
+    """
+    move_into()'s failures: the plan's own, the refused moves' (`stuck`), and
+    any message a re-read doesn't show in `into`. Pure.
+    """
+
+    def there(gid: str) -> bool:
+        message = after.messages.get(gid)
+        return message is not None and any(name == into for name, _u in message.places)
+
+    missing = [
+        f"{gid}: not in {into} after the move"
+        for gid in plan.homes
+        if gid not in stuck and not there(gid)
+    ]
+    return [*plan.failures, *stuck.values(), *missing]
+
+
+def elsewhere_too(scan: Scan, ids, into: str) -> int:
+    """How many of the messages have a copy outside `into`, Trash and Junk aside. Pure."""
+    hidden = {f.name for f in scan.folders if f.label in HIDDEN}
+    return sum(
+        1
+        for gid in ids
+        if gid in scan.messages
+        and any(name not in hidden and name != into for name, _u in scan.messages[gid].places)
+    )
+
+
 @dataclass(frozen=True)
 class Append:
     """How one restored message goes onto the server: decided by append_plan."""
@@ -1926,6 +1989,32 @@ class ImapAccount:
         )
         failed = self._put_back(plan, "moving out of Trash")
         return untrash_result(plan, failed, self._scan()[1])
+
+    def move_into(self, gmail_ids, label):
+        """
+        restore --into: one copy of each message moved into the folder for
+        `label` (as an upload names it: append_plan), created if missing, from
+        Trash only when it has no other copy; failures as "<id>: <why>". Copies
+        in other folders stay, and are counted in the log.
+        """
+        scan = self._scan()[1]
+        delim = next((d for _n, d, _f in self._read_entries() if d), None)
+        kept = [f for f in scan.folders if not f.review]
+        exact = {f.label: f.name for f in kept}
+        folded = {f.label.casefold(): f.name for f in reversed(kept)}
+        placed = place_label(label, exact, folded, delim)
+        if placed.kind != "folder":
+            return [f"{gid}: {label} is no folder name" for gid in gmail_ids]
+        plan = into_moves(scan, gmail_ids, placed.name)
+        failed = self._put_back(plan, f"moving into {placed.name}")
+        after = self._scan()[1]
+        moved = [gid for gid in plan.homes if gid not in failed]
+        if extra := elsewhere_too(after, moved, placed.name):
+            logger.info(
+                f"{self.account}: {extra:,} messages in {placed.name} also have copies in "
+                "other folders, left where they are"
+            )
+        return into_result(plan, failed, after, placed.name)
 
     def remove_label(self, gmail_ids, label_name):
         """

@@ -156,6 +156,13 @@ in the server's Trash can't be moved out, so it is skipped, saying so,
 and left unrecorded; once the Trash is emptied, the next restore appends
 it. Setup's report says "restore: possible (uploads only …)" there.
 
+**Into one folder.** `--into FOLDER` puts everything restored into that
+folder rather than by its labels, for keeping restored or copied mail
+apart (`mailcellar restore old --all --to alex --into import`). Run after
+a restore by labels, it gathers that restore's mail into the folder; what
+it moves and what it leaves is in the
+[reference](../reference/restore.md#into-one-folder).
+
 **Between Gmail and IMAP accounts** the target decides: a Gmail backup
 restored into an IMAP account has its labels made folders (INBOX and the
 server's Sent and Drafts for Gmail's own, a folder per user label,
