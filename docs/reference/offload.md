@@ -71,13 +71,19 @@ nothing the rule selects.
 `keep_if` keeps what matches a table of scope keys, or any one of a list of
 tables; the keys of one table must all match, as in the rule itself.
 
-Before 1.0, rules said this with `waive` (default protections to drop:
-`sent`, `starred`, `thread`, `replied`, `labels`), `protect` (protections to
-add, `correspondents`) and `except` (a table whose keys each keep on their
-own: `except = { a = …, b = … }` is `keep_if = [{ a = … }, { b = … }]`).
-They still work until 1.0, can't be mixed with `keep` and `keep_if` in one
-rule, and `plan` warns about each rule that uses them, with the rule
-written in the new keys.
+Rules written before 0.22.0 may say this with `waive`, `protect` and
+`except`, which are now refused wherever the rules file is read. To
+rewrite one:
+
+- `waive` (default protections to drop) and `protect` (protections to add)
+  become `keep`, listing what is left: `sent` is `mine`, `starred` is
+  `starred`, `thread` and `replied` together are `conversations`, `labels`
+  is `labelled` and `correspondents` is `correspondents`. With neither
+  key, leave `keep` out. A rule that dropped only one of `thread` and
+  `replied` must keep or drop both.
+- `except` (a table whose keys each keep on their own) becomes `keep_if`
+  with one table per key: `except = { a = …, b = … }` is
+  `keep_if = [{ a = … }, { b = … }]`.
 
 ```bash
 mailcellar offload plan                    # all accounts → <data root>/offload/offload-plan.csv
