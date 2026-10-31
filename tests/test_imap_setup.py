@@ -196,3 +196,28 @@ def test_an_unusable_imap_toml_keeps_nothing(server, tmp_path, text):
 def test_imap_options_need_imap(tmp_path):
     with pytest.raises(SystemExit, match="--port, --username: only with --imap"):
         setup.main([ADDRESS, "--port", "9993", "--username", "alex", "--no-auth"])
+
+
+# ── Microsoft: OAuth only ────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "address, host",
+    [
+        ("alex@outlook.com", "outlook.office365.com"),
+        ("alex@hotmail.com", "imap.example.org"),  # whatever server was typed
+        ("alex@example.org", "Outlook.Office365.com"),  # Microsoft 365, own domain
+    ],
+)
+def test_microsoft_is_refused_before_the_password_is_asked(
+    server, tmp_path, monkeypatch, address, host
+):
+    monkeypatch.setattr(setup.getpass, "getpass", lambda prompt: pytest.fail("asked"))
+    with pytest.raises(SystemExit, match="accepts only OAuth sign-in over IMAP"):
+        setup.main([address, "--imap", host, "--config", str(tmp_path / "config")])
+    assert not (tmp_path / "config").exists() and server.commands == []
+
+
+def test_other_servers_are_not_microsoft():
+    assert setup.microsoft_refusal("alex@live.example", "imap.example.org") == ""
+    assert setup.microsoft_refusal("alex@example.org", "outlook.example.org") == ""

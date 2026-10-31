@@ -32,6 +32,9 @@ in beta, so commands and options may still change before 1.0.
   error instead of silently matching nothing.
 - An offload rule's `forget_after` may be written `"7y"`, as `before`
   and `after` write years; it is still whole years, 1 or more.
+- `setup --imap` refuses an Outlook.com, Hotmail, Live or MSN address,
+  or Microsoft's servers, before asking for a password, saying why:
+  Microsoft takes only OAuth over IMAP.
 
 ### Fixed
 - Restored mail on iCloud gets its `restored/<date>` keyword: the

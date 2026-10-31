@@ -18,10 +18,12 @@ changes Gmail still needs the user's own OAuth client and sign-in.
 
 An IMAP account (--imap HOST, #111) is set up with its server and password:
 imap.toml in its config folder, the password owner-only beside it. It is
-backed up only; nothing on the server changes.
+backed up only; nothing on the server changes. Microsoft's servers are
+refused before the password is asked: they take only OAuth over IMAP.
 
 The decisions (check_client, accounts_entries, pick_name, add_account,
-latest_download, imap_toml, server_report) are pure; reading, writing and asking are a thin layer
+latest_download, imap_toml, microsoft_refusal,
+server_report) are pure; reading, writing and asking are a thin layer
 around them. Prompts are skipped for what the command line already gives, so
 a fully specified call (ADDRESS and --client) asks nothing.
 """
@@ -53,6 +55,11 @@ CLIENT_FILE = "client_secrets.json"  # in <config>/<name>/, where gmailapi looks
 NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")  # a bare TOML key, and a folder name
 ADDRESS_RE = re.compile(r'^[^@\s"\\]+@[^@\s"\\]+$')
 CLIENT_KEYS = ("client_id", "client_secret", "auth_uri", "token_uri")
+# Microsoft's mail, which signs in over IMAP by OAuth only: by its servers, which every
+# address there uses (Microsoft 365's own domains too), or by its main domains, whatever
+# server was typed
+MICROSOFT_HOSTS = ("outlook.office365.com", "outlook.office.com", "imap-mail.outlook.com")
+MICROSOFT_DOMAINS = ("outlook.com", "hotmail.com", "live.com", "msn.com")
 
 
 class SetupError(Exception):
@@ -327,6 +334,22 @@ def show_steps() -> None:
     print()
 
 
+def microsoft_refusal(address: str, host: str) -> str:
+    """
+    Why setup won't add this IMAP account, or "": Microsoft's servers accept
+    only OAuth over IMAP, which mailcellar doesn't do, so a password always
+    fails there. Pure.
+    """
+    domain = address.rpartition("@")[2].lower()
+    if domain not in MICROSOFT_DOMAINS and host.lower() not in MICROSOFT_HOSTS:
+        return ""
+    return (
+        f"{address} at {host}: Microsoft's mail (Outlook.com, Hotmail, Live, Microsoft 365) "
+        "accepts only OAuth sign-in over IMAP, not a password, and mailcellar signs in to "
+        "IMAP with a password only; nothing was written"
+    )
+
+
 def checked_address(raw: str) -> str:
     address = raw.strip()
     if not ADDRESS_RE.match(address):
@@ -470,6 +493,9 @@ def run_imap(args, config: Path, text: str, entries) -> int:
     if args.service_account is not None or args.client is not None:
         raise SetupError("--imap takes neither --client nor --service-account")
     address = checked_address(args.address)
+    refusal = microsoft_refusal(address, args.imap)
+    if refusal:
+        raise SetupError(refusal)
     name = pick_name(entries, address, args.name)
     folder = config / name
     held = gmail_files(folder)

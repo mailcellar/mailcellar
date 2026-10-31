@@ -55,7 +55,9 @@ provider's account settings and give that to `setup`.
 | Fastmail | `imap.fastmail.com` | not yet tried with mailcellar |
 
 Outlook.com and Microsoft 365 want OAuth over IMAP (XOAUTH2), which
-mailcellar doesn't do yet, so they aren't supported.
+mailcellar doesn't do yet, so they aren't supported: `setup` refuses an
+Outlook.com, Hotmail, Live or MSN address, and Microsoft's servers, before
+asking for a password.
 
 The connection is always TLS, with the server's certificate checked.
 There is no option to send the password unencrypted.
