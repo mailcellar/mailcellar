@@ -1,23 +1,29 @@
 """
 export: copy a selection of the backup out of mailcellar, as an mbox file for
-a mail client, or a zip of the .eml files with a CSV index, for an accountant
-or a lawyer. The selection is restore's (--batch, --rule, --id, --offloaded
+a mail client, a maildir for the tools that read one (notmuch, mu, aerc,
+mutt), or a zip of the .eml files with a CSV index, for an accountant or a
+lawyer. The selection is restore's (--batch, --rule, --id, --offloaded
 or --all, narrowed by --before, --after, --has-label and --sender).
 
 Read-only: nothing changes in Gmail or the backup, and no Gmail access is
-needed. The file is written under another name and renamed when complete, so
-an interrupted export never leaves a file that looks finished. It refuses an
-existing file, and a place inside the backup itself.
+needed. The file or maildir is written under another name and renamed when
+complete, so an interrupted export never leaves one that looks finished. It
+refuses an existing file or folder, and a place inside the backup itself.
 
 mbox: one `From ` line per message (the message's date, UTC), then the
 message as stored, preceded by an X-Gmail-Labels header (comma-separated,
 system labels by Takeout's English names, as Google Takeout writes it, and
 user labels first), with lines that start with `From ` escaped the mboxrd way.
+maildir: every message in cur/, with LF line endings, X-Gmail-Labels as in
+mbox and X-Keywords as OfflineIMAP writes it (Gmail's IMAP names for system
+labels, comma-separated); flags D, F and S from DRAFT, STARRED and UNREAD;
+index.csv at the top.
 zip: the .eml files under their paths in the backup (<year>/<month>/<day>/),
 and index.csv with the date, sender, subject, labels, ID and file.
 
-The decisions (export_format, inside, takeout_names, mbox_entry, index_row,
-safe_cell) are pure; reading the backup and writing the file are a thin layer around them.
+The decisions (export_format, inside, takeout_names, imap_names, mbox_entry,
+maildir_name, maildir_entry, index_row, safe_cell) are pure; reading the backup
+and writing the export are a thin layer around them.
 """
 
 import argparse
@@ -27,6 +33,7 @@ import io
 import logging
 import os
 import re
+import shutil
 import sqlite3
 import sys
 import time
@@ -77,21 +84,38 @@ SUPERSTARS = {
     "BLUE_INFO",
     "PURPLE_QUESTION",
 }
+# Gmail's system labels by the names its IMAP extension gives them, which
+# OfflineIMAP writes in X-Keywords (its sample ignorelabels lists these). The
+# others (UNREAD, the categories, chats, superstars) are no IMAP label.
+IMAP_NAMES = {
+    "INBOX": "\\Inbox",
+    "STARRED": "\\Starred",
+    "SENT": "\\Sent",
+    "DRAFT": "\\Draft",
+    "SPAM": "\\Spam",
+    "TRASH": "\\Trash",
+    "IMPORTANT": "\\Important",
+}
 
 
 # ── decisions ────────────────────────────────────────────────────────────────
 
 
-def export_format(dest: Path) -> str:
-    """'mbox' or 'zip', from the file name. Raises ValueError."""
-    suffix = dest.suffix.lower()
+def export_format(dest: str) -> str:
+    """
+    'mbox', 'zip' or 'maildir', from --to as typed: a name ending / is a
+    maildir (a Path would drop the slash). Raises ValueError.
+    """
+    if dest.endswith(("/", os.sep)):
+        return "maildir"
+    suffix = Path(dest).suffix.lower()
     if suffix == ".mbox":
         return "mbox"
     if suffix == ".zip":
         return "zip"
     raise ValueError(
-        f"{dest.name}: name the file *.mbox (for a mail client) or *.zip "
-        "(the .eml files and an index)"
+        f"{Path(dest).name}: name the file *.mbox (for a mail client) or *.zip "
+        "(the .eml files and an index), or end the name with / for a maildir"
     )
 
 
@@ -120,37 +144,57 @@ def newline_of(raw: bytes) -> bytes:
     return b"\r\n" if b"\r\n" in raw[:4096] else b"\n"
 
 
+def is_category(label: str) -> bool:
+    """One of Gmail's categories, CATEGORY_UPDATES and so on. Pure."""
+    return label.startswith("CATEGORY_") and label[9:].isalpha()
+
+
+def is_system(label: str) -> bool:
+    """A Gmail system label (a Takeout name, a category or a superstar). Pure."""
+    return label in TAKEOUT_NAMES or label in SUPERSTARS or is_category(label)
+
+
+def takeout_name(label: str) -> str:
+    """A system label's Takeout name; a superstar keeps its ID. Pure."""
+    if is_category(label):
+        return "Category " + label[9:].capitalize()
+    return TAKEOUT_NAMES.get(label, label)
+
+
 def takeout_names(labels: tuple[str, ...]) -> tuple[str, ...]:
     """
     The labels as Takeout names them, user labels first: a reader that keeps
     only one label, as the folder (Bichon does), then keeps yours rather than
     Important or a category. Pure.
     """
-    user, system = [], []
-    for label in labels:
-        if label in TAKEOUT_NAMES:
-            system.append(TAKEOUT_NAMES[label])
-        elif label.startswith("CATEGORY_") and label[9:].isalpha():
-            system.append("Category " + label[9:].capitalize())
-        elif label in SUPERSTARS:
-            system.append(label)
-        else:
-            user.append(label)
+    user = [label for label in labels if not is_system(label)]
+    system = [takeout_name(label) for label in labels if is_system(label)]
     return tuple(user + system)
 
 
-def labels_header(labels: tuple[str, ...], newline: bytes) -> bytes:
+def imap_names(labels: tuple[str, ...]) -> tuple[str, ...]:
     """
-    X-Gmail-Labels with the labels comma-separated, as Takeout writes it; empty
-    for no labels. Control characters become spaces and non-ASCII names are
-    encoded (RFC 2047), so the header is always one valid header.
+    The labels as OfflineIMAP's X-Keywords holds them: system labels by
+    Gmail's IMAP names (IMAP_NAMES), user labels as they are, sorted; labels
+    IMAP doesn't have left out. Pure.
+    """
+    kept = (label for label in labels if label in IMAP_NAMES or not is_system(label))
+    return tuple(sorted(IMAP_NAMES.get(label, label) for label in kept))
+
+
+def labels_header(labels: tuple[str, ...], newline: bytes, name: str = "X-Gmail-Labels") -> bytes:
+    """
+    A labels header (X-Gmail-Labels unless `name` says otherwise) with the
+    labels comma-separated, as Takeout writes it; empty for no labels. Control
+    characters become spaces and non-ASCII names are encoded (RFC 2047), so
+    the header is always one valid header.
     """
     if not labels:
         return b""
     value = ",".join(re.sub(r"[\x00-\x1f\x7f]", " ", label) for label in labels)
     if not value.isascii():
         value = email.header.Header(value, "utf-8").encode().replace("\n", newline.decode())
-    return b"X-Gmail-Labels: " + value.encode("ascii") + newline
+    return name.encode("ascii") + b": " + value.encode("ascii") + newline
 
 
 def mbox_entry(raw: bytes, internal_date_ms: int, labels: tuple[str, ...]) -> bytes:
@@ -160,6 +204,30 @@ def mbox_entry(raw: bytes, internal_date_ms: int, labels: tuple[str, ...]) -> by
     if not body.endswith(b"\n"):
         body += newline
     return from_line(internal_date_ms) + body + b"\n"
+
+
+def maildir_flags(labels: tuple[str, ...]) -> str:
+    """The maildir flags, in ASCII order: D (draft), F (starred), S (seen). Pure."""
+    on = {"D": "DRAFT" in labels, "F": "STARRED" in labels, "S": "UNREAD" not in labels}
+    return "".join(flag for flag, set_ in on.items() if set_)
+
+
+def maildir_name(c: Candidate) -> str:
+    """A message's file name in cur/: its date (seconds), its ID, the flags. Pure."""
+    safe_id = re.sub(r"[^0-9A-Za-z_-]", "_", c.source_id)
+    return f"{c.internal_date // 1000}.{safe_id}.mailcellar:2,{maildir_flags(c.labels)}"
+
+
+def maildir_entry(raw: bytes, labels: tuple[str, ...]) -> bytes:
+    """
+    One message as it goes into a maildir: LF line endings, as maildir
+    readers expect, with X-Gmail-Labels and X-Keywords in front. Pure.
+    """
+    return (
+        labels_header(takeout_names(labels), b"\n")
+        + labels_header(imap_names(labels), b"\n", "X-Keywords")
+        + raw.replace(b"\r\n", b"\n")
+    )
 
 
 def safe_cell(text: str) -> str:
@@ -263,12 +331,55 @@ def write_zip(
             sender, subject = details.get(c.source_id, ("", ""))
             rows.append(index_row(c, sender, subject, name))
             written, size = written + 1, size + len(raw)
-        text = io.StringIO(newline="")
-        writer = csv.DictWriter(text, fieldnames=INDEX_COLUMNS)
-        writer.writeheader()
-        writer.writerows(rows)
-        zf.writestr(INDEX_NAME, text.getvalue())
+        zf.writestr(INDEX_NAME, index_csv(rows))
     return written, size, skipped
+
+
+def write_maildir(
+    cands: list[Candidate], root: Path, details: dict[str, tuple[str, str]]
+) -> tuple[int, int, list[str]]:
+    """
+    Write a maildir into the empty folder `root`: tmp/, new/ and cur/, every
+    message in cur/, and index.csv: (messages, bytes, IDs whose file is missing).
+    """
+    for sub in ("tmp", "new", "cur"):
+        (root / sub).mkdir()
+    written = size = 0
+    skipped = []
+    rows = []
+    with Progress("Exporting", len(cands)) as exporting:
+        for c in cands:
+            exporting.advance()
+            raw = read_eml(c)
+            if raw is None:
+                skipped.append(c.source_id)
+                continue
+            name = f"cur/{maildir_name(c)}"
+            entry = maildir_entry(raw, c.labels)
+            with (root / name).open("xb") as fh:
+                fh.write(entry)
+            sender, subject = details.get(c.source_id, ("", ""))
+            rows.append(index_row(c, sender, subject, name))
+            written, size = written + 1, size + len(entry)
+    (root / INDEX_NAME).write_text(index_csv(rows), encoding="utf-8", newline="")
+    return written, size, skipped
+
+
+def index_csv(rows: list[dict[str, str]]) -> str:
+    """index.csv's text."""
+    text = io.StringIO(newline="")
+    writer = csv.DictWriter(text, fieldnames=INDEX_COLUMNS)
+    writer.writeheader()
+    writer.writerows(rows)
+    return text.getvalue()
+
+
+def discard(part: Path, fmt: str) -> None:
+    """Remove a half-written export: the .part file, or the .part maildir this run made."""
+    if fmt == "maildir":
+        shutil.rmtree(part, ignore_errors=True)
+    else:
+        part.unlink(missing_ok=True)
 
 
 # ── the command ──────────────────────────────────────────────────────────────
@@ -277,9 +388,9 @@ def write_zip(
 def main(argv=None, prog: str | None = None) -> int:
     p = argparse.ArgumentParser(
         prog=prog or "mailcellar export",
-        description="Copy a selection of the backup out: an mbox file for a mail client, or a "
-        "zip of the .eml files with a CSV index. Read-only: nothing changes in Gmail or the "
-        "backup, and no Gmail access is needed.",
+        description="Copy a selection of the backup out: an mbox file for a mail client, a "
+        "maildir, or a zip of the .eml files with a CSV index. Read-only: nothing changes in "
+        "Gmail or the backup, and no Gmail access is needed.",
     )
     p.add_argument("account", help="The backup: address, config folder name or unique part")
     add_selection_arguments(p, all_help="Every message in the backup")
@@ -287,7 +398,8 @@ def main(argv=None, prog: str | None = None) -> int:
         "--to",
         required=True,
         metavar="FILE",
-        help="Where to write it: a name ending .mbox or .zip (it must not exist yet)",
+        help="Where to write it: a name ending .mbox or .zip, or ending / for a maildir "
+        "(it must not exist yet)",
     )
     p.add_argument(
         "--hold",
@@ -302,7 +414,7 @@ def main(argv=None, prog: str | None = None) -> int:
     narrowing = selection(p, args, required=not args.hold)
     dest = Path(args.to).expanduser()
     try:
-        fmt = export_format(dest)
+        fmt = export_format(args.to)
     except ValueError as exc:
         p.error(str(exc))
 
@@ -353,20 +465,27 @@ def main(argv=None, prog: str | None = None) -> int:
     if not cands:
         sys.exit("Nothing to export: no matching messages.")
 
+    details = {} if fmt == "mbox" else read_details(folder, [c.source_id for c in cands])
     part = dest.with_name(dest.name + ".part")
+    if fmt == "maildir":
+        if part.exists():
+            sys.exit(f"error: {part} exists, left by an interrupted export; remove it first")
+        part.mkdir()
     try:
-        with part.open("wb") as out:
-            if fmt == "mbox":
-                written, size, skipped = write_mbox(cands, out)
-            else:
-                details = read_details(folder, [c.source_id for c in cands])
-                written, size, skipped = write_zip(cands, out, folder, details)
+        if fmt == "maildir":
+            written, size, skipped = write_maildir(cands, part, details)
+        else:
+            with part.open("wb") as out:
+                if fmt == "mbox":
+                    written, size, skipped = write_mbox(cands, out)
+                else:
+                    written, size, skipped = write_zip(cands, out, folder, details)
         if not written:
-            part.unlink()
+            discard(part, fmt)
             sys.exit(f"error: none of the {len(cands):,} messages has its file in the backup")
         os.replace(part, dest)
     except BaseException:
-        part.unlink(missing_ok=True)  # never leave a half-written file behind
+        discard(part, fmt)  # never leave a half-written export behind
         raise
     print(f"Exported {written:,} messages ({human_size(size)}) to {dest}")
     if skipped:

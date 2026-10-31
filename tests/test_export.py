@@ -46,16 +46,23 @@ def candidate(**changes):
 
 @pytest.mark.parametrize(
     ("name", "expected"),
-    [("a.mbox", "mbox"), ("A.MBOX", "mbox"), ("a.zip", "zip"), ("/x/y/mail.Zip", "zip")],
+    [
+        ("a.mbox", "mbox"),
+        ("A.MBOX", "mbox"),
+        ("a.zip", "zip"),
+        ("/x/y/mail.Zip", "zip"),
+        ("out/", "maildir"),
+        ("/x/y/mail.zip/", "maildir"),  # the slash decides
+    ],
 )
 def test_the_format_comes_from_the_file_name(name, expected):
-    assert export.export_format(Path(name)) == expected
+    assert export.export_format(name) == expected
 
 
 @pytest.mark.parametrize("name", ["mail", "mail.eml", "mail.tar", "mail.mbox.bak", ".mbox"])
 def test_other_names_are_refused(name):
     with pytest.raises(ValueError, match=r"name the file \*\.mbox"):
-        export.export_format(Path(name))
+        export.export_format(name)
 
 
 def test_inside_means_within_the_folder(tmp_path):
@@ -150,6 +157,46 @@ def test_labels_header_encodes_non_ascii_names():
     assert b"\r\n" in folded and b"\n" not in folded.replace(
         b"\r\n", b""
     )  # folds with its own ending
+
+
+def test_imap_names_are_offlineimaps_sorted_with_what_imap_lacks_left_out():
+    labels = ("work", "INBOX", "UNREAD", "CATEGORY_UPDATES", "IMPORTANT", "STARRED", "CHAT")
+    assert export.imap_names(labels + ("YELLOW_STAR", "SENT")) == (
+        "\\Important",
+        "\\Inbox",
+        "\\Sent",
+        "\\Starred",
+        "work",
+    )
+    assert export.imap_names(("DRAFT", "SPAM", "TRASH")) == ("\\Draft", "\\Spam", "\\Trash")
+    assert export.imap_names(("UNREAD",)) == ()
+
+
+def test_the_labels_header_can_be_named():
+    header = export.labels_header(("\\Inbox", "work"), b"\n", "X-Keywords")
+    assert header == b"X-Keywords: \\Inbox,work\n"
+
+
+@pytest.mark.parametrize(
+    ("labels", "flags"),
+    [((), "S"), (("UNREAD",), ""), (("DRAFT", "STARRED"), "DFS"), (("STARRED", "UNREAD"), "F")],
+)
+def test_maildir_flags_come_from_the_labels(labels, flags):
+    assert export.maildir_flags(labels) == flags
+
+
+def test_a_maildir_name_is_the_date_the_id_and_the_flags():
+    assert export.maildir_name(candidate()) == f"{T0 // 1000}.m1.mailcellar:2,S"
+    odd = candidate(source_id="a/b:c.d", labels=("STARRED", "UNREAD"))
+    assert export.maildir_name(odd) == f"{T0 // 1000}.a_b_c_d.mailcellar:2,F"
+
+
+def test_a_maildir_entry_has_both_labels_headers_and_lf_endings():
+    raw = b"Subject: x\r\n\r\nFrom the desk\r\n"
+    assert export.maildir_entry(raw, ("work", "INBOX")) == (
+        b"X-Gmail-Labels: work,Inbox\nX-Keywords: \\Inbox,work\nSubject: x\n\nFrom the desk\n"
+    )
+    assert export.maildir_entry(raw, ()) == b"Subject: x\n\nFrom the desk\n"
 
 
 def test_an_mbox_entry_is_separator_labels_message_and_a_blank_line():
@@ -316,6 +363,49 @@ def test_a_zip_export_holds_the_eml_files_and_an_index(backup, tmp_path):
     assert index[1]["subject"] == "'=SUM(1,2)"  # a spreadsheet won't run it
 
 
+def test_a_maildir_export_can_be_read_back_by_a_mail_reader(backup, tmp_path, capsys):
+    dest = tmp_path / "out"
+    assert export_cmd("--all", "--to", f"{dest}/") == 0
+    assert "Exported 5 messages" in capsys.readouterr().out
+    assert sorted(p.name for p in dest.iterdir()) == ["cur", "index.csv", "new", "tmp"]
+    assert list((dest / "new").iterdir()) == list((dest / "tmp").iterdir()) == []
+    box = mailbox.Maildir(dest, create=False)
+    got = {m["Message-ID"]: m for m in box}
+    assert set(got) == {f"<m{n}@x>" for n in range(1, 6)}
+    first = got["<m1@x>"]
+    assert first["Subject"] == "Hello" and first.get_flags() == "S"
+    assert first["X-Gmail-Labels"] == "work,Inbox"
+    assert first["X-Keywords"] == "\\Inbox,work"
+    assert "From the desk of the manager" in first.get_payload()  # not escaped, as in mbox
+    with open(dest / "index.csv", newline="", encoding="utf-8") as fh:
+        index = list(csv.DictReader(fh))
+    assert [r["id"] for r in index] == ["m1", "m2", "m3", "m4", "m5"]
+    for row in index:
+        eml = next(backup.rglob(f"{row['id']}.eml")).read_bytes()
+        assert row["file"].startswith("cur/")
+        assert (dest / row["file"]).read_bytes().endswith(eml.replace(b"\r\n", b"\n"))
+    assert index[1]["subject"] == "'=SUM(1,2)"
+
+
+def test_a_maildir_folder_that_exists_is_never_written_into(backup, tmp_path):
+    dest = tmp_path / "out"
+    dest.mkdir()
+    (dest / "keep").write_text("keep me")
+    with pytest.raises(SystemExit, match="already exists"):
+        export_cmd("--all", "--to", f"{dest}/")
+    assert [p.name for p in dest.iterdir()] == ["keep"]
+
+
+def test_a_maildir_left_by_an_interrupted_export_is_not_touched(backup, tmp_path):
+    part = tmp_path / "out.part"
+    part.mkdir()
+    (part / "keep").write_text("keep me")
+    with pytest.raises(SystemExit, match="left by an interrupted export"):
+        export_cmd("--all", "--to", f"{tmp_path / 'out'}/")
+    assert [p.name for p in part.iterdir()] == ["keep"]
+    assert not (tmp_path / "out").exists()
+
+
 def test_the_selection_and_narrowing_are_restores(backup, tmp_path):
     def ids(*args):
         dest = tmp_path / f"out-{len(list(tmp_path.glob('out-*')))}.zip"
@@ -421,16 +511,23 @@ def test_when_no_file_is_there_nothing_is_written(backup, tmp_path):
     assert list(tmp_path.glob("out.mbox*")) == []
 
 
-@pytest.mark.parametrize("name", ["out.mbox", "out.zip"])
+@pytest.mark.parametrize("name", ["out.mbox", "out.zip", "out/"])
 def test_a_failed_export_leaves_no_file_behind(backup, tmp_path, monkeypatch, name):
     def fail(*args, **kwargs):
         raise RuntimeError("disk full")
 
+    real = export.write_maildir
+
+    def fail_midway(cands, root, details):  # the maildir fails after writing some of it
+        real(cands[:2], root, details)
+        raise RuntimeError("disk full")
+
     monkeypatch.setattr(export, "write_mbox", fail)
     monkeypatch.setattr(export, "write_zip", fail)
+    monkeypatch.setattr(export, "write_maildir", fail_midway)
     with pytest.raises(RuntimeError):
-        export_cmd("--all", "--to", str(tmp_path / name))
-    assert list(tmp_path.glob("out.*")) == []  # neither the file nor its .part
+        export_cmd("--all", "--to", f"{tmp_path}/{name}")
+    assert list(tmp_path.glob("out*")) == []  # neither the export nor its .part
 
 
 def test_export_is_a_command_and_documented_in_the_help(backup, capsys):

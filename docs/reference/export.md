@@ -1,5 +1,5 @@
 ---
-description: "Reference for mailcellar export: every option for copying mail from the backup to an mbox file or a zip of .eml files."
+description: "Reference for mailcellar export: every option for copying mail from the backup to an mbox file, a maildir or a zip of .eml files."
 ---
 
 # Exporting mail: export
@@ -12,6 +12,7 @@ to the mailbox.
 
 ```bash
 mailcellar export personal --offloaded --to ~/old-mail.mbox      # for a mail client
+mailcellar export personal --offloaded --to ~/old-mail/          # a maildir, for mutt, aerc, mu
 mailcellar export personal --all --after 2025-01-01 --before 2026-01-01 \
     --sender @example.com --to ~/for-the-accountant.zip                 # the .eml files and an index
 ```
@@ -30,6 +31,13 @@ Mail that has been restored is included, once.
   one label as the folder keeps yours. The usual mboxrd form: a line
   starting with `From ` is written with a `>` before it. Messages are
   otherwise as stored. `index.csv` names labels the same way.
+- **A name ending `/`** is a maildir: a folder with `cur/`, `new/` and
+  `tmp/`, every message in `cur/` with LF line endings, and `index.csv` at
+  the top. Each message carries `X-Gmail-Labels`, as in an mbox, and
+  `X-Keywords`, as OfflineIMAP writes it: comma-separated, sorted, Gmail's
+  system labels by their IMAP names (`\Inbox`, `\Important`, `\Starred`)
+  and labels IMAP lacks (categories, unread) left out. The file name's flags
+  say draft (`D`), starred (`F`) and read (`S`).
 - **`.zip`** holds the `.eml` files under their paths in the backup
   (`<year>/<month>/<day>/<id>.eml`) and `index.csv` with each message's date
   (UTC), sender, subject, labels, ID (column `id`, as in plans, apply logs
@@ -38,9 +46,10 @@ Mail that has been restored is included, once.
   `=`, `+`, `-` or `@` gets a leading `'`, so a spreadsheet doesn't run a
   subject as a formula.
 
-The file is written under another name and renamed when it is complete, so an
-interrupted export leaves nothing that looks finished. It refuses a file that
-already exists, and a place inside the backup. A message whose `.eml` file is
+The file or folder is written under another name (ending `.part`) and
+renamed when it is complete, so an interrupted export leaves nothing that
+looks finished. It refuses a file or folder that already exists, a maildir's
+`.part` folder left by an interrupted export, and a place inside the backup. A message whose `.eml` file is
 missing from the backup is left out and reported, and the exit status is 1:
 `mailcellar verify` shows what is missing.
 

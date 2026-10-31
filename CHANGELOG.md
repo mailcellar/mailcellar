@@ -8,6 +8,13 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 
 ## Unreleased
 
+### Added
+- `export --to NAME/` writes a maildir, for mutt, aerc, mu, notmuch or
+  Dovecot: every message in `cur/` with its read, starred and draft flags,
+  its labels in `X-Gmail-Labels` and in `X-Keywords` as OfflineIMAP
+  writes it, and `index.csv`. Like the other formats, it is written under
+  another name and renamed when complete.
+
 ### Fixed
 - `restore --limit` and `export --limit` refuse a number below 1, as
   `offload apply --limit` and `dedup apply --limit` do: 0 did nothing,
