@@ -165,7 +165,7 @@ def _conditions(scope: dict[str, list], params: list) -> list[str]:
     if "label" in scope:
         conds.append(
             "EXISTS (SELECT 1 FROM all_message_labels ml WHERE ml.account = pm.account "
-            "AND ml.gmail_id = pm.gmail_id AND ml.type = 'user' "
+            "AND ml.gmail_id = pm.gmail_id AND (ml.type = 'user' OR ml.label_id = 'INBOX') "
             f"AND lower(ml.name) IN ({','.join('?' * len(scope['label']))}))"
         )
         params += [v.lower() for v in scope["label"]]

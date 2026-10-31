@@ -305,6 +305,17 @@ def test_plan_changes_nothing(data):
         ('[[rule]]\nname = "x"\nbefore = "5"\nscope = "everything"\n', 'can only be "all"'),
         ('[[rule]]\nname = "x"\nbefore = "5"\nscope = true\n', 'can only be "all"'),
         ('[[rule]]\nname = "x"\nbefore = "5"\nscope = "all"\nlabel = "a"\n', "takes no label"),
+        ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "starred"\n', "label 'starred' is a system"),
+        ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = ["work", "Trash"]\n', "label 'Trash' is"),
+        (
+            '[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nkeep_if = { label = "Important" }\n',
+            'have category; for Gmail\'s important mail, query = "is:important"',
+        ),
+        (
+            '[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\n'
+            'keep_if = { label = "CATEGORY_PROMOTIONS" }\n',
+            "keep_if: label 'CATEGORY_PROMOTIONS' is a system label",
+        ),
         ('[[rule]]\nname = "x"\nbefore = "5"\nlable = "a"\n', "unknown keys ['lable']"),
         ('[[rule]]\nname = "x"\nbefore = "soon"\nlabel = "a"\n', "give a date"),
         ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nwaive = ["thred"]\n', "thred"),
@@ -790,6 +801,21 @@ def test_scope_all_selects_by_date_and_the_protections_still_apply(data, capsys)
     # what keep's default keeps: yours, starred, conversations, user-labelled
     assert {r["gmail_id"] for r in rows} == {"p1", "p3", "f1", "f2", "n1", "n2", "n3", "n4", "n5"}
     assert 'scope = "all"' in capsys.readouterr().out  # the rule to paste says so
+
+
+def test_label_inbox_selects_what_is_in_the_inbox(data):
+    plan_try(data, 'label = "Inbox", before = "2020-01-01"', "--rules", "none", "--plan", "in.csv")
+    with open(data / "in.csv", newline="", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    assert {r["gmail_id"] for r in rows} == {"f1", "f2", "n1", "n2", "n3", "n4", "n5"}
+
+
+def test_keep_if_label_inbox_keeps_what_is_in_the_inbox(data):
+    rule = 'scope = "all", before = "2020-01-01", keep_if = { label = "INBOX" }'
+    plan_try(data, rule, "--rules", "none", "--plan", "out.csv")
+    with open(data / "out.csv", newline="", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    assert {r["gmail_id"] for r in rows} == {"p1", "p3"}  # scope = "all"'s, less the inbox
 
 
 def test_try_reviews_only_its_rule(data, capsys):

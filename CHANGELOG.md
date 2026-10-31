@@ -26,6 +26,10 @@ in beta, so commands and options may still change before 1.0.
   everything from its `after`, if any, to its `before`, less what `keep`
   and `keep_if` keep. A rule with no scope key at all is still refused,
   and `plan` warns about a `scope = "all"` rule that keeps nothing.
+- An offload rule's `label`, and `keep_if`'s, may name `INBOX`: mail
+  still in the inbox, for an IMAP account that keeps its mail there.
+  Any other system label (starred, sent, Trash, a category) is now an
+  error instead of silently matching nothing.
 
 ### Fixed
 - Restored mail on iCloud gets its `restored/<date>` keyword: the
