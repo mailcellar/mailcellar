@@ -72,8 +72,13 @@ def prepare_messages(con: sqlite3.Connection, accounts: list[str]) -> None:
     """
     TEMP bm: every message, with relayed mail's sender and list headers
     resolved as described above, and its category, user-label and sent flags.
-    Shared with the correspondents report.
+    The label offload or dedup adds for review is not a user label here: it
+    marks mail on its way out, not mail you sorted. Shared with the
+    correspondents report.
     """
+    from mailcellar.dedup.apply import DEDUP_LABEL
+    from mailcellar.offload.apply import OFFLOAD_LABEL  # here: offload.plan imports this module
+
     domains = own_domains(accounts)
     relay = (
         " OR ".join(
@@ -100,7 +105,8 @@ def prepare_messages(con: sqlite3.Connection, accounts: list[str]) -> None:
         FROM all_messages m
         LEFT JOIN (SELECT account, gmail_id,
                           max(label_id IN ({sql_list(CATEGORIES)})) AS categorised,
-                          max(type = 'user') AS user_labelled,
+                          max(type = 'user' AND name NOT IN
+                              ({sql_list([OFFLOAD_LABEL, DEDUP_LABEL])})) AS user_labelled,
                           max(label_id IN ('SENT', 'DRAFT')) AS sent
                    FROM all_message_labels GROUP BY account, gmail_id) l
                USING (account, gmail_id);

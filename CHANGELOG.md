@@ -28,6 +28,10 @@ in beta, so commands and options may still change before 1.0.
   keyword is now written `$mailcellar-restored_<date>`, since iCloud
   refuses a `.` in a keyword. Keywords written the old way still read as
   the same label.
+- `report bulk` and `offload suggest` no longer count the label
+  `offload apply --label` or `dedup apply --label` adds as one of yours:
+  a sender whose mail you had labelled for offloading dropped out of the
+  candidates and of `--unsubscribe`'s list.
 
 ## 0.20.0 (2026-10-30)
 
