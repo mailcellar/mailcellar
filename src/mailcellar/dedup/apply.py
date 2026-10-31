@@ -126,7 +126,7 @@ def read_removals(plan_path: Path) -> list[dict]:
 @dataclass(frozen=True)
 class LogState:
     """
-    From earlier runs with one label, (account, gmail_id) of the messages a
+    From earlier runs with one label, (account, id) of the messages a
     label run labelled, and of those whose latest run since vetoed them (a
     trash run found the label removed) or trashed them. A later label run
     makes a vetoed or trashed message labelled again.
@@ -314,7 +314,7 @@ def apply_plan(
             return clients[account]
 
         live: dict[tuple, set | None] = {}
-        unread: dict[tuple, str] = {}  # (account, gmail_id) → why Gmail couldn't be read
+        unread: dict[tuple, str] = {}  # (account, id) → why Gmail couldn't be read
         wanted: dict[str, set] = {}
         for r in rows:
             wanted.setdefault(r["account"], set()).add(r["id"])
@@ -385,6 +385,7 @@ def upgrade_log(path: Path, columns: list[str]) -> None:
     """
     Rewrite an apply log written with other columns (an older version) to
     `columns`, values kept, new columns empty, so appended rows line up.
+    Stops rather than drop a column `columns` lacks: the log is a record.
     """
     if not path.is_file():
         return
@@ -392,6 +393,11 @@ def upgrade_log(path: Path, columns: list[str]) -> None:
         reader = csv.DictReader(fh)
         if reader.fieldnames == columns:
             return
+        if dropped := [c for c in reader.fieldnames or () if c not in columns]:
+            sys.exit(
+                f"error: {path} has columns this version doesn't write: {', '.join(dropped)}. "
+                "Rename or remove them in its header first; nothing was changed."
+            )
         rows = list(reader)
     tmp = path.with_suffix(path.suffix + ".tmp")
     with tmp.open("w", newline="", encoding="utf-8") as fh:

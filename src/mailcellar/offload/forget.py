@@ -341,7 +341,7 @@ def held_until(run: str, hold_days: int | None = None) -> datetime:
 def scrub_rows(rows: list[dict], forgotten: set[tuple[str, str]]) -> tuple[list[dict], int]:
     """
     The rows with SCRUBBED columns blanked where the row is about a
-    forgotten (account, gmail_id), as itself or as a dedup keeper; and how
+    forgotten (account, id), as itself or as a dedup keeper; and how
     many changed. Pure: new dicts, the given ones untouched.
     """
     out, changed = [], 0

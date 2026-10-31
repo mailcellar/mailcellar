@@ -13,11 +13,10 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 such rule with its rewrite, so run it once before upgrading.
 `mailcellar dedup auth` is refused: a script or cron line that calls it
 should call `mailcellar auth`. Make offload and dedup plans again:
-`apply` refuses one made by 0.21.0, as it has no `id` column. Before running
-`apply`, rename `gmail_id` to `id` and `keeper_gmail_id` to `keeper_id` in
-the header of the apply logs, which would otherwise lose their IDs when
-`apply` upgrades them, and of the forget manifests, which `forget --undo`
-and `--empty` read.
+`apply` refuses one made by 0.21.0, as it has no `id` column. Rename
+`gmail_id` to `id` and `keeper_gmail_id` to `keeper_id` in the header of
+the apply logs and the forget manifests: `apply` stops at a log that still
+has the old names, and `forget --undo` and `--empty` at such a manifest.
 
 ### Changed
 - The offload plan's `waived` column is `keeps`: the keep names the rule
