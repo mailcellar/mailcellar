@@ -20,15 +20,19 @@ An IMAP account (--imap HOST, #111) is set up with its server and password:
 imap.toml in its config folder, the password owner-only beside it. It is
 backed up only; nothing on the server changes. Microsoft's servers are
 refused before the password is asked: they take only OAuth over IMAP.
+`setup ACCOUNT --review MODE` changes how offload and dedup mark its mail
+for review, in imap.toml alone, asking no password.
 
 The decisions (check_client, accounts_entries, pick_name, add_account,
-latest_download, imap_toml, microsoft_refusal,
-review_report, server_report) are pure; reading, writing and asking are a thin layer
-around them. Prompts are skipped for what the command line already gives, so
-a fully specified call (ADDRESS and --client) asks nothing.
+latest_download, imap_toml, with_review, microsoft_refusal,
+configured_name, review_report, server_report) are pure; reading, writing
+and asking are a thin layer around them. Prompts are skipped for what the
+command line already gives, so a fully specified call (ADDRESS and
+--client) asks nothing.
 """
 
 import argparse
+import dataclasses
 import getpass
 import json
 import logging
@@ -251,6 +255,21 @@ def imap_toml(settings: gmailapi.ImapSettings, address: str) -> str:
 
 
 IMAP_KEPT = ("port", "username", "cafile", "review")  # what setting up again keeps
+REVIEW_LINE = re.compile(r"\s*review\s*=")  # imap.toml's review key, not a comment
+
+
+def with_review(text: str, review: str) -> str:
+    """
+    imap.toml's text with its review line set to `review`, in place, or taken
+    out for the default; comments and the other lines stay as they were. Pure.
+    """
+    line = "" if review == gmailapi.DEFAULT_REVIEW else f"review = {toml_string(review)}\n"
+    lines = text.splitlines(keepends=True)
+    at = next((i for i, x in enumerate(lines) if REVIEW_LINE.match(x)), None)
+    if at is not None:
+        lines[at] = line
+        return "".join(lines)
+    return text + ("" if not line or not text or text.endswith("\n") else "\n") + line
 
 
 def kept_settings(folder: Path, address: str) -> dict:
@@ -414,9 +433,11 @@ def run(args) -> int:
 
     if args.imap is not None:
         return run_imap(args, config, text, entries)
-    stray = [o for o in IMAP_KEPT if getattr(args, o) is not None]
+    stray = [o for o in IMAP_KEPT if o != "review" and getattr(args, o) is not None]
     if stray:
         raise SetupError(f"{', '.join('--' + o for o in stray)}: only with --imap")
+    if args.review is not None:
+        return run_review(args, config, entries)
     if args.service_account is not None:
         return run_service_account(args, config, text, entries)
     if args.client is None:
@@ -452,6 +473,56 @@ def run(args) -> int:
     print("      mailcellar schedule install   # run backups weekly, unattended")
     print("With the consent screen in Testing status Google expires the token after 7 days:")
     print(f"publish the app, or renew with mailcellar auth {name} --scope readonly --renew.")
+    return 0
+
+
+def configured_name(entries: dict[str, str], account: str) -> str:
+    """The config name for an account given by that name or its address. Pure."""
+    if account in entries:
+        return account
+    named = [n for n, a in entries.items() if a.lower() == account.lower()]
+    if not named:
+        raise SetupError(f"{account!r} is not a configured account (see mailcellar config)")
+    return named[0]
+
+
+def run_review(args, config: Path, entries) -> int:
+    """
+    setup ACCOUNT --review MODE: an IMAP account's review mode, changed in its
+    imap.toml alone (its review line; the rest as it was), without the password.
+    Marks made either way stay: offload and dedup read keywords and review
+    folders whatever the mode.
+    """
+    if not args.address:
+        raise SetupError("--review without --imap needs the account: its config name or address")
+    given = [o for o in ("client", "service_account", "name") if getattr(args, o) is not None]
+    if given:
+        raise SetupError(
+            f"--review without --imap changes an account's review mode only; it takes no "
+            f"{', '.join('--' + o.replace('_', '-') for o in given)}"
+        )
+    name = configured_name(entries, args.address.strip())
+    folder, address = config / name, entries[name]
+    if not gmailapi.is_imap(folder):
+        raise SetupError(f"{address} is a Gmail account; --review is an IMAP account's setting")
+    try:
+        current = gmailapi.imap_settings(folder, address)
+    except gmailapi.GmailError as exc:
+        raise SetupError(str(exc)) from None
+    if current.review == args.review:
+        print(f"{address}: review is already {args.review}; nothing changed")
+        return 0
+    path = folder / gmailapi.IMAP_SETTINGS
+    text = with_review(path.read_text(), args.review)
+    try:  # the edited file must read back as the same account with the new mode
+        changed = gmailapi.settings_from(tomllib.loads(text), address, str(path))
+    except tomllib.TOMLDecodeError, gmailapi.GmailError:
+        changed = None
+    if changed != dataclasses.replace(current, review=args.review):
+        raise SetupError(f"{path}: couldn't change its review line; edit it by hand")
+    install_private(text.encode(), path, True, "imap.toml", IMAP_WHY)
+    print(f"{address}: review {current.review} → {args.review}, in {path}")
+    print("  mail already marked the other way stays marked: offload and dedup read both")
     return 0
 
 
@@ -617,8 +688,9 @@ def main(argv=None, prog: str | None = None) -> int:
     p.add_argument(
         "--review",
         choices=gmailapi.REVIEW_MODES,
-        help="With --imap: how offload and dedup mark mail for review, a keyword (the "
-        "default) or a mailcellar/review/ folder",
+        help="How an IMAP account's offload and dedup mark mail for review, a keyword (the "
+        "default) or a mailcellar/review/ folder; without --imap, changes an account's "
+        "mode alone, asking no password",
     )
     p.add_argument("--name", help="Config name for the account (default: from the address)")
     p.add_argument("--no-auth", action="store_true", help="Don't sign in now")

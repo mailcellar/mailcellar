@@ -59,6 +59,14 @@ mailcellar doesn't do yet, so they aren't supported: `setup` refuses an
 Outlook.com, Hotmail, Live or MSN address, and Microsoft's servers, before
 asking for a password.
 
+To change the review mode later, without the password:
+
+```bash
+mailcellar setup alex --review folder
+```
+
+Mail already marked for review the other way stays marked.
+
 The connection is always TLS, with the server's certificate checked.
 There is no option to send the password unencrypted.
 

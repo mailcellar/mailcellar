@@ -37,6 +37,9 @@ in beta, so commands and options may still change before 1.0.
   it says to review by folder. The dry run of `offload apply` and
   `dedup apply` warns where `--label` would be refused, by a server
   without MOVE or one keeping no keywords.
+- `setup ACCOUNT --review MODE` changes an IMAP account's review mode
+  alone, without asking for its password. Mail already marked the other
+  way stays marked.
 - `setup --imap` refuses an Outlook.com, Hotmail, Live or MSN address,
   or Microsoft's servers, before asking for a password, saying why:
   Microsoft takes only OAuth over IMAP.

@@ -99,6 +99,12 @@ folder, without choosing that for you. Microsoft's servers (Outlook.com,
 Hotmail, Live, Microsoft 365) take only OAuth over IMAP, so setup refuses
 them before asking for a password.
 
+`setup ACCOUNT --review MODE`, without `--imap`, changes an IMAP account's
+review mode alone: it changes the review line in `imap.toml`, keeping the
+rest, asks for no password and doesn't connect. `ACCOUNT` is its config name or address. Mail already
+marked the other way stays marked: offload and dedup read keywords and
+review folders whatever the mode.
+
 | Option | What it does |
 | --- | --- |
 | `ADDRESS` | The address to back up: Gmail or Workspace, or with `--imap` an IMAP account |
@@ -108,7 +114,7 @@ them before asking for a password.
 | `--port PORT` | With `--imap`: the server's port (default 993) |
 | `--username NAME` | With `--imap`: the login name (default: the address) |
 | `--cafile FILE` | With `--imap`: a CA certificate to trust besides the system's, for a private server |
-| `--review MODE` | With `--imap`: how offload and dedup will mark mail for review, `keyword` (default) or `folder` (a `mailcellar/review/` folder) |
+| `--review MODE` | How an IMAP account's offload and dedup mark mail for review, `keyword` (default) or `folder` (a `mailcellar/review/` folder); without `--imap`, changes an existing account's mode alone |
 | `--name NAME` | Config name for the account (default: from the address) |
 | `--no-auth` | Don't sign in now |
 | `--force` | Replace the account's client, the domain's service-account key, or an IMAP account's `imap.toml`, if it holds another |
