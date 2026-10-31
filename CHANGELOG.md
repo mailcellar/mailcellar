@@ -8,54 +8,41 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 
 ## Unreleased
 
-**Upgrading from 0.21.0:** a rules file with `waive`, `protect` or
-`except` in any rule is refused; 0.21.0's `offload plan` warns about each
-such rule with its rewrite, so run it once before upgrading.
-`mailcellar dedup auth` is refused: a script or cron line that calls it
-should call `mailcellar auth`. Make offload and dedup plans again:
-`apply` refuses one made by 0.21.0, as it has no `id` column. Rename
-`gmail_id` to `id` and `keeper_gmail_id` to `keeper_id` in the header of
-the apply logs and the forget manifests: `apply` stops at a log that still
-has the old names, and `forget --undo` and `--empty` at such a manifest.
+**Upgrading from 0.21.0:** run 0.21.0's `offload plan` once first: rules
+with `waive`, `protect` or `except` are now refused, and it shows each
+one's rewrite. Scripts and cron lines that call `mailcellar dedup auth`
+should call `mailcellar auth`. Make the offload and dedup plans again. In
+the header of the apply logs and forget manifests, rename `gmail_id` to
+`id` and `keeper_gmail_id` to `keeper_id`; until then `apply`,
+`forget --undo` and `forget --empty` stop at them.
 
 ### Changed
 - The offload plan's `waived` column is `keeps`: the keep names the rule
-  applies (`mine;starred;conversations;labelled` by default), in place of
-  the internal names of the protections it dropped, which no rule can be
-  written in since `waive` was removed. Batch manifests carry it too;
-  older plans and manifests keep `waived`.
-- The message ID's column is `id`, not `gmail_id`, and a dedup keeper's
-  `keeper_id`, not `keeper_gmail_id`, in the offload and dedup plans,
-  apply logs, batch and forget manifests and `dedup match --csv`: the same
-  name as in `search` and `export`, and not Gmail's for an IMAP account.
+  applies (`mine;starred;conversations;labelled` by default). Batch
+  manifests carry it too; older ones keep `waived`.
+- The message ID's column is `id` (a dedup keeper's `keeper_id`), not
+  `gmail_id`, in the plans, apply logs, manifests and `dedup match --csv`,
+  as in `search` and `export`.
 - `dedup apply` upgrades an apply log written with other columns before
   appending to it, as `offload apply` does.
 - `offload apply --trash --limit` needs a backup newer than the plan for
-  every account the run covers, not only those the first N rows are in,
-  since which rows the limit takes is known only after the checks. Name
-  the accounts to trash in (`offload apply --trash ACCOUNT`) while
-  another's backup is behind.
+  every account in the run, not only those the first N rows are in. To
+  trash in one account while another's backup is behind, name it.
 
 ### Removed
-- Offload rules' `waive`, `protect` and `except`, deprecated in 0.17.0:
-  `offload plan`, `offload suggest` and `forget --due` stop at a rule that
-  uses them, saying to write it with `keep` and `keep_if` (the offload
-  reference shows how), and the reports warn that what is due isn't known.
-  A rule that waived one of `thread` and `replied` but not the other has
-  no equivalent: `conversations` is both.
-- `mailcellar dedup auth`, an alias of `mailcellar auth` since 0.9.0: it
-  now stops, naming `mailcellar auth`.
+- Offload rules' `waive`, `protect` and `except`, deprecated in 0.17.0: a
+  rule that uses them is refused, and the offload reference shows how to
+  write it with `keep` and `keep_if`. A rule that waived only one of
+  `thread` and `replied` has no equivalent: `conversations` is both.
+- `mailcellar dedup auth`, an alias of `mailcellar auth` since 0.9.0.
 
 ### Fixed
-- `offload apply --limit` and `dedup apply --limit` counted mail certain to
-  be skipped: held by a legal hold, or (offload) not safely in the backup.
-  Skipped without being labelled, it was picked again first by the next
-  run, so enough of it at the front of the plan stopped repeated runs
-  moving on. The limit now counts only mail that passes those checks; the
-  skipped mail is still logged, with its reason, in plan order.
-- `offload apply --limit` and `dedup apply --limit` refuse a number below
-  1. A negative one left that many rows off the end of the plan; it would
-  now have taken them all.
+- `offload apply --limit` and `dedup apply --limit` counted held mail,
+  and (offload) mail not safely in the backup, which every run skips, so
+  enough of it at the front of the plan stalled repeated runs. Only mail
+  that passes those checks counts now.
+- `--limit` refuses a number below 1: 0 did nothing, and a negative
+  number left that many rows off the end of the plan.
 
 ## 0.21.0 (2026-10-31)
 
