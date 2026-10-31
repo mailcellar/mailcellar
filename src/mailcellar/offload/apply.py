@@ -37,7 +37,7 @@ APPLY_LOG_COLUMNS = [
     "time",
     "mode",
     "account",
-    "gmail_id",
+    "id",
     "rule",
     "planned",  # the plan the run used (its planned time; see offload/plans/)
     "outcome",
@@ -93,7 +93,7 @@ class BackupChecks:
             return "account's backup not chosen"
         if account not in self._rows:
             self._load(account)
-        gid = row["gmail_id"]
+        gid = row["id"]
         if gid in self._offloaded[account]:
             return "already offloaded"
         stored = self._rows[account].get(gid)
@@ -249,7 +249,7 @@ def recorder(folders: dict[str, Path], batch: str, manifest: Path):
         try:
             by_rule: dict[str, list[str]] = {}
             for r in rows:
-                by_rule.setdefault(r["rule"], []).append(r["gmail_id"])
+                by_rule.setdefault(r["rule"], []).append(r["id"])
             for rule, ids in by_rule.items():
                 sidecar.record_offloaded(con, ids, batch, rule, now)
             con.commit()
@@ -258,26 +258,6 @@ def recorder(folders: dict[str, Path], batch: str, manifest: Path):
         write_manifest(manifest, rows, batch, now)
 
     return on_trashed
-
-
-def upgrade_log(path: Path, columns: list[str]) -> None:
-    """
-    Rewrite an apply log written with other columns (an older version) to
-    `columns`, values kept, new columns empty, so appended rows line up.
-    """
-    if not path.is_file():
-        return
-    with path.open(newline="", encoding="utf-8") as fh:
-        reader = csv.DictReader(fh)
-        if reader.fieldnames == columns:
-            return
-        rows = list(reader)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with tmp.open("w", newline="", encoding="utf-8") as fh:
-        w = csv.DictWriter(fh, fieldnames=columns, extrasaction="ignore")
-        w.writeheader()
-        w.writerows(rows)
-    tmp.replace(path)
 
 
 def offloaded_by_account(folders: dict[str, Path]) -> dict[str, set[str]]:
@@ -321,7 +301,7 @@ def restored_since_planned(row: Mapping, restored: Mapping[str, Mapping[str, int
     and it has no place under --limit. A message restored before the plan
     was made was planned as it is now. Pure.
     """
-    when = restored.get(row["account"], {}).get(row["gmail_id"])
+    when = restored.get(row["account"], {}).get(row["id"])
     return when is not None and when >= timegm(time.strptime(row["planned"], PLANNED_FORMAT)) * 1000
 
 
@@ -339,12 +319,12 @@ def remaining(
     logged, again by the next --label run.
     """
     done = offloaded_by_account(folders)
-    rows = [r for r in rows if r["gmail_id"] not in done.get(r["account"], set())]
+    rows = [r for r in rows if r["id"] not in done.get(r["account"], set())]
     restored = restored_by_account(folders)
     rows = [r for r in rows if not restored_since_planned(r, restored)]
     state = log_state(log_path, label)  # trashed ones are offloaded, so left out above
     if mode == "label":
-        rows = [r for r in rows if (r["account"], r["gmail_id"]) not in state.labelled]
+        rows = [r for r in rows if (r["account"], r["id"]) not in state.labelled]
     elif mode == "trash":
         rows = list(labelled_rows(rows, state.labelled, state.vetoed))
     return rows

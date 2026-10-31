@@ -144,7 +144,7 @@ def cmd_apply(args) -> None:
     # Messages a label run labelled carry the label in a plan made after the
     # next backup; only a label already there for other reasons makes it unusable.
     problem = unusable_label(
-        [r for r in rows if (r["account"], r["gmail_id"]) not in state.labelled], dedup_label
+        [r for r in rows if (r["account"], r["id"]) not in state.labelled], dedup_label
     )
     if problem:
         sys.exit(f"error: can't use {dedup_label!r} as the apply label: {problem}.")

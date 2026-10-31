@@ -216,9 +216,9 @@ def test_offload_and_dedup_apply_leave_held_mail_in_gmail(backup):
     _gmail, folder = backup
     hold("add", "landlord-2026", "--reason", "dispute", "--party", "@landlord.example")
     check = holds.HoldCheck({ACCOUNT: folder}, holds_now())
-    assert check({"account": ACCOUNT, "gmail_id": "d1"}) == "held: landlord-2026"
-    assert check({"account": ACCOUNT, "gmail_id": "u1"}) == ""
-    assert check({"account": "other@example.org", "gmail_id": "d1"}) == ""
+    assert check({"account": ACCOUNT, "id": "d1"}) == "held: landlord-2026"
+    assert check({"account": ACCOUNT, "id": "u1"}) == ""
+    assert check({"account": "other@example.org", "id": "d1"}) == ""
 
 
 def test_forget_and_empty_leave_held_mail(backup):
@@ -234,7 +234,7 @@ def test_forget_and_empty_leave_held_mail(backup):
     run.mkdir(parents=True)
     with (run / forget.MANIFEST).open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
-        w.writerows([["gmail_id", "path"], ["f9", "2026/1/1/f9.eml"]])
+        w.writerows([["id", "path"], ["f9", "2026/1/1/f9.eml"]])
     under = forget.runs_under_hold(folder, ACCOUNT, ["2026-01-01-000000"], holds_now())
     assert under == {"2026-01-01-000000": ["landlord-2026"]}
 
@@ -268,7 +268,7 @@ def test_a_message_the_sidecar_doesnt_know_counts_as_held(backup):
     sidecar.delete_messages(con, ["u1"])
     con.commit()
     con.close()
-    row = {"account": ACCOUNT, "gmail_id": "u1"}
+    row = {"account": ACCOUNT, "id": "u1"}
     # The sidecar-only universe wouldn't list u1; asked about it, a hold that can't rule it
     # out holds it.
     assert holds.HoldCheck({ACCOUNT: folder}, holds_now(), [row])(row) == "held: landlord-2026"

@@ -89,7 +89,7 @@ def apply(*args):
 
 
 def last(log, n=5):
-    return {r["gmail_id"]: (r["outcome"], r["detail"]) for r in log[-n:]}
+    return {r["id"]: (r["outcome"], r["detail"]) for r in log[-n:]}
 
 
 def offloaded(folder):
@@ -124,7 +124,7 @@ def test_backup_checks(env, capsys):
     }
     assert "1 plan row left out, not read: offloaded" in capsys.readouterr().err
     # offloaded by another run after this one read the plan: the check still catches it
-    assert backup_checks(env)({"account": A, "gmail_id": "w3", "path": ""}) == ("already offloaded")
+    assert backup_checks(env)({"account": A, "id": "w3", "path": ""}) == ("already offloaded")
 
 
 def test_label_then_trash_records_offloaded(env, capsys, listing_from):
@@ -150,7 +150,7 @@ def test_label_then_trash_records_offloaded(env, capsys, listing_from):
     # the batch manifest lists what was trashed, as recorded in the sidecar
     batch, rows = manifest_rows(env)
     assert list(rows[0]) == offload_apply.MANIFEST_COLUMNS
-    assert [r["gmail_id"] for r in rows] == ["w2", "w3", "w4"]
+    assert [r["id"] for r in rows] == ["w2", "w3", "w4"]
     assert {r["batch"] for r in rows} == {batch} and all(r["trashed"] for r in rows)
     assert all(Path(r["path"]).is_file() for r in rows)  # plan paths are absolute
     con = sqlite3.connect(env.folder / "meta.sqlite")
@@ -241,7 +241,7 @@ def test_second_copy_report(monkeypatch, tmp_path):
 
 
 def outcomes(log, outcome):
-    return sorted(r["gmail_id"] for r in log if r["outcome"] == outcome)
+    return sorted(r["id"] for r in log if r["outcome"] == outcome)
 
 
 def runs_of(*args):
@@ -273,7 +273,7 @@ def test_mail_restored_since_the_plan_takes_no_place_under_limit(env, capsys):
     env.live.set_labels("w0", {"work", "restored/2026-10-26"})
     capsys.readouterr()
     second = apply("--trash", "--yes", "--limit", "2")[len(first) :]
-    assert [r["gmail_id"] for r in second] == ["w2", "w3"]  # w0 isn't read, nor counted
+    assert [r["id"] for r in second] == ["w2", "w3"]  # w0 isn't read, nor counted
     assert outcomes(second, "trashed") == ["w2", "w3"]
     assert "2 plan rows left out, not read:" in capsys.readouterr().err  # w1 offloaded, w0 restored
     assert "TRASH" not in env.live.labels_of("w0")
@@ -289,7 +289,7 @@ def test_mail_restored_since_the_plan_takes_no_place_under_limit(env, capsys):
     ],
 )
 def test_restored_since_planned(restored_ms, expected):
-    row = {"account": A, "gmail_id": "w0", "planned": "2000-01-01 00:00:00"}
+    row = {"account": A, "id": "w0", "planned": "2000-01-01 00:00:00"}
     restored = {A: {} if restored_ms is None else {"w0": restored_ms}}
     assert offload_apply.restored_since_planned(row, restored) is expected
     assert offload_apply.restored_since_planned({**row, "account": "b@y.com"}, restored) is False
@@ -302,7 +302,7 @@ def test_label_batches_advance_and_vetoes_are_not_retried(env):
     first, second = runs_of(("--trash", "--yes", "--limit", "2"), ("--trash", "--yes"))
     assert outcomes(first, "skipped") == ["w0"] and outcomes(first, "trashed") == ["w1"]
     assert outcomes(second, "trashed") == ["w2", "w3", "w4"]  # w0 isn't tried again
-    assert "w0" not in [r["gmail_id"] for r in second]
+    assert "w0" not in [r["id"] for r in second]
     with pytest.raises(SystemExit, match="no plan rows match"):
         apply("--label")  # w0 was labelled once; the veto stands
 
@@ -325,7 +325,7 @@ def test_a_message_gmail_could_not_read_is_tried_again_next_run(env):
     assert outcomes(first, "skipped") == ["w1"]
     env.live.fail_lookup = set()
     second = apply("--trash", "--yes")
-    assert [(r["gmail_id"], r["outcome"]) for r in second[-1:]] == [("w1", "trashed")]
+    assert [(r["id"], r["outcome"]) for r in second[-1:]] == [("w1", "trashed")]
 
 
 def test_messages_trashed_before_a_crash_are_recorded(env, monkeypatch, capsys):
@@ -352,7 +352,7 @@ def test_messages_trashed_before_a_crash_are_recorded(env, monkeypatch, capsys):
     next(env.folder.rglob("w0.eml")).unlink()  # recording still needs the backup copy
     log = apply("--trash", "--yes")[-5:]
     assert outcomes(log, "recorded") == ["w1", "w2", "w3", "w4"]
-    w0 = next(r for r in log if r["gmail_id"] == "w0")
+    w0 = next(r for r in log if r["id"] == "w0")
     assert w0["outcome"] == "skipped" and "restore it from its mailbox's Trash" in w0["detail"]
     assert set(offloaded(env.folder)) == {"w1", "w2", "w3", "w4"}
     assert "Recorded 4 messages an earlier run trashed" in capsys.readouterr().out
@@ -362,7 +362,7 @@ def test_trashed_by_hand_without_the_label_is_not_recorded(env):
     apply("--label")
     env.live.set_labels("w0", {"work", "TRASH"})  # unlabelled and trashed in Gmail by hand
     log = apply("--trash", "--yes")[-5:]
-    w0 = next(r for r in log if r["gmail_id"] == "w0")
+    w0 = next(r for r in log if r["id"] == "w0")
     assert (w0["outcome"], w0["detail"]) == ("skipped", "already in trash")
     assert "w0" not in offloaded(env.folder)
 
@@ -373,7 +373,7 @@ def test_a_plan_made_after_labelling_can_still_trash(env):
         rows = list(csv.DictReader(fh))
     for r in rows:  # as a re-plan after a backup would see them
         r["labels"] = f"work;{OFFLOAD_LABEL}"
-    rows.append({**rows[0], "gmail_id": "x9", "labels": f"work;{OFFLOAD_LABEL}"})
+    rows.append({**rows[0], "id": "x9", "labels": f"work;{OFFLOAD_LABEL}"})
     with open("plan.csv", "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=list(rows[0]))
         w.writeheader()
@@ -409,7 +409,7 @@ def test_recovered_messages_go_into_the_recovering_batchs_manifest(env, monkeypa
     monkeypatch.setattr(cli, "recorder", real)
     apply("--trash", "--yes")
     _batch, rows = manifest_rows(env)
-    assert sorted(r["gmail_id"] for r in rows) == [f"w{i}" for i in range(5)]
+    assert sorted(r["id"] for r in rows) == [f"w{i}" for i in range(5)]
 
 
 def test_apply_log_names_the_plan_and_old_logs_are_upgraded(env):
@@ -417,7 +417,7 @@ def test_apply_log_names_the_plan_and_old_logs_are_upgraded(env):
         "time",
         "mode",
         "account",
-        "gmail_id",
+        "id",
         "rule",
         "outcome",
         "detail",
@@ -433,14 +433,14 @@ def test_apply_log_names_the_plan_and_old_logs_are_upgraded(env):
                 "time": "t0",
                 "mode": "dry-run",
                 "account": A,
-                "gmail_id": "w9",
+                "id": "w9",
                 "rule": "work",
                 "outcome": "would label or trash",
             }
         )
     log = apply()
     assert list(log[0]) == offload_apply.APPLY_LOG_COLUMNS
-    assert (log[0]["gmail_id"], log[0]["planned"]) == ("w9", "")  # kept, planned unknown
+    assert (log[0]["id"], log[0]["planned"]) == ("w9", "")  # kept, planned unknown
     assert {r["planned"] for r in log[1:]} == {"2000-01-01 00:00:00"}
 
 
@@ -453,7 +453,7 @@ def test_a_message_missing_from_the_sidecar_is_skipped_with_the_reason(env):
     con.commit()
     con.close()
     assert last(apply(), 5)["w0"] == ("skipped", "not in the sidecar; run mailcellar meta")
-    row = {"account": A, "gmail_id": "w0", "path": ""}
+    row = {"account": A, "id": "w0", "path": ""}
     assert backup_checks(env)(row) == "not in the sidecar; run mailcellar meta"
 
 
@@ -473,7 +473,7 @@ def test_an_unparseable_backup_copy_is_skipped_with_the_reason(env, monkeypatch)
 
 def test_an_account_whose_backup_was_not_chosen_is_refused():
     checks = offload_apply.BackupChecks({})
-    assert checks({"account": A, "gmail_id": "w0", "path": ""}) == "account's backup not chosen"
+    assert checks({"account": A, "id": "w0", "path": ""}) == "account's backup not chosen"
 
 
 def test_an_account_with_no_backup_run_recorded_is_stale(env):
@@ -530,7 +530,7 @@ def test_trashing_is_refused_when_no_backup_run_is_recorded(env, capsys):
 
 def test_a_file_that_is_not_an_offload_plan_is_refused(tmp_path):
     path = tmp_path / "plan.csv"
-    path.write_text("account,gmail_id\na@x.com,w0\n")
+    path.write_text("account,id\na@x.com,w0\n")
     with pytest.raises(SystemExit, match=r"is not an offload plan \(missing \["):
         offload_apply.read_plan(path)
 
@@ -543,7 +543,7 @@ def test_recording_nothing_writes_no_manifest(env, tmp_path):
 
 def test_a_label_run_leaves_messages_trashed_before_a_crash_alone(env):
     path = next(env.folder.rglob("w0.eml"))
-    row = {"account": A, "gmail_id": "w0", "path": str(path)}
+    row = {"account": A, "id": "w0", "path": str(path)}
     entry = Result(row, "x", "", frozenset({"TRASH", OFFLOAD_LABEL}))
     recorded = []
     log, count = offload_apply.recover_trashed(
@@ -557,7 +557,7 @@ def test_a_label_run_leaves_messages_trashed_before_a_crash_alone(env):
 
 
 def entry(live, gid="w0", path="x", outcome="ok", detail=""):
-    row = {"account": A, "gmail_id": gid, "path": path}
+    row = {"account": A, "id": gid, "path": path}
     return Result(row, outcome, detail, None if live is None else frozenset(live))
 
 
@@ -613,7 +613,7 @@ def test_recover_trashed_returns_a_new_log_and_changes_nothing(env):
         "trash",
         OFFLOAD_LABEL,
         lambda row: "",
-        lambda account, rows: recorded.append((account, [r["gmail_id"] for r in rows])),
+        lambda account, rows: recorded.append((account, [r["id"] for r in rows])),
     )
     assert [r.outcome for r in new] == ["ok", "recorded", "recorded", "skipped"]
     assert new[0] is log[0]  # an entry that needed nothing is the same value
@@ -669,14 +669,14 @@ def test_second_copy_report_when_time_machine_answers_oddly(monkeypatch, tmp_pat
 
 def test_select_rows_by_rule_account_and_limit():
     rows = [
-        {"rule": "a", "account": "x@example.com", "gmail_id": "1"},
-        {"rule": "b", "account": "x@example.com", "gmail_id": "2"},
-        {"rule": "a", "account": "y@example.com", "gmail_id": "3"},
-        {"rule": "a", "account": "x@example.com", "gmail_id": "4"},
+        {"rule": "a", "account": "x@example.com", "id": "1"},
+        {"rule": "b", "account": "x@example.com", "id": "2"},
+        {"rule": "a", "account": "y@example.com", "id": "3"},
+        {"rule": "a", "account": "x@example.com", "id": "4"},
     ]
 
     def ids(rules=(), accounts=(), limit=None):
-        return [r["gmail_id"] for r in cli.select_rows(rows, set(rules), set(accounts), limit)]
+        return [r["id"] for r in cli.select_rows(rows, set(rules), set(accounts), limit)]
 
     assert ids() == ["1", "2", "3", "4"]  # none given: all
     assert ids(rules=["a", "b"], accounts=["x@example.com"]) == ["1", "2", "4"]

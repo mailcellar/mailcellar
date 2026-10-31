@@ -12,8 +12,12 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 `except` in any rule is refused; 0.21.0's `offload plan` warns about each
 such rule with its rewrite, so run it once before upgrading.
 `mailcellar dedup auth` is refused: a script or cron line that calls it
-should call `mailcellar auth`. Make offload plans again: `offload apply`
-refuses one made by 0.21.0, as it has no `keeps` column.
+should call `mailcellar auth`. Make offload and dedup plans again:
+`apply` refuses one made by 0.21.0, as it has no `id` column. Before running
+`apply`, rename `gmail_id` to `id` and `keeper_gmail_id` to `keeper_id` in
+the header of the apply logs, which would otherwise lose their IDs when
+`apply` upgrades them, and of the forget manifests, which `forget --undo`
+and `--empty` read.
 
 ### Changed
 - The offload plan's `waived` column is `keeps`: the keep names the rule
@@ -21,6 +25,12 @@ refuses one made by 0.21.0, as it has no `keeps` column.
   the internal names of the protections it dropped, which no rule can be
   written in since `waive` was removed. Batch manifests carry it too;
   older plans and manifests keep `waived`.
+- The message ID's column is `id`, not `gmail_id`, and a dedup keeper's
+  `keeper_id`, not `keeper_gmail_id`, in the offload and dedup plans,
+  apply logs, batch and forget manifests and `dedup match --csv`: the same
+  name as in `search` and `export`, and not Gmail's for an IMAP account.
+- `dedup apply` upgrades an apply log written with other columns before
+  appending to it, as `offload apply` does.
 
 ### Removed
 - Offload rules' `waive`, `protect` and `except`, deprecated in 0.17.0:

@@ -28,9 +28,9 @@ def row(tmp_path, gid="b1", keeper="a1", labels="", exists=True):
         "reason": "",
         "group_id": "1",
         "account": B,
-        "gmail_id": gid,
+        "id": gid,
         "keeper_account": A,
-        "keeper_gmail_id": keeper,
+        "keeper_id": keeper,
         "message_id": "m@x",
         "internal_date": "",
         "sender": "",
@@ -53,7 +53,7 @@ def setup(a_msgs, b_msgs, **b_kwargs):
 
 
 def outcomes(log):
-    return {e.row["gmail_id"]: (e.outcome, e.detail) for e in log}
+    return {e.row["id"]: (e.outcome, e.detail) for e in log}
 
 
 # ── check_row ────────────────────────────────────────────────────────────────
@@ -151,7 +151,7 @@ def test_a_message_gmail_could_not_read_is_skipped_and_the_rest_carry_on(tmp_pat
     )
     gmail[A].fail_lookup = {"a3"}  # b3's keeper
     log = apply_plan(rows, "label", gmail_for, lambda p: True)
-    by_id = {r.row["gmail_id"]: r for r in log}
+    by_id = {r.row["id"]: r for r in log}
     assert by_id["b1"].outcome == "labelled"
     assert (by_id["b2"].outcome, by_id["b3"].outcome) == ("skipped", "skipped")
     assert by_id["b2"].detail.startswith("couldn't read it from its mailbox: HttpError 400")
@@ -214,7 +214,7 @@ def test_cli_limit_and_log(tmp_path, monkeypatch):
     dedup.main(["apply", "--plan", str(plan), "--limit", "2", "--log", str(log_path)])
 
     with log_path.open(newline="") as fh:
-        logged = [(r["mode"], r["gmail_id"], r["outcome"]) for r in csv.DictReader(fh)]
+        logged = [(r["mode"], r["id"], r["outcome"]) for r in csv.DictReader(fh)]
     assert logged == [
         ("label (dedup-redundant)", "b0", "labelled"),
         ("label (dedup-redundant)", "b1", "labelled"),
@@ -224,12 +224,24 @@ def test_cli_limit_and_log(tmp_path, monkeypatch):
     ]
 
 
+def test_the_log_is_upgraded_before_rows_are_appended(tmp_path):
+    log_path = tmp_path / "log.csv"
+    log_path.write_text("time,mode,account,id,outcome\nt0,dry-run,a@x.com,a1,would label\n")
+    result = Result(row(tmp_path, "b0"), "labelled")
+    dedup_apply.write_apply_log([result], "label", log_path)
+    with log_path.open(newline="") as fh:
+        reader = csv.DictReader(fh)
+        rows = list(reader)
+    assert reader.fieldnames == dedup_apply.APPLY_LOG_COLUMNS
+    assert [(r["id"], r["outcome"]) for r in rows] == [("a1", "would label"), ("b0", "labelled")]
+
+
 # ── within-account rows: the keeper is in the same account ───────────────────
 
 
 def test_within_account_rows_label_and_trash_in_one_account(tmp_path):
     gmail, scopes, gmail_for = setup({}, {"b1": set(), "b2": set()})
-    rows = [{**row(tmp_path, "b2"), "keeper_account": B, "keeper_gmail_id": "b1"}]
+    rows = [{**row(tmp_path, "b2"), "keeper_account": B, "keeper_id": "b1"}]
 
     log = apply_plan(rows, "label", gmail_for, confirm=lambda p: True)
     assert outcomes(log) == {"b2": ("labelled", "")}
@@ -243,7 +255,7 @@ def test_within_account_rows_label_and_trash_in_one_account(tmp_path):
 
 def test_within_account_keeper_trashed_meanwhile_blocks_removal(tmp_path):
     gmail, _scopes, gmail_for = setup({}, {"b1": {"TRASH"}, "b2": set()})
-    rows = [{**row(tmp_path, "b2"), "keeper_account": B, "keeper_gmail_id": "b1"}]
+    rows = [{**row(tmp_path, "b2"), "keeper_account": B, "keeper_id": "b1"}]
     log = apply_plan(rows, "label", gmail_for, confirm=lambda p: True)
     assert outcomes(log) == {"b2": ("skipped", "keeper in trash or spam")}
 
@@ -313,7 +325,7 @@ def cli(tmp_path, monkeypatch):
     def run(*args):
         dedup.main(["apply", "--plan", str(plan), "--log", str(log), "--yes", *args])
         with log.open(newline="") as fh:
-            return [(r["mode"], r["gmail_id"], r["outcome"]) for r in csv.DictReader(fh)]
+            return [(r["mode"], r["id"], r["outcome"]) for r in csv.DictReader(fh)]
 
     return gmail, run
 
@@ -432,10 +444,10 @@ def test_a_plan_made_after_labelling_can_still_label_and_trash(cli, tmp_path):
 
 
 def test_labelled_rows_keeps_the_labelled_and_not_vetoed_in_order():
-    rows = [{"account": B, "gmail_id": g} for g in ("b0", "b1", "b2", "b3")]
+    rows = [{"account": B, "id": g} for g in ("b0", "b1", "b2", "b3")]
     labelled = {(B, "b3"), (B, "b1"), (B, "b2"), (A, "b0")}
     got = dedup_apply.labelled_rows(rows, labelled, {(B, "b2")})
-    assert [r["gmail_id"] for r in got] == ["b1", "b3"]
+    assert [r["id"] for r in got] == ["b1", "b3"]
 
 
 # ── results: frozen values, and the pure steps ───────────────────────────────
@@ -457,7 +469,7 @@ def test_the_steps_after_acting_name_each_outcome(tmp_path):
     results = [ok(tmp_path, "b1"), ok(tmp_path, "b2")]
     assert [r.outcome for r in dedup_apply.after_dry_run(results)] == ["would label or trash"] * 2
     assert [r.outcome for r in dedup_apply.after_label(results, {})] == ["labelled"] * 2
-    failed = dedup_apply.after_label(results, {results[0].row["gmail_id"]: "refused"})
+    failed = dedup_apply.after_label(results, {results[0].row["id"]: "refused"})
     assert [(r.outcome, r.detail) for r in failed][0] == ("failed", "refused")
     declined = dedup_apply.after_declined(results)
     assert [(r.outcome, r.detail) for r in declined] == [("skipped", "not confirmed")] * 2
@@ -494,7 +506,7 @@ def test_act_asks_once_and_trashes_only_when_confirmed(tmp_path):
         gmail,
         lambda p: prompts.append(p) or True,
         DEDUP_LABEL,
-        lambda account, rows: trashed.append((account, [r["gmail_id"] for r in rows])),
+        lambda account, rows: trashed.append((account, [r["id"] for r in rows])),
     )
     assert prompts == [f"Move 2 messages in {B} to Trash?"]
     assert [(r.outcome, r.detail) for r in done] == [
@@ -524,7 +536,7 @@ def test_checked_asks_the_local_check_only_of_rows_that_pass_the_gmail_checks(tm
     asked = []
 
     def local(r):
-        asked.append(r["gmail_id"])
+        asked.append(r["id"])
         return "not in the sidecar"
 
     good = row(tmp_path, "b1")
@@ -552,7 +564,7 @@ def test_apply_plan_returns_results_in_order_and_leaves_the_rows_alone(tmp_path)
     )
     log = apply_plan(rows, "trash", gmail_for, confirm=lambda p: True)
     assert all(isinstance(r, Result) for r in log)
-    assert [r.row["gmail_id"] for r in log] == ["b1", "b2", "b3"]  # the rows' order
+    assert [r.row["id"] for r in log] == ["b1", "b2", "b3"]  # the rows' order
     assert [r.outcome for r in log] == ["trashed", "trashed", "skipped"]
     assert [r.row for r in log] == before and all(
         r.row is o for r, o in zip(log, rows, strict=True)

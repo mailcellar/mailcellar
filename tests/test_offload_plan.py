@@ -136,7 +136,7 @@ def test_selection_and_protections(data, capsys):
     rows = run(data)
     by_rule = {}
     for r in rows:
-        by_rule.setdefault(r["rule"], set()).add(r["gmail_id"])
+        by_rule.setdefault(r["rule"], set()).add(r["id"])
     assert by_rule == {
         "work": {"w1", "w8", "p2", "t1", "b1"},
         "shop": {"p1"},
@@ -168,7 +168,7 @@ def test_kept_counts(data):
 def test_plan_csv(data):
     rows = run(data)
     assert list(rows[0]) == PLAN_COLUMNS
-    w1 = next(r for r in rows if r["gmail_id"] == "w1")
+    w1 = next(r for r in rows if r["id"] == "w1")
     assert w1["account"] == A and w1["date"] == "2011-03-13"
     assert w1["labels"] == "Work" and w1["keeps"] == "mine;starred;conversations;labelled"
     assert (data / w1["path"]).is_file()
@@ -185,10 +185,10 @@ before = "2020-01-01"
 keep = ["conversations", "labelled", "correspondents"]
 """
     rows = run(data, rules)
-    assert {r["gmail_id"] for r in rows} == {"w11", "p2"}
+    assert {r["id"] for r in rows} == {"w11", "p2"}
     assert {r["keeps"] for r in rows} == {"conversations;labelled;correspondents"}
     nothing = rules.replace('["conversations", "labelled", "correspondents"]', "[]")
-    assert {r["gmail_id"] for r in run(data, nothing)} == {
+    assert {r["id"] for r in run(data, nothing)} == {
         "w1",
         "w2",
         "w3",
@@ -206,9 +206,9 @@ def test_keep_if_ands_within_a_table_and_ors_across_them(data, capsys):
     base = '[[rule]]\nname = "work"\nlabel = "work"\nbefore = "2020-01-01"\n'
     one = 'keep_if = { subject = "s-w", sender = "@work.com" }\n'
     # every key of the table: s-w1 from work.com; s-w8 is from p.com
-    assert {r["gmail_id"] for r in run(data, base + one)} == {"w8", "p2", "t1", "b1"}
+    assert {r["id"] for r in run(data, base + one)} == {"w8", "p2", "t1", "b1"}
     either = 'keep_if = [{ subject = "s-w1" }, { sender = "@shop.com" }]\n'
-    assert {r["gmail_id"] for r in run(data, base + either)} == {"w8", "t1", "b1"}
+    assert {r["id"] for r in run(data, base + either)} == {"w8", "t1", "b1"}
     out = capsys.readouterr().out
     assert "kept: keep_if" in out and "keep_if, default" in out
 
@@ -268,7 +268,7 @@ def test_rule_result_counts_each_verdict_and_passes_on_what_it_took():
 
 def test_account_argument_limits_the_plan(data):
     rows = run(data, args=["b@y"])
-    assert {(r["account"], r["gmail_id"]) for r in rows} == {(B, "b1")}
+    assert {(r["account"], r["id"]) for r in rows} == {(B, "b1")}
 
 
 def test_plan_changes_nothing(data):
@@ -407,7 +407,7 @@ def test_unknown_account_is_an_error(data, capsys):
 
 def test_subject_ignores_case_accents_and_entities(data):
     rows = run(data, '[[rule]]\nname = "cafe"\nsubject = "café"\nbefore = "2020-01-01"\n')
-    assert {r["gmail_id"] for r in rows} == {"n1", "n2", "n3", "n4"}  # a substring match
+    assert {r["id"] for r in rows} == {"n1", "n2", "n3", "n4"}  # a substring match
 
 
 @pytest.mark.parametrize(
@@ -427,8 +427,8 @@ def test_fold(text, folded):
 
 def test_to_me(data):
     base = '[[rule]]\nname = "w"\nlabel = "work"\naccount = "a@x.com"\nbefore = "2020-01-01"\n'
-    assert {r["gmail_id"] for r in run(data, base + "to_me = true\n")} == {"t1"}
-    assert {r["gmail_id"] for r in run(data, base + "to_me = false\n")} == {"w1", "w8", "p2"}
+    assert {r["id"] for r in run(data, base + "to_me = true\n")} == {"t1"}
+    assert {r["id"] for r in run(data, base + "to_me = false\n")} == {"w1", "w8", "p2"}
 
 
 def test_keep_if_keeps_matches_of_any_table(data, capsys):
@@ -440,7 +440,7 @@ before = "2020-01-01"
 keep_if = [{ subject = ["S-W1"] }, { sender = "@shop.com" }, { to_me = true }]
 """
     rows = run(data, rules)
-    assert {r["gmail_id"] for r in rows} == {"w8", "b1"}  # w1, p2, t1 kept
+    assert {r["id"] for r in rows} == {"w8", "b1"}  # w1, p2, t1 kept
     assert "kept: keep_if" in capsys.readouterr().out
 
 
@@ -466,21 +466,21 @@ def test_a_query_selects_what_gmail_finds_and_the_protections_still_apply(
 ):
     rule = '[[rule]]\nname = "pdfs"\nquery = "has:attachment"\nbefore = "2020-01-01"\n'
     # w1, w4 and w8 carry Work, a user label the rule doesn't name
-    assert {r["gmail_id"] for r in run(data, rule)} == {"p1"}
+    assert {r["id"] for r in run(data, rule)} == {"p1"}
     assert gmail_search == [(A, ("has:attachment",)), (B, ("has:attachment",))]
     rows = run(data, rule + 'keep = ["mine", "starred", "conversations"]\n')
-    assert {r["gmail_id"] for r in rows} == {"w1", "w8", "p1"}  # w4 is starred
+    assert {r["id"] for r in rows} == {"w1", "w8", "p1"}  # w4 is starred
     assert "1 messages Gmail finds for 'has:attachment' aren't in the backup" in caplog.text
 
 
 def test_a_query_narrows_like_any_scope_key_and_works_in_keep_if(data, gmail_search):
     both = '[[rule]]\nname = "w"\nlabel = "work"\nquery = "has:attachment"\nbefore = "2020-01-01"\n'
-    assert {r["gmail_id"] for r in run(data, both)} == {"w1", "w8"}  # p1 has no Work label
+    assert {r["id"] for r in run(data, both)} == {"w1", "w8"}  # p1 has no Work label
     excepted = (
         '[[rule]]\nname = "w"\nlabel = "work"\nbefore = "2020-01-01"\n'
         'keep_if = { query = "has:attachment" }\n'
     )
-    assert {r["gmail_id"] for r in run(data, excepted)} == {"p2", "t1", "b1"}
+    assert {r["id"] for r in run(data, excepted)} == {"p2", "t1", "b1"}
 
 
 def test_no_query_no_gmail(data, gmail_search):
@@ -647,7 +647,7 @@ def keyed(tmp_path, monkeypatch):
 
 def selected(tmp_path, keys):
     rule = f'[[rule]]\nname = "r"\nbefore = "2020-01-01"\n{keys}\n'
-    return {r["gmail_id"] for r in run(tmp_path, rule)}
+    return {r["id"] for r in run(tmp_path, rule)}
 
 
 def test_bulk_is_report_bulks_signal(keyed):
@@ -758,7 +758,7 @@ def test_try_runs_after_the_files_rules(data, capsys):
     plan_try(data, WORK, "--rules", "none", "--plan", "tried.csv")
     with open(data / "tried.csv", newline="", encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
-    assert {r["gmail_id"] for r in rows} == {"w1", "w8", "p2", "t1", "b1"}  # as the file's work
+    assert {r["id"] for r in rows} == {"w1", "w8", "p2", "t1", "b1"}  # as the file's work
     assert {r["rule"] for r in rows} == {"try"}
 
 
@@ -768,7 +768,7 @@ def test_scope_all_selects_by_date_and_the_protections_still_apply(data, capsys)
         rows = list(csv.DictReader(fh))
     # Everything before the cut-off but mail in Trash, already offloaded, and
     # what keep's default keeps: yours, starred, conversations, user-labelled
-    assert {r["gmail_id"] for r in rows} == {"p1", "p3", "f1", "f2", "n1", "n2", "n3", "n4", "n5"}
+    assert {r["id"] for r in rows} == {"p1", "p3", "f1", "f2", "n1", "n2", "n3", "n4", "n5"}
     assert 'scope = "all"' in capsys.readouterr().out  # the rule to paste says so
 
 
@@ -776,7 +776,7 @@ def test_label_inbox_selects_what_is_in_the_inbox(data):
     plan_try(data, 'label = "Inbox", before = "2020-01-01"', "--rules", "none", "--plan", "in.csv")
     with open(data / "in.csv", newline="", encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
-    assert {r["gmail_id"] for r in rows} == {"f1", "f2", "n1", "n2", "n3", "n4", "n5"}
+    assert {r["id"] for r in rows} == {"f1", "f2", "n1", "n2", "n3", "n4", "n5"}
 
 
 def test_keep_if_label_inbox_keeps_what_is_in_the_inbox(data):
@@ -784,7 +784,7 @@ def test_keep_if_label_inbox_keeps_what_is_in_the_inbox(data):
     plan_try(data, rule, "--rules", "none", "--plan", "out.csv")
     with open(data / "out.csv", newline="", encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
-    assert {r["gmail_id"] for r in rows} == {"p1", "p3"}  # scope = "all"'s, less the inbox
+    assert {r["id"] for r in rows} == {"p1", "p3"}  # scope = "all"'s, less the inbox
 
 
 def test_try_reviews_only_its_rule(data, capsys):

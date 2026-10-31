@@ -2,7 +2,7 @@
 apply: check planned removals against live Gmail, then label or trash them.
 
 Shared with offload apply, whose rows have no keeper: rows without a
-keeper_gmail_id skip the keeper checks.
+keeper_id skip the keeper checks.
 
 The shape is restore's: apply_plan() reads what Gmail says, check_row() and
 checked() decide, and act() carries out one account's rows; each step
@@ -30,9 +30,9 @@ APPLY_LOG_COLUMNS = [
     "time",
     "mode",
     "account",
-    "gmail_id",
+    "id",
     "keeper_account",
-    "keeper_gmail_id",
+    "keeper_id",
     "outcome",
     "detail",
     "subject",
@@ -73,7 +73,7 @@ def unusable_label(rows: list[dict], name: str) -> str:
 
 
 def has_keeper(row: dict) -> bool:
-    return bool(row.get("keeper_gmail_id"))
+    return bool(row.get("keeper_id"))
 
 
 def check_row(
@@ -86,7 +86,7 @@ def check_row(
     """
     "" if the planned removal is still safe, else why it is skipped.
     cand / keeper: live label names, or None if the message no longer exists.
-    Rows without a keeper_gmail_id have no keeper to check.
+    Rows without a keeper_id have no keeper to check.
     """
     if not row["path"] or not Path(row["path"]).is_file():
         return "no local backup copy"
@@ -144,7 +144,7 @@ def log_state(log_path: Path, label: str) -> LogState:
     labelled, last = set(), {}
     with log_path.open(newline="", encoding="utf-8") as fh:
         for e in csv.DictReader(fh):
-            key = (e["account"], e["gmail_id"])
+            key = (e["account"], e["id"])
             if e["mode"] == f"label ({label})" and e["outcome"] == "labelled":
                 labelled.add(key)
                 last[key] = "labelled"
@@ -175,7 +175,7 @@ def labelled_rows(
     return tuple(
         r
         for r in rows
-        if (r["account"], r["gmail_id"]) in labelled and (r["account"], r["gmail_id"]) not in vetoed
+        if (r["account"], r["id"]) in labelled and (r["account"], r["id"]) not in vetoed
     )
 
 
@@ -200,8 +200,8 @@ def after_dry_run(results: list[Result]) -> list[Result]:
 def after_label(results: list[Result], failures: dict[str, str]) -> list[Result]:
     """The results once labelling is done; failures maps a Gmail ID to why it failed."""
     return [
-        replace(r, outcome="failed", detail=failures[r.row["gmail_id"]])
-        if r.row["gmail_id"] in failures
+        replace(r, outcome="failed", detail=failures[r.row["id"]])
+        if r.row["id"] in failures
         else replace(r, outcome="labelled")
         for r in results
     ]
@@ -214,8 +214,8 @@ def after_declined(results: list[Result]) -> list[Result]:
 def after_trash(results: list[Result], failures: dict[str, str]) -> list[Result]:
     """The results once trashing is done; failures maps a Gmail ID to why it failed."""
     return [
-        replace(r, outcome="failed", detail=failures[r.row["gmail_id"]])
-        if r.row["gmail_id"] in failures
+        replace(r, outcome="failed", detail=failures[r.row["id"]])
+        if r.row["id"] in failures
         else replace(r, outcome="trashed")
         for r in results
     ]
@@ -229,7 +229,7 @@ def act(
     and return them as new Results. client is that account's Gmail
     (add_label / trash); confirm and on_trashed are as in apply_plan.
     """
-    ids = [r.row["gmail_id"] for r in results]
+    ids = [r.row["id"] for r in results]
     if mode == "dry-run":
         return after_dry_run(results)
     if mode == "label":
@@ -251,10 +251,10 @@ def unreadable(row: dict, unread: dict[tuple, str]) -> Result | None:
     keeper, else None. Pure. Not knowing a message's state is never taken as
     its being gone, so nothing is labelled or trashed on a guess.
     """
-    why = unread.get((row["account"], row["gmail_id"]))
+    why = unread.get((row["account"], row["id"]))
     if why is not None:
         return Result(row, "skipped", f"couldn't read it from its mailbox: {why}")
-    why = unread.get((row.get("keeper_account"), row.get("keeper_gmail_id")))
+    why = unread.get((row.get("keeper_account"), row.get("keeper_id")))
     if why is not None:
         return Result(row, "skipped", f"couldn't read the keeper from its mailbox: {why}")
     return None
@@ -317,9 +317,9 @@ def apply_plan(
         unread: dict[tuple, str] = {}  # (account, gmail_id) → why Gmail couldn't be read
         wanted: dict[str, set] = {}
         for r in rows:
-            wanted.setdefault(r["account"], set()).add(r["gmail_id"])
+            wanted.setdefault(r["account"], set()).add(r["id"])
             if has_keeper(r):
-                wanted.setdefault(r["keeper_account"], set()).add(r["keeper_gmail_id"])
+                wanted.setdefault(r["keeper_account"], set()).add(r["keeper_id"])
         for account in sorted(remove_accounts) + sorted(set(wanted) - remove_accounts):
             ids = sorted(wanted[account])
             logger.info(f"Reading {len(ids):,} messages from {account} …")
@@ -354,8 +354,8 @@ def apply_plan(
             or checked(
                 r,
                 mode,
-                live.get((r["account"], r["gmail_id"])),
-                live.get((r.get("keeper_account"), r.get("keeper_gmail_id"))),
+                live.get((r["account"], r["id"])),
+                live.get((r.get("keeper_account"), r.get("keeper_id"))),
                 dedup_label,
                 local_check,
             )
@@ -381,14 +381,36 @@ def apply_plan(
         return results
 
 
+def upgrade_log(path: Path, columns: list[str]) -> None:
+    """
+    Rewrite an apply log written with other columns (an older version) to
+    `columns`, values kept, new columns empty, so appended rows line up.
+    """
+    if not path.is_file():
+        return
+    with path.open(newline="", encoding="utf-8") as fh:
+        reader = csv.DictReader(fh)
+        if reader.fieldnames == columns:
+            return
+        rows = list(reader)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=columns, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+    tmp.replace(path)
+
+
 def write_apply_log(
     log: list[Result], mode: str, log_path: Path, columns: list[str] = APPLY_LOG_COLUMNS
 ) -> None:
     """
-    Append this run to the apply log (CSV, one row per planned removal).
-    Columns other than time, mode, outcome and detail come from the plan row.
+    Append this run to the apply log (CSV, one row per planned removal),
+    upgrading a log written with other columns first. Columns other than
+    time, mode, outcome and detail come from the plan row.
     """
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    upgrade_log(log_path, columns)
     new = not log_path.is_file()
     now = datetime.now().isoformat(timespec="seconds")
     with log_path.open("a", newline="", encoding="utf-8") as fh:

@@ -331,7 +331,7 @@ def prune(
         con.execute("DELETE FROM messages WHERE message_num = ?", (num,))
         manifest.append(
             {
-                "gmail_id": gmail_id,
+                "id": gmail_id,
                 "path": rel,
                 "internal_date": internal_date,
                 "labels": ";".join(labels),
@@ -362,7 +362,7 @@ def unprune(con: sqlite3.Connection, folder: Path, src: Path, manifest_name: str
         manifest = list(csv.DictReader(fh))
     back = []
     for row in manifest:
-        gmail_id, rel = row["gmail_id"], row["path"]
+        gmail_id, rel = row["id"], row["path"]
         if con.execute("SELECT 1 FROM uids WHERE uid = ?", (gmail_id,)).fetchone():
             continue
         moved = src / rel

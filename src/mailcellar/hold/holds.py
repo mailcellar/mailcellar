@@ -290,26 +290,21 @@ class HoldCheck:
         self.folders, self.now_ms = folders, now_ms
         self._ids: dict[str, set[str]] = {}
         for row in rows:
-            self._ids.setdefault(row["account"], set()).add(row["gmail_id"])
+            self._ids.setdefault(row["account"], set()).add(row["id"])
         self._held: dict[str, dict[str, str]] = {}
 
     def __call__(self, row: dict) -> str:
         account = row["account"]
         if account not in self._held:
             folder = self.folders.get(account)
-            ids = self._ids.get(account) or {row["gmail_id"]}
+            ids = self._ids.get(account) or {row["id"]}
             self._held[account] = held(folder, self.now_ms, sorted(ids)) if folder else {}
-        elif (
-            row["gmail_id"] not in self._ids.get(account, ())
-            and row["gmail_id"] not in self._held[account]
-        ):
+        elif row["id"] not in self._ids.get(account, ()) and row["id"] not in self._held[account]:
             # Asked about a row the check wasn't given: look it up on its own.
             folder = self.folders.get(account)
-            self._held[account].update(
-                held(folder, self.now_ms, [row["gmail_id"]]) if folder else {}
-            )
-            self._ids.setdefault(account, set()).add(row["gmail_id"])  # held or not, known now
-        name = self._held[account].get(row["gmail_id"])
+            self._held[account].update(held(folder, self.now_ms, [row["id"]]) if folder else {})
+            self._ids.setdefault(account, set()).add(row["id"])  # held or not, known now
+        name = self._held[account].get(row["id"])
         return f"held: {name}" if name else ""
 
 

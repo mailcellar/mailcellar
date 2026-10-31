@@ -122,7 +122,7 @@ def report(tmp_path, monkeypatch):
     next(folder_a.rglob("g2.eml")).unlink()
     batch = tmp_path / "data" / "_pruned" / A / "2026-09-01-120000"
     batch.mkdir(parents=True)
-    (batch / "pruned.csv").write_text("gmail_id,path\nx1,a\nx2,b\n")
+    (batch / "pruned.csv").write_text("id,path\nx1,a\nx2,b\n")
     monkeypatch.chdir(tmp_path)
 
     def run(**opts):
@@ -189,7 +189,7 @@ def test_forget_runs_held_and_due(report, tmp_path):
         run = tmp_path / "data" / "_forgotten" / A / name
         run.mkdir(parents=True)
         lines = "".join(f"x{i},2026/1/1/x{i}.eml\n" for i in range(n))
-        (run / "forgotten.csv").write_text("gmail_id,path\n" + lines)
+        (run / "forgotten.csv").write_text("id,path\n" + lines)
         return name
 
     old, recent = held_run(40, 3), held_run(10, 1)

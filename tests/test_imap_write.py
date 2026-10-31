@@ -50,9 +50,9 @@ def row(tmp_path, gid, labels=""):
     return {
         "action": "remove",
         "account": ADDRESS,
-        "gmail_id": gid,
+        "id": gid,
         "keeper_account": "",
-        "keeper_gmail_id": "",
+        "keeper_id": "",
         "labels": labels,
         "path": str(path),
         "subject": "s",
@@ -128,7 +128,7 @@ def test_folder_review_label_then_trash_takes_only_what_is_still_in_review(serve
     server.move(review, kept, "Projects")  # the user keeps b@x: moves it back out
     box = by_folder(server, folder=tmp_path)
     log = apply_plan(rows, "trash", lambda a, s: box, lambda p: True)
-    assert {e.row["gmail_id"]: e.outcome for e in log} == {
+    assert {e.row["id"]: e.outcome for e in log} == {
         ids["<a@x>"]: "trashed",
         ids["<b@x>"]: "skipped",
     }
@@ -558,7 +558,7 @@ def test_label_then_trash_takes_only_what_is_still_marked(server, tmp_path):
             m["flags"].discard(f"$mailcellar-{DEDUP_LABEL}")
     box = account(server)
     log = apply_plan(rows, "trash", lambda a, s: box, confirm=lambda p: True)
-    assert {e.row["gmail_id"]: e.outcome for e in log} == {
+    assert {e.row["id"]: e.outcome for e in log} == {
         ids["<a@x>"]: "trashed",
         ids["<b@x>"]: "skipped",
     }

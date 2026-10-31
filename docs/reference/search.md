@@ -53,11 +53,11 @@ end. The account and ID are what `restore ACCOUNT --id` and
 `export ACCOUNT --id` take, offloaded or not. A recipe with fzf is in
 [Finding mail](../guide/finding-and-sizing.md#picking-results-with-fzf).
 
-Files mailcellar writes and reads back keep their own column names for the
-same ID: `gmail_id` in the offload and dedup plans and apply logs and in the
-batch and forget manifests; `source_id` in the restore log (with the restored
-copy's ID in `new_id`). For an IMAP account it is that account's ID, not
-Gmail's.
+The files mailcellar writes and reads back call the same ID `id`: the
+offload and dedup plans and apply logs, the batch and forget manifests and
+`dedup match --csv`. A dedup row's keeper is `keeper_id`. The restore log
+calls it `source_id`, with the restored copy's ID in `new_id`. For an IMAP
+account it is that account's ID, not Gmail's.
 
 The index is `<data root>/search/search.sqlite`. Each search first adds new
 and changed mail to it for the backups searched, so the first search reads
