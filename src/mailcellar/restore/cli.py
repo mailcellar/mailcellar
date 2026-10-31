@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from mailcellar.backup import sidecar
+from mailcellar.dedup.apply import limit_count
 from mailcellar.paths import backup_folder, config_root, data_root
 from mailcellar.report.cli import parse_before
 from mailcellar.report.db import AnalyticsError
@@ -193,7 +194,9 @@ def main(argv=None, prog: str | None = None) -> int:
         metavar="ACCOUNT",
         help="Restore into this configured account instead (its backup gets the new IDs)",
     )
-    p.add_argument("--limit", type=int, default=None, help="Only the first N (oldest first)")
+    p.add_argument(
+        "--limit", type=limit_count, default=None, help="Only the first N (oldest first)"
+    )
     labels = p.add_argument_group("labels on imported messages")
     labels.add_argument(
         "--label",

@@ -35,6 +35,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from mailcellar.backup import sidecar
+from mailcellar.dedup.apply import limit_count
 from mailcellar.progress import Progress
 from mailcellar.report.cli import resolve_folders
 from mailcellar.report.db import AnalyticsError
@@ -294,7 +295,9 @@ def main(argv=None, prog: str | None = None) -> int:
         help="The mail a legal hold keeps (see mailcellar hold), e.g. for counsel; the other "
         "options narrow it",
     )
-    p.add_argument("--limit", type=int, default=None, help="Only the first N (oldest first)")
+    p.add_argument(
+        "--limit", type=limit_count, default=None, help="Only the first N (oldest first)"
+    )
     args = p.parse_args(argv)
     narrowing = selection(p, args, required=not args.hold)
     dest = Path(args.to).expanduser()

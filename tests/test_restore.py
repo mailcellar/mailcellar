@@ -341,6 +341,13 @@ def test_limit_takes_the_oldest_first(env, monkeypatch):
     assert list(log()) == ["g2"]
 
 
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_limit_must_be_one_or_more(value, capsys):
+    with pytest.raises(SystemExit) as exc:
+        run("--offloaded", "--limit", value)
+    assert exc.value.code == 2 and "1 or more" in capsys.readouterr().err
+
+
 def test_needs_a_selection():
     with pytest.raises(SystemExit):
         run()

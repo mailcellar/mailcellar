@@ -352,6 +352,22 @@ def test_cli_label_and_trash_with_a_named_label(cli):
     ]
 
 
+def test_cli_held_mail_takes_no_place_under_limit(cli, monkeypatch):
+    gmail, run = cli
+    from mailcellar.hold import holds
+
+    def held_check(folders, now, rows):
+        return lambda r: "held: dispute" if r["id"] == "b0" else ""
+
+    monkeypatch.setattr(holds, "HoldCheck", held_check)
+    logged = run("--label", "--limit", "1")
+    assert logged == [
+        ("label (dedup-redundant)", "b0", "skipped"),  # held: logged, but no place taken
+        ("label (dedup-redundant)", "b1", "labelled"),
+    ]
+    assert ("label", ["b1"], DEDUP_LABEL) in gmail[B].calls
+
+
 def test_cli_trash_with_another_label_than_the_label_run_reads_nothing(cli):
     gmail, run = cli
     run("--label", "to-trash")
