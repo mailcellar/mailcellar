@@ -28,6 +28,12 @@ no scope key beside it. `keep` and `keep_if` still apply, so by default
 your own mail, starred mail, conversations and labelled mail stay; with
 `keep = []` and no `keep_if`, `plan` warns that the rule keeps nothing.
 
+`label` names a user label, case ignored, or `INBOX`: mail still in the
+inbox, which matters for an IMAP account that keeps its mail there. No
+other system label: starred and sent mail are what `keep` protects, mail
+in Trash or Spam is never offloaded, and Gmail's tabs have `category`.
+Naming one is an error.
+
 Three scope keys select what the others can't say:
 
 - `to`: an address or `@domain` in To, Cc or Bcc, matched exactly, like

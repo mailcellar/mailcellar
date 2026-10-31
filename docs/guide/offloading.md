@@ -63,8 +63,9 @@ keep_if = { subject = "release" }
 - `before` is required: a date, or a number of years ago (`"5"`). Mail
   newer than it is never selected. `after`, written the same way, leaves
   out mail older than it.
-- The scope keys say what to select: `label`, `sender` (an address or
-  `@domain`), `list`, `forwarded_from`, `category`, `subject`, `to_me`,
+- The scope keys say what to select: `label` (a user label, or
+  `INBOX`), `sender` (an address or `@domain`), `list`,
+  `forwarded_from`, `category`, `subject`, `to_me`,
   `to` (a recipient), `bulk` (newsletters, notifications and the like, as
   `report bulk` finds them), `attachment` (`image`, `pdf`, `video`,
   `audio`, `office`, `archive` or `any`), `larger_than_mb`, and `query`,

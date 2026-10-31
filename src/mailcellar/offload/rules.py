@@ -20,7 +20,7 @@ Scope keys take a string or a list (any value matches); different keys
 must all match. A rule with none is refused unless it says scope = "all",
 which selects every message from after to before, and takes no scope key:
 
-    label           user label name (case ignored)
+    label           user label name (case ignored), or INBOX; no other system label
     sender          sender address, or "@domain" (relayed mail: the original sender)
     list            List-Id
     forwarded_from  original recipient of auto-forwarded mail, or "@domain"
@@ -65,6 +65,8 @@ import tomllib
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from mailcellar.dedup.rules import SYSTEM_LABELS
 
 # Internal flags, one per protection; KEEP groups them under the names rules use
 PROTECTIONS = ("sent", "starred", "thread", "replied", "labels", "correspondents")
@@ -503,6 +505,16 @@ def _parse_scope(name: str, raw: dict, where: str) -> dict[str, list]:
                     f"rule {name!r}: {where}unknown attachment kinds {bad}; "
                     f"use {', '.join(ATTACHMENT_KINDS)}"
                 )
+        if key == "label":
+            system = [v for v in values if _system_label(v)]
+            if system:
+                important = system[0].upper() == "IMPORTANT"
+                raise RuleError(
+                    f"rule {name!r}: {where}label {system[0]!r} is a system label; a rule may "
+                    "name INBOX, but starred and sent mail are keep's, Trash and Spam are left "
+                    "out, and Gmail's tabs have category"
+                    + ('; for Gmail\'s important mail, query = "is:important"' if important else "")
+                )
         if key in ("sender", "forwarded_from", "to"):
             values = [v.lower() for v in values]
         if key == "subject":
@@ -511,6 +523,12 @@ def _parse_scope(name: str, raw: dict, where: str) -> dict[str, list]:
             raise RuleError(f"rule {name!r}: {where}{key} must not be empty")
         scope[key] = values
     return scope
+
+
+def _system_label(name: str) -> bool:
+    """A system label other than INBOX, the one a rule may name. Pure."""
+    upper = name.upper()
+    return upper != "INBOX" and (upper in SYSTEM_LABELS or upper.startswith("CATEGORY_"))
 
 
 TRY_NAME = "try"  # a --try rule's name when it gives none

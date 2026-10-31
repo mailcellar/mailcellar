@@ -692,6 +692,19 @@ def test_offload_label_on_a_keywordless_folder_fails_its_mail_and_goes_on(home, 
     assert all("Projects keeps no keywords" in r["detail"] for r in rows)
 
 
+def test_a_rule_selects_what_is_in_an_imap_account_s_inbox(home, tmp_path):
+    for n in range(2):
+        home.add("INBOX", msgid=f"<i{n}@x>", flags={"\\Seen"}, date=OLD)
+    assert cli.main(["backup", "home"]) == 0
+    (tmp_path / "rules.toml").write_text(
+        '[[rule]]\nname = "inbox"\nlabel = "Inbox"\nbefore = "2020-01-01"\n'
+    )
+    cli.main(["offload", "plan", "--rules", "rules.toml", "--plan", "plan.csv"])
+    with open("plan.csv", newline="", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    assert len(rows) == 2  # the two in INBOX, none of the three in Projects
+
+
 def test_a_server_without_move_or_a_marked_trash_opens_for_uploads(config, server):
     server.signed_in = ("IMAP4rev1",)
     server.folders["Trash"]["flags"].remove("\\Trash")
