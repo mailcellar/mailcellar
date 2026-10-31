@@ -12,9 +12,10 @@ mail to take out of Gmail.
     keep = ["mine", "starred"]         # optional: the protections that apply (see below)
     keep_if = [{ subject = "contract" }, { sender = "@a.example", larger_than_mb = 1 }]
                                        # optional: keep what matches any one table
-    forget_after = 7                   # optional: years from a message's date after which
-                                       # mailcellar forget --due deletes what this rule
-                                       # offloaded from the backup, once Gmail has deleted it
+    forget_after = 7                   # optional: years (or "7y") from a message's date
+                                       # after which mailcellar forget --due deletes what
+                                       # this rule offloaded from the backup, once Gmail
+                                       # has deleted it
 
 Scope keys take a string or a list (any value matches); different keys
 must all match. A rule with none is refused unless it says scope = "all",
@@ -61,6 +62,7 @@ rule in the new keys. Internally a rule's protections are these flags:
 """
 
 import html
+import re
 import tomllib
 import unicodedata
 from dataclasses import dataclass, field
@@ -353,9 +355,14 @@ def parse_rule(raw: dict, parse_before, resolve_account) -> Rule:
     forget_after = forget_ms = None
     if "forget_after" in raw:
         forget_after = raw["forget_after"]
+        if isinstance(forget_after, str) and (
+            m := re.fullmatch(r"(\d+)y", forget_after.strip().lower())
+        ):
+            forget_after = int(m[1])  # "7y", as before and after write years
         if isinstance(forget_after, bool) or not isinstance(forget_after, int) or forget_after < 1:
             raise RuleError(
-                f"rule {name!r}: forget_after must be a whole number of years, 1 or more"
+                f"rule {name!r}: forget_after must be a whole number of years, 1 or more "
+                '(7 or "7y")'
             )
         forget_ms = parse_before(str(forget_after))
 

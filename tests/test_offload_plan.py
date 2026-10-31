@@ -353,6 +353,8 @@ def test_plan_changes_nothing(data):
         ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nforget_after = 1.5\n', "whole"),
         ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nforget_after = "7"\n', "whole"),
         ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nforget_after = true\n', "whole"),
+        ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nforget_after = "18m"\n', "whole"),
+        ('[[rule]]\nname = "x"\nbefore = "5"\nlabel = "a"\nforget_after = "0y"\n', "1 or more"),
     ],
 )
 def test_rule_errors(tmp_path, rules, error):
@@ -451,6 +453,14 @@ def test_forget_after_is_years_from_now(tmp_path):
     (rule,) = load_rules(path, parse_before, lambda a: a)
     latest = parse_before("7")  # "now" moves on while the rules load
     assert rule.forget_after == 7 and earliest <= rule.forget_ms <= latest
+
+
+@pytest.mark.parametrize("written", ['"7y"', '"7Y"', '" 7y "'])
+def test_forget_after_may_be_written_in_years(tmp_path, written):
+    path = tmp_path / "rules.toml"
+    path.write_text(f'[[rule]]\nname = "x"\nbefore = 2\nlabel = "a"\nforget_after = {written}\n')
+    (rule,) = load_rules(path, parse_before, lambda a: a)
+    assert rule.forget_after == 7
 
 
 def test_unknown_account_is_an_error(data, capsys):
