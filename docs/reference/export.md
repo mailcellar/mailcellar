@@ -73,8 +73,9 @@ messages, to a `.zip` or a folder (a name ending `/`), with `index.csv`:
 The file or folder is written under another name (ending `.part`) and
 renamed when it is complete, so an interrupted export leaves nothing that
 looks finished. It refuses a file or folder that already exists, a
-`.part` folder left by an interrupted export to a folder, and a place inside the backup. A message whose `.eml` file is
-missing from the backup is left out and reported, and the exit status is 1:
+`.part` file or folder of the same name (one an interrupted export left,
+or one of yours), and a place inside the backup. A message whose `.eml`
+file is missing from the backup is left out and reported, and the exit status is 1:
 `mailcellar verify` shows what is missing.
 
 An export is a copy of your mail, outside the backup: keep it, and delete it,

@@ -53,8 +53,9 @@ it says so and writes no file.
 The file or folder is written under another name and renamed only when
 complete, so an interrupted export leaves nothing that looks finished. It will
 not overwrite a file or write into a folder that exists, so choose a new name
-each time, and it will not write inside the backup. If an interrupted
-export to a folder left one ending `.part`, delete it first.
+each time, and it will not write inside the backup. If a file or folder
+of the same name ending `.part` is there, perhaps left by an interrupted
+export, delete it or choose another name.
 
 When it finishes it says how many messages it wrote and their size.
 
