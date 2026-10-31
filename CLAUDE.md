@@ -96,6 +96,11 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
   the README's Documentation list. The README stays a landing page. Build in
   strict mode (a broken link fails) with the command above. A change a user
   would notice also gets a line under `## Unreleased` in `CHANGELOG.md`.
+- Public text (README, docs, posts) about offloading, dedup or restore
+  covers IMAP too: say "mailbox", "mail client" and "marked", not
+  "Gmail", "label" or "Gmail's web UI", unless the point is Gmail-only.
+  Over IMAP the review uses a keyword or a folder, and a Google Cloud
+  project comes only with the Gmail API.
 - Commits: Conventional Commits, `type(scope): summary` (types and scopes
   in CONTRIBUTING.md); the body says why and what it was checked against,
   real data as counts only; one logical change per commit, passing ruff
