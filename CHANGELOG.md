@@ -41,6 +41,14 @@ has the old names, and `forget --undo` and `--empty` at such a manifest.
 - `mailcellar dedup auth`, an alias of `mailcellar auth` since 0.9.0: it
   now stops, naming `mailcellar auth`.
 
+### Fixed
+- `offload apply --limit` and `dedup apply --limit` counted mail certain to
+  be skipped: held by a legal hold, or (offload) not safely in the backup.
+  Skipped without being labelled, it was picked again first by the next
+  run, so enough of it at the front of the plan stopped repeated runs
+  moving on. The limit now counts only mail that passes those checks; the
+  skipped mail is still logged, with its reason.
+
 ## 0.21.0 (2026-10-31)
 
 **Upgrading from 0.20.0:** no database's schema changes. A time ago

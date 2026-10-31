@@ -16,6 +16,7 @@ from mailcellar.dedup.apply import (
     log_state,
     read_removals,
     unusable_label,
+    within_limit,
     write_apply_log,
 )
 from mailcellar.dedup.db import open_db
@@ -130,8 +131,6 @@ def cmd_apply(args) -> None:
                 f"{before - len(rows):,} removals not labelled by a label run, vetoed "
                 "or trashed before: not read."
             )
-    if args.limit is not None:
-        rows = rows[: args.limit]
     if not rows:
         sys.exit(
             "Nothing to do: "
@@ -163,8 +162,11 @@ def cmd_apply(args) -> None:
 
     # Legal holds keep their mail in Gmail: a held duplicate is skipped, saying which hold.
     held = HoldCheck(folders, int(time.time() * 1000), rows)
+    rows, local_check, skipped = within_limit(rows, args.limit, held)
     try:
-        log = apply_plan(rows, mode, gmail_for, confirm, dedup_label, local_check=held)
+        log = skipped + apply_plan(
+            rows, mode, gmail_for, confirm, dedup_label, local_check=local_check
+        )
     except gmailapi.GmailError as exc:
         sys.exit(f"error: {exc}")
     # The log's mode column records which label a label or trash run used.
@@ -252,7 +254,11 @@ def main(argv=None, prog: str | None = None) -> None:
         "(default: %(const)s) to Trash",
     )
     p_apply.add_argument(
-        "--limit", type=int, default=None, help="Only consider the first N removals in the plan"
+        "--limit",
+        type=int,
+        default=None,
+        help="Only the first N removals in the plan that no legal hold keeps; held ones "
+        "on the way are logged as skipped",
     )
     p_apply.add_argument(
         "--yes", action="store_true", help="Don't ask for confirmation before trashing"

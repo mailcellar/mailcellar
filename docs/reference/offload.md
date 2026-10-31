@@ -162,7 +162,9 @@ mailcellar offload apply --trash --limit 2000  # trash the next 2,000 labelled o
 
 Repeated runs with `--limit` move on through the plan; `--trash` takes only
 the messages a `--label` run labelled, as its apply log shows. A message
-restored since the plan was made is left out, as one already offloaded is. Removing the
+restored since the plan was made is left out, as one already offloaded is.
+Held mail, and mail not safely in the backup, takes no place under `--limit`:
+it is logged as skipped each run, and the run goes on to the next. Removing the
 label in the mailbox vetoes a message for good. A message the mailbox can't
 be asked about, even after retries, is skipped and tried again by the next run. Trashed messages are recorded as
 offloaded, so `forget --deleted` keeps them in the backup after the mailbox
@@ -226,7 +228,7 @@ A dry run unless `--label` or `--trash` is given.
 | `--label [NAME]` | Add the label NAME (default `offload-candidate`) to messages that pass the checks; it is created if missing. Removing it in the mailbox vetoes a message |
 | `--trash [NAME]` | Move messages that pass the checks and carry the label NAME to Trash, and record them as offloaded |
 | `--rule RULE` | Only this rule's rows (repeatable) |
-| `--limit N` | Only the first N plan rows still to do (not offloaded, or restored since the plan was made) |
+| `--limit N` | Only the first N plan rows still to do (not offloaded, or restored since the plan was made) that no legal hold keeps and that are safely in the backup; those skipped on the way are logged and don't count |
 | `--yes` | Don't ask before trashing |
 | `--plan PLAN` | Plan CSV from `plan` |
 | `--log LOG` | Apply log, appended to (default `<data root>/offload/offload-apply-log.csv`) |
