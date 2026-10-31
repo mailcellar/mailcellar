@@ -13,6 +13,7 @@ from mailcellar.dedup.apply import (
     apply_plan,
     check_row,
     unusable_label,
+    within_limit,
 )
 from mailcellar.dedup.plan import PLAN_COLUMNS
 
@@ -539,6 +540,26 @@ def test_act_asks_once_and_trashes_only_when_confirmed(tmp_path):
         DEDUP_LABEL,
         None,
     )
+
+
+def test_within_limit_counts_only_rows_the_local_check_passes():
+    rows = [{"id": i} for i in ("h1", "b1", "h2", "b2", "b3")]
+    asked = []
+
+    def local(r):
+        asked.append(r["id"])
+        return "held: x" if r["id"].startswith("h") else ""
+
+    assert within_limit(rows, None, local) == (rows, local, [])
+    assert asked == []  # without a limit apply_plan asks, after the Gmail checks
+    chosen, check, skipped = within_limit(rows, 2, local)
+    assert [r["id"] for r in chosen] == ["b1", "b2"] and check is None
+    assert [(s.row["id"], s.outcome, s.detail) for s in skipped] == [
+        ("h1", "skipped", "held: x"),
+        ("h2", "skipped", "held: x"),
+    ]
+    assert asked == ["h1", "b1", "h2", "b2"]  # b3 isn't checked
+    assert within_limit(rows, 0, local)[0] == []
 
 
 def test_checked_asks_the_local_check_only_of_rows_that_pass_the_gmail_checks(tmp_path):

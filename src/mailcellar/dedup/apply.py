@@ -281,6 +281,30 @@ def checked(
     )
 
 
+def within_limit(rows: Sequence[dict], limit: int | None, local_check):
+    """
+    (rows for apply_plan, the local_check to give it, skipped Results).
+    Without a limit: every row, the local check left to apply_plan, which
+    asks it only of rows that pass the Gmail checks. With one: the first
+    `limit` rows the local check passes, in plan order, already checked, and
+    a skipped Result for each that failed before them, so mail certain to be
+    skipped (held, or not safely in the backup) doesn't use up the limit and
+    repeated runs move past it.
+    """
+    if limit is None:
+        return list(rows), local_check, []
+    chosen, skipped = [], []
+    for row in rows:
+        if len(chosen) == limit:
+            break
+        why = local_check(row) if local_check is not None else ""
+        if why:
+            skipped.append(Result(row, "skipped", why))
+        else:
+            chosen.append(row)
+    return chosen, None, skipped
+
+
 def apply_plan(
     rows: list[dict],
     mode: str,

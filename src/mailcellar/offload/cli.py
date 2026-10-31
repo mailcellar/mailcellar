@@ -16,7 +16,13 @@ from pathlib import Path
 
 from mailcellar.backup import sidecar
 from mailcellar.backup.gyb import backup_account
-from mailcellar.dedup.apply import apply_plan, log_state, unusable_label, write_apply_log
+from mailcellar.dedup.apply import (
+    apply_plan,
+    log_state,
+    unusable_label,
+    within_limit,
+    write_apply_log,
+)
 from mailcellar.dedup.report import report_apply
 from mailcellar.hold.holds import HoldCheck
 from mailcellar.offload import suggest
@@ -273,18 +279,17 @@ def cmd_suggest(args) -> None:
 
 
 def select_rows(
-    rows: Sequence[Mapping], rules: Collection[str], accounts: Collection[str], limit: int | None
+    rows: Sequence[Mapping], rules: Collection[str], accounts: Collection[str]
 ) -> tuple[Mapping, ...]:
     """
     The plan rows of the given rules and accounts (any of each; none means
-    all), the first `limit` of them if given. Pure.
+    all). Pure. --limit is applied later, by within_limit.
     """
-    chosen = tuple(
+    return tuple(
         r
         for r in rows
         if (not rules or r["rule"] in rules) and (not accounts or r["account"] in accounts)
     )
-    return chosen if limit is None else chosen[:limit]
 
 
 def cmd_apply(args) -> None:
@@ -306,7 +311,7 @@ def cmd_apply(args) -> None:
             f"{', '.join(why[:-1])}, or {why[-1]}."
         )
     chosen = {resolve_account(a) for a in args.accounts or ()}
-    rows = select_rows(rows, set(args.rule or ()), chosen, args.limit)
+    rows = select_rows(rows, set(args.rule or ()), chosen)
     if not rows:
         sys.exit("Nothing to do: no plan rows match.")
     # Messages this tool labelled carry the label in a plan made after the next
@@ -357,15 +362,12 @@ def cmd_apply(args) -> None:
     checks = BackupChecks(folders)
     held = HoldCheck(folders, int(time.time() * 1000), rows)  # legal holds keep their mail in Gmail
     record = recorder(folders, batch, manifest_path(offload_dir(), batch))
+    rows, local_check, skipped = within_limit(
+        rows, args.limit, lambda row: held(row) or checks(row)
+    )
     try:
-        log = apply_plan(
-            rows,
-            mode,
-            gmail_for,
-            confirm,
-            label,
-            local_check=lambda row: held(row) or checks(row),
-            on_trashed=record,
+        log = skipped + apply_plan(
+            rows, mode, gmail_for, confirm, label, local_check=local_check, on_trashed=record
         )
     except gmailapi.GmailError as exc:
         sys.exit(f"error: {exc}")
@@ -551,7 +553,13 @@ def main(argv=None, prog: str | None = None) -> None:
         "(default: %(const)s) to Trash, and record them as offloaded",
     )
     ap.add_argument("--rule", action="append", help="Only this rule's rows (repeatable)")
-    ap.add_argument("--limit", type=int, default=None, help="Only the first N plan rows")
+    ap.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Only the first N plan rows still to do that no legal hold keeps and that are "
+        "safely in the backup; those skipped on the way are logged",
+    )
     ap.add_argument("--yes", action="store_true", help="Don't ask before trashing")
     ap.add_argument("--plan", default=str(plan), help=f"Plan CSV from 'plan' (default: {plan})")
     ap.add_argument(

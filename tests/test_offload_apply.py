@@ -295,6 +295,14 @@ def test_restored_since_planned(restored_ms, expected):
     assert offload_apply.restored_since_planned({**row, "account": "b@y.com"}, restored) is False
 
 
+def test_mail_the_backup_checks_skip_takes_no_place_under_limit(env):
+    (eml,) = env.folder.rglob("w0.eml")
+    eml.unlink()  # not safely in the backup: skipped every run, never offloaded
+    batches = list(runs_of(*[("--label", "--limit", "2")] * 2))
+    assert [outcomes(b, "labelled") for b in batches] == [["w1", "w2"], ["w3", "w4"]]
+    assert [outcomes(b, "skipped") for b in batches] == [["w0"], ["w0"]]
+
+
 def test_label_batches_advance_and_vetoes_are_not_retried(env):
     batches = list(runs_of(*[("--label", "--limit", "2")] * 3))
     assert [outcomes(b, "labelled") for b in batches] == [["w0", "w1"], ["w2", "w3"], ["w4"]]
@@ -667,7 +675,7 @@ def test_second_copy_report_when_time_machine_answers_oddly(monkeypatch, tmp_pat
     )
 
 
-def test_select_rows_by_rule_account_and_limit():
+def test_select_rows_by_rule_and_account():
     rows = [
         {"rule": "a", "account": "x@example.com", "id": "1"},
         {"rule": "b", "account": "x@example.com", "id": "2"},
@@ -675,10 +683,9 @@ def test_select_rows_by_rule_account_and_limit():
         {"rule": "a", "account": "x@example.com", "id": "4"},
     ]
 
-    def ids(rules=(), accounts=(), limit=None):
-        return [r["id"] for r in cli.select_rows(rows, set(rules), set(accounts), limit)]
+    def ids(rules=(), accounts=()):
+        return [r["id"] for r in cli.select_rows(rows, set(rules), set(accounts))]
 
     assert ids() == ["1", "2", "3", "4"]  # none given: all
     assert ids(rules=["a", "b"], accounts=["x@example.com"]) == ["1", "2", "4"]
-    assert ids(rules=["a"], limit=2) == ["1", "3"]  # the limit counts what is chosen
-    assert ids(limit=0) == []
+    assert ids(rules=["a"]) == ["1", "3", "4"]
