@@ -9,6 +9,9 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 ## Unreleased
 
 ### Added
+- `restore --into FOLDER`, for an IMAP account: everything restored goes
+  into that one folder, whatever its labels, and mail an earlier restore
+  put back elsewhere is moved there too.
 - The FAQ's comparison with other tools includes Thunderbird, and why
   dragging Gmail into its Local Folders frees no space.
 

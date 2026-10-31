@@ -14,6 +14,12 @@ Each message takes the first way back that applies:
   import     gone: upload the backed-up .eml with users.messages.import,
              with its labels, and index the new ID in the backup
 
+With `into` (an IMAP target only: restore --into FOLDER) everything restore
+puts back goes into that one folder: uploads, mail taken out of Trash, and
+mail an earlier restore put back that the mailbox still has elsewhere
+(move into), one copy of each. A copy restore didn't put there stays
+where it is, as does restored mail put in Trash since.
+
 Restoring into another account (`target`) skips the first three: Gmail IDs
 mean nothing there, so every message is looked up by Message-ID.
 
@@ -88,12 +94,13 @@ LOG_COLUMNS = [
 ]
 
 # The ways back (Decision.way) and what a dry run says about each.
-UNTRASH, IN_GMAIL, PRESENT, FOUND, IMPORT, SKIPPED = (
+UNTRASH, IN_GMAIL, PRESENT, FOUND, IMPORT, INTO, SKIPPED = (
     "untrash",
     "in gmail",
     "present",
     "found",
     "import",
+    "move into",
     "skipped",
 )
 DRY_RUN = {
@@ -101,7 +108,14 @@ DRY_RUN = {
     IN_GMAIL: "would record (already in the mailbox)",
     FOUND: "would record (found in the mailbox)",
     IMPORT: "would import",
+    INTO: "would move into the folder",
 }
+MOVED = "moved into the folder"  # the outcome of INTO: restored before, now there
+# How a restore records mail it put where it is itself: uploaded, taken out of Trash, or
+# moved into an --into folder. Only these may --into gather; a copy recorded as found, or
+# as already out of Trash, is where its owner put it.
+MOVED_INTO = "moved into"  # how INTO records a copy found and moved
+PUT_BACK = ("imported", "untrashed", MOVED_INTO)
 ALREADY = "already in the mailbox"  # the outcome of PRESENT, dry run or not; Gmail or IMAP
 DONE = ("untrashed", "recorded", "imported")  # outcomes that restored a message
 
@@ -224,10 +238,11 @@ class Decision:
     """A candidate's way back, and why."""
 
     candidate: Candidate
-    way: str  # UNTRASH, IN_GMAIL, PRESENT, FOUND, IMPORT or SKIPPED
+    way: str  # UNTRASH, IN_GMAIL, PRESENT, FOUND, IMPORT, INTO or SKIPPED
     detail: str = ""
     new_id: str = ""  # the Gmail ID it will have: its own, or the copy found
     size: int = 0
+    how: str = ""  # INTO: how to record it once moved (MOVED_INTO); "" if recorded already
 
     @property
     def source_id(self) -> str:
@@ -410,14 +425,15 @@ def candidates(
     return select(read_snapshot(folder, None if include_restored else target), selection)
 
 
-def restored_into(folder: Path, target: str = "") -> dict[str, str]:
+def restored_into(folder: Path, target: str = "", hows=()) -> dict[str, str]:
     """
     Source ID → the ID it went back under, for what the backup in `folder`
-    has restored into `target` ('' = its own account). Read-only.
+    has restored into `target` ('' = its own account); only those recorded
+    one of these ways, if `hows` names any (PUT_BACK). Read-only.
     """
     con = _open_current(folder)
     try:
-        return sidecar.restored_as(con, target)
+        return sidecar.restored_as(con, target, hows)
     finally:
         con.close()
 
@@ -472,14 +488,18 @@ def message_id_header(raw: bytes) -> str:
 
 
 def import_labels(
-    names, system: set[str], prefix: str = "", strip: bool = False
+    names, system: set[str], prefix: str = "", strip: bool = False, into: str = ""
 ) -> tuple[list[str], list[str]]:
     """
     (labels to restore, labels dropped) from a message's backed-up label
     names; `system` holds the account's system label IDs (gyb stores those
     by ID, user labels by name). `prefix` nests user labels under it;
-    `strip` restores none.
+    `strip` restores none; `into` replaces them all with that one folder,
+    keeping only the read and starred state. Pure.
     """
+    if into:
+        state = [n for n in names if n in ("UNREAD", "STARRED")]
+        return [into, *state], [n for n in names if n not in state]
 
     def dropped(name: str) -> bool:
         unsupported = (
@@ -513,6 +533,9 @@ def decide(
     restored_as: str = "",
     unread: tuple[str, ...] = (),
     can_move: bool = True,
+    into: str = "",
+    there: Mapping[str, set[str] | None] | None = None,
+    recorded: frozenset[str] = frozenset(),
 ) -> Decision:
     """
     A candidate's way back, from what was read: the backup check (`problem`,
@@ -523,15 +546,38 @@ def decide(
     an IMAP mailbox couldn't be read (`unread`), nothing is imported: the
     message may be there, unseen (#146). On a server without MOVE
     (`can_move`), mail in its Trash can't be taken out, so that way is
-    skipped. Details name the mailbox by `provider` (mailbox_name). Pure: no
-    I/O.
+    skipped. With `into` (restore --into), a message an earlier restore put
+    where it is (`recorded`: its ID in the mailbox, by the records of the
+    source's backup or the mailbox's own, PUT_BACK) goes into that folder:
+    its own copy, restored before, or a copy found; by its labels (`there`),
+    not if it is there already or has been put in Trash since, where it
+    stays, as without. Details name the mailbox by
+    `provider` (mailbox_name). Pure: no I/O.
     """
+
     where, start = mailbox_name(provider), mailbox_name(provider, start=True)
     if problem or copy is None:
         return Decision(c, SKIPPED, problem)
     decision = Decision(c, SKIPPED, size=copy.size)
+
+    def into_way(new_id: str, said: str, how: str = "") -> Decision:
+        now = (there or {}).get(new_id)
+        if in_folder(now, into):
+            return replace(decision, way=PRESENT, detail=f"{said}, in {into}")
+        if "TRASH" in (now or ()):
+            return replace(decision, way=PRESENT, detail=f"{said}, in {where}'s Trash")
+        if not can_move:
+            return replace(
+                decision,
+                way=PRESENT,
+                detail=f"{said}; {where} has no MOVE (RFC 6851) to put it in {into}",
+            )
+        return replace(decision, way=INTO, new_id=new_id, detail=said, how=how)
+
     if restored_as:  # put back before and still there; gone since, it takes a way back again
         as_ = "" if restored_as == c.source_id else f", as {restored_as}"
+        if into and restored_as in recorded:
+            return into_way(restored_as, f"restored before{as_}")
         return replace(decision, way=PRESENT, detail=f"restored before{as_}")
     if same_account and labels is not None:
         if not c.offloaded:
@@ -545,6 +591,8 @@ def decide(
         return replace(decision, way=IN_GMAIL, new_id=c.source_id, detail="already out of Trash")
 
     same = [g for g in hits if c.content_hash and hashes.get(g) == c.content_hash]
+    if same and into and same[0] in recorded:  # put there by a restore of the mailbox's own
+        return into_way(same[0], f"{start} has it as {same[0]}, restored there before", MOVED_INTO)
     if same:
         return replace(decision, way=FOUND, new_id=same[0], detail=f"{start} has it as {same[0]}")
     if hits and not c.content_hash:
@@ -578,14 +626,18 @@ def plan(
     same_account: bool = True,
     progress=_quiet,
     restored: Mapping[str, str] | None = None,
+    into: str = "",
+    recorded: frozenset[str] = frozenset(),
 ) -> list[Decision]:
     """
     Read what deciding needs — each backup copy, Gmail's state, matching
     Message-IDs — and decide() each candidate's way back. Reads only.
     `gmail` is the account restored into; `restored` maps the source IDs an
     earlier restore put into it to the IDs they went back under, which count
-    as done only while the mailbox still has them. progress(message) is told
-    each stage; the long ones also show a Progress.
+    as done only while the mailbox still has them; with `into`, those not in
+    that folder yet go there, as do copies found that the mailbox's own
+    backup records as restored (`recorded`: their IDs there).
+    progress(message) is told each stage; the long ones also show a Progress.
     """
     checks = []
     with Progress("Checking backup copies", len(cands)) as checking:
@@ -639,6 +691,9 @@ def plan(
                     r["id"], parse_message(_decode(r["raw"]))["content_hash"]
                 ),
             )
+    # Where the copies --into may move are now: from the scan an IMAP account has read.
+    movable = (set(still.values()) | set(others)) & recorded
+    there = gmail.message_labels(sorted(movable)) if into and movable else {}
     return [
         decide(
             c,
@@ -652,9 +707,17 @@ def plan(
             restored_as=still.get(c.source_id, ""),
             unread=unread,
             can_move=can_move,
+            into=into,
+            there=there,
+            recorded=recorded,
         )
         for c, (problem, copy) in zip(cands, checks, strict=True)
     ]
+
+
+def in_folder(labels: set[str] | None, into: str) -> bool:
+    """Whether a message with these labels is in the folder `into` names, case ignored. Pure."""
+    return bool(into) and any(label.casefold() == into.casefold() for label in labels or ())
 
 
 def gmail_state(gmail, ids: list[str]) -> dict[str, set[str] | None]:
@@ -700,6 +763,7 @@ def apply(
     target_folder: Path | None = None,
     prefix: str = "",
     strip: bool = False,
+    into: str = "",
     progress=_quiet,
     on_result=None,
 ) -> list[Result]:
@@ -715,6 +779,9 @@ def apply(
     folder None: the candidates come from a source other than a backup's
     index (sources.py). Nothing is recorded or indexed; a run again finds
     what was restored by its Message-ID, and the next backup downloads it.
+
+    With `into` (an IMAP account's folder), what is taken out of Trash or
+    uploaded goes there, and mail restored before is moved there (INTO).
     """
     by_way: dict[str, list[Decision]] = {}
     for d in decisions:
@@ -758,20 +825,36 @@ def apply(
         if to_untrash:
             progress(f"Moving {len(to_untrash):,} messages out of Trash")
             with Progress("Moving out of Trash", len(to_untrash)):
-                untrashed = gmail.untrash([d.new_id for d in to_untrash])
+                ids = [d.new_id for d in to_untrash]
+                untrashed = gmail.move_into(ids, into) if into else gmail.untrash(ids)
             failed = {f.split(":", 1)[0]: f for f in untrashed}
         for d in by_way.get(UNTRASH, []) + found + by_way.get(IN_GMAIL, []):
             if d.new_id in failed:
                 emit(Result(d, "failed", failed[d.new_id]))
             else:
                 outcome, how = UNTRASH_OUTCOMES[d.way]
+                if d.new_id in found_trashed:  # a copy found in Trash, taken out of it
+                    how = "untrashed"
                 emit(record(d, d.new_id, how, outcome, d.detail))
+
+        # Restored before and still there, elsewhere: moved, recorded if it wasn't.
+        moving = by_way.get(INTO, [])
+        if moving:
+            progress(f"Moving {len(moving):,} messages restored before into {into}")
+            refused = gmail.move_into(sorted({d.new_id for d in moving}), into)
+            failed = {f.split(":", 1)[0]: f for f in refused}
+            for d in moving:
+                if d.new_id in failed:
+                    emit(Result(d, "failed", failed[d.new_id]))
+                elif d.how:
+                    emit(record(d, d.new_id, d.how, MOVED, d.detail))
+                else:
+                    emit(Result(d, MOVED, d.detail, d.new_id))
 
         imports = by_way.get(IMPORT, [])
         if imports:
-            _import(
-                gmail, mcon, folder, target_folder, imports, record, emit, prefix, strip, progress
-            )
+            labels = Labelling(prefix, strip, into)
+            _import(gmail, mcon, folder, target_folder, imports, record, emit, labels, progress)
 
         done = sorted({r.new_id for r in results.values() if r.outcome in DONE})
         if done:
@@ -851,6 +934,15 @@ def with_note(r: Result, note: str) -> Result:
     return replace(r, detail=f"{r.detail}; {note}" if r.detail else note)
 
 
+@dataclass(frozen=True)
+class Labelling:
+    """How uploaded messages are labelled: import_labels' options."""
+
+    prefix: str = ""
+    strip: bool = False
+    into: str = ""
+
+
 def _import(
     gmail,
     mcon,
@@ -859,8 +951,7 @@ def _import(
     imports,
     record,
     emit,
-    prefix,
-    strip,
+    labels: Labelling,
     progress,
 ) -> None:
     """
@@ -881,7 +972,7 @@ def _import(
         with Progress("Importing", len(imports), steps_inside=True):
             for start in range(0, len(imports), IMPORT_CHUNK):
                 chunk = imports[start : start + IMPORT_CHUNK]
-                _import_chunk(gmail, tcon, index_folder, chunk, record, emit, system, prefix, strip)
+                _import_chunk(gmail, tcon, index_folder, chunk, record, emit, system, labels)
     finally:
         if target_folder:
             tcon.close()
@@ -907,7 +998,7 @@ def _label_ids(gmail, names: list[str]) -> tuple[list[str], list[str]]:
         return ids, refused
 
 
-def _import_chunk(gmail, tcon, folder, chunk, record, emit, system, prefix, strip) -> None:
+def _import_chunk(gmail, tcon, folder, chunk, record, emit, system, labels: Labelling) -> None:
     results: dict[str, Result] = {}
     # source ID → (decision, raw bytes, parsed fields, labels note, label IDs)
     ready: dict[str, tuple[Decision, bytes, dict, str, list[str]]] = {}
@@ -922,7 +1013,9 @@ def _import_chunk(gmail, tcon, folder, chunk, record, emit, system, prefix, stri
                 Result(d, "skipped", "backup copy differs from the sidecar")
             )
             continue
-        keep, dropped = import_labels(d.candidate.labels, system, prefix, strip)
+        keep, dropped = import_labels(
+            d.candidate.labels, system, labels.prefix, labels.strip, labels.into
+        )
         label_ids, refused = _label_ids(gmail, keep)
         dropped += [
             f"{name} ({mailbox_name(gmail.provider, start=True)} refused it)" for name in refused

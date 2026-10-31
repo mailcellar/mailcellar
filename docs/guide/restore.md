@@ -108,12 +108,14 @@ alone, so after a lost mailbox it uploads only what is missing.
 
 With `--to`, the mail goes into a different account, which needs modify
 access too. Each message is looked up there by Message-ID first, so nothing
-is duplicated. Two options keep it tidy:
+is duplicated. Three options keep it tidy:
 
 - `--label-prefix work` nests the backed-up user labels under `work/`, so
   the copy doesn't mix with the other account's labels;
 - `--strip-labels` restores no labels at all: the messages arrive archived,
-  with only the `restored/` label.
+  with only the `restored/` label;
+- `--into import`, into an IMAP account, puts every message in one folder,
+  `import`, whatever its labels (see [IMAP accounts](imap.md#4-restore)).
 
 The new messages are indexed in the target account's backup too, so the next
 `backup` doesn't download them again.

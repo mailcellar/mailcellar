@@ -96,6 +96,23 @@ modify` for a Gmail account). `--label-prefix P` nests the backed-up user labels
 `--strip-labels` restores none, so the messages arrive archived with only
 the `restored/` label.
 
+<a id="into-one-folder"></a>**Into one folder** (`--into FOLDER`, IMAP only):
+every message restored goes into that folder instead of the folders its
+labels map to, with its read and starred state. Running it after a restore
+by labels gathers that restore's mail:
+
+- mail restored before and still on the server is moved into the folder:
+  one copy of each, the others left where they are (the log says how
+  many);
+- mail still in Trash is moved into the folder, not back to its own folders;
+- mail no restore put on the server is left alone, and so is restored mail
+  you have put in Trash since.
+
+Restore knows what it put back from its records, in the backup restored
+from and in the target account's own backup. Moving needs MOVE: on a server
+without it, `--into` only uploads. Into a Gmail account,
+`--strip-labels --label NAME` gives every message one label instead.
+
 **How long it takes:** the dry run checks every `.eml` file and looks each
 message up in the mailbox, so on a large backup it takes minutes. On Gmail,
 messages still in Trash come out a thousand per call, then each is read back to
@@ -176,6 +193,7 @@ account restored into. Without `--yes` it is a dry run.
 | `--label NAME` | The label restored messages get (default `restored/<today>`) |
 | `--label-prefix P` | Nest the backed-up user labels under `P/` |
 | `--strip-labels` | Restore no backed-up labels, only the `restored/` label: the messages arrive archived |
+| `--into FOLDER` | IMAP only: put everything restored in this one folder (created if missing), whatever its labels. Not with `--label-prefix` or `--strip-labels`; see [Into one folder](#into-one-folder) |
 
 **Other:**
 
