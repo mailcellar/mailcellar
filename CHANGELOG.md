@@ -8,6 +8,10 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 
 ## Unreleased
 
+### Added
+- The FAQ's comparison with other tools includes Thunderbird, and why
+  dragging Gmail into its Local Folders frees no space.
+
 ## 0.23.0 (2026-10-31)
 
 ### Added
