@@ -16,6 +16,11 @@ keep stable is in [What stays stable](docs/reference/stability.md).
   folder. Copies of one message in several folders are matched by Gmail's
   own message ID rather than by downloading each
   ([#181](https://github.com/mailcellar/mailcellar/issues/181)).
+- A backup of an IMAP account downloaded each folder whole before saving
+  any of it, so its progress stood still on a large folder, the folder
+  was held in memory, and a run stopped partway through downloaded the
+  folder again. Messages are now saved 200 at a time, as they arrive
+  ([#183](https://github.com/mailcellar/mailcellar/issues/183)).
 
 ## 0.24.0 (2026-10-31)
 
