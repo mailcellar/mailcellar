@@ -249,7 +249,7 @@ def test_nothing_on_the_server_changes(server):
     (gid,) = box.list_message_ids()
     box.get_raw([gid], lambda r: None)
     assert server.folders["INBOX"]["uids"][1]["flags"] == set()  # still unread
-    assert all(c[0] in ("LOGIN", "LIST", "EXAMINE", "UID") for c in server.commands)
+    assert all(c[0] in ("LOGIN", "CAPABILITY", "LIST", "EXAMINE", "UID") for c in server.commands)
 
 
 def test_a_refused_login_is_access_refused(server):
@@ -284,11 +284,11 @@ def test_an_interrupted_command_drops_the_connection_rather_than_logging_out(ser
     box = account(server)
     box.sign_in()
 
-    server.breaks = 1  # Ctrl-C halfway through LIST's reply
+    server.breaks = 1  # Ctrl-C halfway through the scan's first reply (CAPABILITY's)
     with pytest.raises(KeyboardInterrupt):
         box.list_message_ids()
     box.close()
-    assert [c[0] for c in server.commands] == ["LOGIN", "LIST", "SHUTDOWN"]  # no LOGOUT into it
+    assert [c[0] for c in server.commands] == ["LOGIN", "CAPABILITY", "SHUTDOWN"]  # no LOGOUT
 
 
 def test_a_server_no_keeps_the_session(server):
@@ -531,3 +531,81 @@ def test_a_fetch_without_a_body_is_a_failure(server):
     got = []
     assert box.get_raw([gid], got.append) == [f"{gid}: INBOX returned no body for UID {uid}"]
     assert got == []
+
+
+# ── Gmail over IMAP: All Mail and X-GM-MSGID ─────────────────────────────────
+
+
+@pytest.fixture
+def gmail():
+    """Gmail's IMAP: labels as folders, All Mail holding all mail outside Trash and Spam."""
+    s = FakeImap()
+    s.signed_in = (*s.signed_in, "X-GM-EXT-1")
+    s.add_folder("[Gmail]", selectable=False)
+    s.add_folder("[Gmail]/All Mail", special=["\\All"])
+    s.add_folder("[Gmail]/Trash", special=["\\Trash"])
+    s.add_folder("[Gmail]/Spam", special=["\\Junk"])
+    s.add_folder("[Gmail]/Starred", special=["\\Flagged"])
+    s.add_folder("Projects")
+    return s
+
+
+def add_gmail(server, folders, msgid, gm):
+    """One Gmail message, a copy in each of `folders` and in All Mail, all one X-GM-MSGID."""
+    raw = make_eml(msgid=msgid)
+    for folder in (*folders, "[Gmail]/All Mail"):
+        server.add(folder, raw=raw, flags={"\\Seen"}, gm=gm)
+
+
+def test_gmails_all_mail_is_kept_as_the_store_and_the_archive():
+    lines = [b'(\\HasNoChildren) "/" "INBOX"', b'(\\All \\HasNoChildren) "/" "[Gmail]/All Mail"']
+    entries = imap.list_entries(lines)
+    assert [f.name for f in imap.folders_from(entries)] == ["INBOX"]  # elsewhere \All repeats
+    folders = imap.folders_from(entries, gmail=True)
+    (store,) = [f for f in folders if f.store]
+    assert store.name == "[Gmail]/All Mail" and store.archive
+    assert imap.archive_folder(folders) == ("[Gmail]/All Mail", False)
+    assert imap.append_plan(set(), folders, "/").folders == ("[Gmail]/All Mail",)  # not new
+
+
+def test_gmail_mail_only_in_all_mail_is_backed_up_with_no_label(gmail):
+    add_gmail(gmail, ["INBOX"], "<in@x>", 1)
+    add_gmail(gmail, ["Projects", "INBOX"], "<both@x>", 2)
+    add_gmail(gmail, [], "<archived@x>", 3)
+    gmail.add("[Gmail]/Trash", msgid="<gone@x>", flags={"\\Seen"}, gm=4)  # not in All Mail
+    box = account(gmail)
+    ids = ids_by_msgid(box, gmail)
+    assert box.message_labels(list(ids.values())) == {
+        ids["<in@x>"]: {"INBOX"},
+        ids["<both@x>"]: {"INBOX", "Projects"},
+        ids["<archived@x>"]: set(),
+        ids["<gone@x>"]: {"TRASH"},
+    }
+    messages = box._scan()[1].messages
+    assert [p[0] for p in messages[ids["<both@x>"]].places] == ["INBOX", "Projects"]
+    assert [p[0] for p in messages[ids["<archived@x>"]].places] == ["[Gmail]/All Mail"]
+    assert "[Gmail]/All Mail" not in {c["name"] for c in box.label_catalogue()}
+
+
+def test_gmail_copies_are_one_message_without_reading_their_bodies(gmail):
+    add_gmail(gmail, ["INBOX", "Projects"], "<copies@x>", 7)
+    box = account(gmail)
+    (gid,) = box.list_message_ids()
+    assert not [c for c in gmail.commands if "(BODY.PEEK[])" in c]  # told apart by X-GM-MSGID
+    assert box.message_labels([gid]) == {gid: {"INBOX", "Projects"}}
+
+
+def test_gmail_messages_sharing_a_header_id_but_not_an_x_gm_msgid_are_read(gmail):
+    one = make_eml(msgid="<same@x>", body="one!")
+    two = make_eml(msgid="<same@x>", body="two!")  # same Message-ID, date and size
+    gmail.add("INBOX", raw=one, flags={"\\Seen"}, gm=1)
+    gmail.add("Projects", raw=two, flags={"\\Seen"}, gm=2)
+    box = account(gmail)
+    assert len(box.list_message_ids()) == 2
+    assert [c for c in gmail.commands if "(BODY.PEEK[])" in c]  # hashed, as elsewhere
+
+
+def test_x_gm_msgid_is_asked_only_of_gmail(server):
+    server.add("INBOX", msgid="<plain@x>")
+    assert len(account(server).list_message_ids()) == 1  # FakeImap fails it otherwise
+    assert not [c for c in server.commands if any("X-GM-MSGID" in str(a) for a in c)]

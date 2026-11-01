@@ -53,7 +53,7 @@ provider's account settings and give that to `setup`.
 | iCloud Mail | `imap.mail.me.com` | `--username` with the part of the address before `@` (Apple: the full address if that fails); it has no MOVE, so offload and dedup are refused and restore only uploads |
 | Yahoo Mail | `imap.mail.yahoo.com` | it keeps no custom keywords: add `--review folder` to offload |
 | Fastmail | `imap.fastmail.com` | not yet tried with mailcellar |
-| Gmail | — | set it up without `--imap`, through the Gmail API, which keeps each message once with all its labels; over IMAP (`imap.gmail.com`, an app password) it is untried |
+| Gmail | `imap.gmail.com` | an app password needs no Google Cloud project and doesn't expire, but opens the whole mailbox; the Gmail API (`setup` without `--imap`) can sign in read-only, reads only what changed, and keeps Important, the categories and Gmail searches in offload rules. Over IMAP, archived mail with no label is read from All Mail; tried on a small scale only |
 
 Outlook.com and Microsoft 365 want OAuth over IMAP (XOAUTH2), which
 mailcellar doesn't do yet, so they aren't supported: `setup` refuses an
@@ -89,6 +89,10 @@ What the backup keeps, in gyb's layout, as for Gmail:
   names, with `/` for nesting (`Projects/2026`). A message in two
   folders is backed up once, with both labels.
 - **Flags:** an unread message gets `UNREAD`, a flagged one `STARRED`.
+- **A folder of all mail** (Gmail's All Mail, flagged `\All`) repeats
+  the others and is left out, except on Gmail, where archived mail with
+  no label is in no other folder: there it is read for that mail, which
+  gets no label, as through the Gmail API.
 - **Junk and Trash** are left out, as Spam and Trash are for Gmail. A
   message already backed up that moves to Trash stays in the backup,
   labelled `TRASH`.
@@ -167,7 +171,7 @@ it moves and what it leaves is in the
 restored into an IMAP account has its labels made folders (INBOX and the
 server's Sent and Drafts for Gmail's own, a folder per user label,
 matched whatever its case and nested at `/` only; archived mail into the
-folder the server marks as its archive, else Archive), unread
+folder the server marks as its archive, All Mail on Gmail, else Archive), unread
 and starred as flags, and Important and the categories left out; an
 IMAP backup restored into Gmail has its folders made labels. A message
 filed under several labels goes into each of those folders.

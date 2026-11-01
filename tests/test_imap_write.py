@@ -1301,6 +1301,20 @@ def test_untrash_to_a_new_archive_creates_it(server):
     assert len(server.folders["Archive"]["uids"]) == 1
 
 
+def test_gmail_archived_mail_goes_back_to_all_mail_not_a_new_archive(server):
+    server.signed_in = (*server.signed_in, "X-GM-EXT-1")
+    server.add_folder("[Gmail]/All Mail", special=["\\All"])
+    uid = server.add("[Gmail]/All Mail", msgid="<arch@x>", flags={"\\Seen"}, gm=9)
+    box = account(server)
+    (gid,) = box.list_message_ids()
+    assert box.trash([gid]) == []  # moved from All Mail, its only place
+    assert uid not in server.folders["[Gmail]/All Mail"]["uids"]
+    assert box.untrash([gid]) == []
+    assert "Archive" not in server.folders  # Gmail's archive is All Mail
+    assert len(server.folders["[Gmail]/All Mail"]["uids"]) == 1
+    assert box.message_labels([gid]) == {gid: set()}
+
+
 def test_restore_into_an_account_set_up_with_the_other_provider_is_refused(home, tmp_path):
     assert cli.main(["backup", "home"]) == 0
     (tmp_path / "config" / "home" / gmailapi.IMAP_SETTINGS).unlink()  # now a Gmail account

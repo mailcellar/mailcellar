@@ -53,12 +53,13 @@ class FakeImap:
         flags = ["\\HasNoChildren", *special] + ([] if selectable else ["\\Noselect"])
         self.folders[name] = {"flags": flags, "uidvalidity": uidvalidity, "next": 1, "uids": {}}
 
-    def add(self, folder, raw=None, flags=(), date=DATE, msgid="<m@example.com>"):
+    def add(self, folder, raw=None, flags=(), date=DATE, msgid="<m@example.com>", gm=None):
+        """A message in `folder`; `gm`, Gmail's X-GM-MSGID, the same for each copy of one."""
         raw = raw if raw is not None else make_eml(msgid=msgid)
         f = self.folders[folder]
         uid = f["next"]
         f["next"] += 1
-        f["uids"][uid] = {"raw": raw, "flags": set(flags), "date": date}
+        f["uids"][uid] = {"raw": raw, "flags": set(flags), "date": date, "gm": gm}
         return uid
 
     def move(self, src, uid, dst):
@@ -166,6 +167,10 @@ class FakeImap:
                 prefix += f' INTERNALDATE "{m["date"]}"'
             if "RFC822.SIZE" in items:
                 prefix += f" RFC822.SIZE {len(m['raw'])}"
+            if "X-GM-MSGID" in items:
+                if "X-GM-EXT-1" not in self.signed_in:
+                    raise AssertionError("FETCH X-GM-MSGID: a server without Gmail's extension")
+                prefix += f" X-GM-MSGID {m['gm']}" if m["gm"] is not None else ""
             literal = None
             if "HEADER.FIELDS (MESSAGE-ID)" in items:
                 mid = BytesHeaderParser().parsebytes(m["raw"]).get("Message-ID")
@@ -210,7 +215,7 @@ class FakeImap:
                 self.move(self.selected, u, name)
             else:
                 m = uids[u]
-                self.add(name, raw=m["raw"], flags=set(m["flags"]), date=m["date"])
+                self.add(name, raw=m["raw"], flags=set(m["flags"]), date=m["date"], gm=m["gm"])
         return "OK", [None]
 
     def append(self, mailbox, flags, date_time, message):
