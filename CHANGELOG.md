@@ -40,6 +40,16 @@ keep stable is in [What stays stable](docs/reference/stability.md).
   counted toward its daily download limit, and a run again needs no
   backup in between to skip what it uploaded.
 
+### Changed
+- Gmail over IMAP (`setup --imap imap.gmail.com`) is now a quick start
+  for Gmail, with no Google Cloud project: its backup is the one the Gmail
+  API makes, under Gmail's own message and thread IDs, with Important as
+  `IMPORTANT`; only the categories need the API. An account can move
+  between the two with `setup`, and its backup carries on without
+  downloading anything again. An IMAP backup of Gmail made with 0.24.0 or
+  earlier can't be carried on: backup says so; move it aside and back up
+  again.
+
 ### Fixed
 - A rewritten hash chain stopped showing once the next command recorded a
   link: `backup`, `restore`, `forget` and `hold` moved the anchor in the
