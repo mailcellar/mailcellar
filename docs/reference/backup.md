@@ -17,6 +17,7 @@ mailcellar verify                  # are the backup's files still intact?
 
 **Exit status** (for scripts and schedulers): 0 when everything worked.
 Otherwise 1, in any of these cases:
+
 - an account failed (with several accounts, the others still run);
 - downloads failed (the next run fetches them), or the check after the
   backup found a damaged file;

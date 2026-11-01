@@ -218,6 +218,7 @@ tracking links; and identical visible text is common across genuinely
 separate mail, so the content hash is never used on its own.
 
 **Planning** (`dedup/rules.py`), per group, `keep` / `remove` / `review`:
+
 - cross-account: `--keep <account>` keeps that account's copies, or
   `--keep origin` removes only copies auto-forwarded from another account
   (`X-Forwarded-For`), leaving independent deliveries alone;
