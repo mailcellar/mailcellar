@@ -136,7 +136,7 @@ You need [uv](https://docs.astral.sh/uv/) (it provides Python 3.14).
    clone instead, see [Development](#development).
 2. **Add an account**, one of these two ways.
 
-   **Gmail or Google Workspace.** Create an OAuth client in the
+   **Gmail or Google Workspace, through the Gmail API.** Create an OAuth client in the
    [Google Cloud console](https://console.cloud.google.com/): a project with
    the **Gmail API** enabled, a consent screen with yourself as a test user,
    and an OAuth client of type **Desktop app**. Download its JSON. The step
@@ -148,9 +148,10 @@ You need [uv](https://docs.astral.sh/uv/) (it provides Python 3.14).
    mailcellar setup alex@example.org --client ~/Downloads/client_secret_*.json
    ```
 
-   **Any other mailbox, over IMAP** (iCloud Mail, Yahoo Mail, Fastmail, your
-   own server). Most providers want an app password, made in their account
-   settings; give `setup` the server, and it asks for the password:
+   **Any mailbox over IMAP** (Gmail without a Cloud project, iCloud Mail,
+   Yahoo Mail, Fastmail, your own server). Most providers want an app
+   password, made in their account settings; give `setup` the server, and
+   it asks for the password:
    ```bash
    mailcellar setup alex@example.org --imap imap.mail.yahoo.com
    ```
@@ -160,6 +161,7 @@ You need [uv](https://docs.astral.sh/uv/) (it provides Python 3.14).
    | iCloud Mail | `imap.mail.me.com` | `--username` with the part before `@`; no offload or dedup, restore by upload only (no IMAP MOVE) |
    | Yahoo Mail | `imap.mail.yahoo.com` | add `--review folder` to offload: Yahoo keeps no custom keywords |
    | Fastmail | `imap.fastmail.com` | not yet tried with mailcellar |
+   | Gmail | `imap.gmail.com` | the quickest start: no Cloud project, only an app password (needs 2-Step Verification); [compared with the API](https://mailcellar.github.io/mailcellar/guide/imap/#gmail-over-imap-or-through-the-api) |
 
    More in [Backing up an IMAP account](https://mailcellar.github.io/mailcellar/guide/imap/).
 
@@ -222,7 +224,7 @@ The [documentation site](https://mailcellar.github.io/mailcellar/) has the guide
 - [Recovering when something goes wrong](https://mailcellar.github.io/mailcellar/guide/recovery/): an expired
   token, a long gap, an interrupted run, a lost data root.
 - [Troubleshooting and FAQ](https://mailcellar.github.io/mailcellar/guide/troubleshooting/): slow runs, `count`
-  results, chats, why not IMAP or Takeout.
+  results, chats, why not Takeout.
 
 **Command reference**, every command and option:
 

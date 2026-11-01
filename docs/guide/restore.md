@@ -156,6 +156,10 @@ Message-ID and skips it.
   that doesn't parse, or no longer matches its recorded hash, is skipped too;
   `mailcellar verify` lists those. The run exits 1 when anything was skipped
   or failed.
+- **Gmail over IMAP takes about 500 MB a day.** Restoring into a Gmail
+  account set up over IMAP uploads through IMAP, which Google limits;
+  restore a large selection over several days with `--limit`, or through
+  the Gmail API ([Gmail's daily limits](imap.md#gmails-daily-limits)).
 - **Dates are kept.** An uploaded message keeps its original date, and Gmail
   threads it by its headers, so threads may not look exactly as they did.
 - **Everything is logged:** `<data root>/restore/restore-log.csv`, one row per

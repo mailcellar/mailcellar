@@ -32,6 +32,11 @@ lost, and the next run does not repeat what is already done. For work that
 takes more than a few minutes (trashing is about 2,000 messages a minute,
 uploading about six messages a second), run it in the background.
 
+Over IMAP, Gmail says nothing when an account goes past its daily limit
+(about 2,500 MB downloaded): it answers every command slowly, for hours.
+A first backup of a large mailbox meets it; see
+[Gmail's daily limits](imap.md#gmails-daily-limits).
+
 ## `count` reports mail missing from the backup
 
 ```bash
@@ -81,24 +86,15 @@ publish the app. See
 The error you see in the meantime, and how to sign in ahead of time, is in
 [the recovery guide](recovery.md#a-token-expired-or-was-revoked).
 
-## Why not IMAP, or Google Takeout?
+## Why not Google Takeout?
 
-Both can copy mail out of Gmail. mailcellar uses the Gmail API because it
-keeps what makes a Gmail mailbox a Gmail mailbox:
-
-- **IMAP** presents labels as folders. A message with three labels is one
-  message in Gmail but appears in three folders, so a backup over IMAP
-  downloads it three times and has no single record of its labels.
-- **Takeout** is a full export each time, so every backup copies the whole
-  mailbox again, and the labels are kept only in a header inside each
-  message.
-
-The API gives each message once, with its labels and a change history,
-so a later backup reads only what changed. It also lets mailcellar later
-check a backup against Gmail, and put mail back with its labels.
-
-That is about Gmail. Another provider's mailbox, which has only IMAP, is
-backed up over IMAP: [Backing up an IMAP account](imap.md).
+Takeout is a full export each time, so every backup would copy the
+whole mailbox again, and it keeps the labels only in a header inside
+each message. mailcellar reads Gmail through the Gmail API or over IMAP
+instead; which to choose, and how to move between them, is in
+[Gmail over IMAP, or through the API](imap.md#gmail-over-imap-or-through-the-api).
+A Takeout file can still be loaded into an account with `restore`
+([Restoring mail](restore.md)).
 
 ## How does it compare with other tools?
 
@@ -122,7 +118,9 @@ describes itself, in its README or on its site, in October 2026:
   the mail offline. Changes go both ways, deletions included (as mbsync's
   page puts it), which suits reading mail; mailcellar keeps what the
   mailbox deletes until you forget it. Over IMAP, Gmail's labels are
-  folders (see the answer above). Either can run alongside mailcellar.
+  folders, so a message with three labels is downloaded three times,
+  with no single record of its labels; mailcellar keeps it once, with
+  all three. Either can run alongside mailcellar.
 - **[Thunderbird](https://www.thunderbird.net/)** is a desktop mail
   client for Windows, macOS and Linux. It keeps an offline copy of an IMAP
   account, Gmail included, for reading, which mailcellar leaves to mail
@@ -143,8 +141,8 @@ describes itself, in its README or on its site, in October 2026:
   Gmail, other IMAP or POP3 accounts, Outlook, Exchange and Thunderbird
   into one searchable archive; MailStore Server is its edition for
   businesses.
-- **Google Takeout:** see [Why not IMAP, or Google
-  Takeout?](#why-not-imap-or-google-takeout) above.
+- **Google Takeout:** see [Why not Google
+  Takeout?](#why-not-google-takeout) above.
 
 ## Is anything ever deleted?
 
