@@ -5,7 +5,7 @@ import base64
 import pytest
 
 from fake_imap import FakeImap
-from mailcellar import gmailapi, imap
+from mailcellar import gmailapi, imap, progress
 from mailcellar.backup import sidecar
 from test_index import make_eml
 
@@ -221,6 +221,63 @@ def test_get_raw_returns_gmail_shaped_responses_and_skips_gone_mail(server):
     assert response["labelIds"] == ["INBOX"] and response["internalDate"] == "1784256265000"
     assert response["threadId"] == imap.thread_of(raw, gid) != ""  # '' would read as gone
     assert response["sizeEstimate"] == len(raw)
+
+
+def body_fetches(server):
+    return [c for c in server.commands if c[:2] == ("UID", "FETCH") and "BODY.PEEK[])" in c[-1]]
+
+
+def test_get_raw_hands_on_each_batch_before_fetching_the_next(server):
+    for n in range(imap.FETCH_CHUNK + 1):
+        server.add("INBOX", msgid=f"<b{n}@x>")
+    box = account(server)
+    ids = box.list_message_ids()
+    seen = []  # how many batches had been fetched as each message was handed on
+    assert box.get_raw(ids, lambda r: seen.append(len(body_fetches(server)))) == []
+    assert seen == [1] * imap.FETCH_CHUNK + [2]
+
+
+def test_a_drop_between_batches_fetches_only_the_batch_not_yet_handed_on(server):
+    for n in range(imap.FETCH_CHUNK + 1):
+        server.add("INBOX", msgid=f"<b{n}@x>")
+    box = account(server)
+    ids = box.list_message_ids()
+    fetch = server.uid
+
+    def uid(command, *args):  # the connection drops on the command after the first batch
+        answer = fetch(command, *args)
+        if command == "FETCH" and len(body_fetches(server)) == 1:
+            server.drops = 1
+        return answer
+
+    server.uid = uid
+    got = []
+    assert box.get_raw(ids, lambda r: got.append(r["id"])) == []
+    assert sorted(got) == sorted(ids)  # each once
+    assert len(body_fetches(server)) == 2  # the first batch isn't fetched again
+
+
+def test_a_failed_batch_fails_the_rest_of_its_folder_and_still_counts(server):
+    for n in range(2 * imap.FETCH_CHUNK + 1):
+        server.add("INBOX", msgid=f"<b{n}@x>")
+    box = account(server)
+    ids = box.list_message_ids()
+    fetch = server.uid
+
+    def uid(command, *args):  # the second batch's FETCH is refused
+        if command == "FETCH" and "BODY.PEEK[])" in args[-1] and len(body_fetches(server)) == 1:
+            server.commands.append(("UID", command, *args))
+            return "NO", [b"Server error"]
+        return fetch(command, *args)
+
+    server.uid = uid
+    got = []
+    with progress.Progress("Downloading", len(ids)) as bar:
+        failed = box.get_raw(ids, lambda r: got.append(r["id"]))
+    assert len(got) == imap.FETCH_CHUNK  # the first batch, handed on
+    assert len(failed) == imap.FETCH_CHUNK + 1  # the rest, not asked for again
+    assert len(body_fetches(server)) == 2
+    assert bar.done == len(ids)  # failures counted, as GmailAccount counts them
 
 
 def test_replies_share_the_thread_of_the_conversations_first_message():

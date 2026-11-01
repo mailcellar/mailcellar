@@ -52,7 +52,7 @@ from mailcellar.message import normalise_message_id
 logger = logging.getLogger(__name__)
 
 FETCH_CHUNK = 200  # UIDs per FETCH
-ATTEMPTS = 3  # tries per folder after a dropped connection
+ATTEMPTS = 3  # tries per folder, or per batch of bodies, after a dropped connection
 TIMEOUT = 120  # seconds a socket may stall
 SPECIAL = {"\\Sent": "SENT", "\\Drafts": "DRAFT", "\\Junk": "SPAM", "\\Trash": "TRASH"}
 BY_NAME = {"sent": "SENT", "drafts": "DRAFT", "junk": "SPAM", "spam": "SPAM", "trash": "TRASH"}
@@ -1641,8 +1641,9 @@ class ImapAccount:
         for name, uid in sorted(locations):
             grouped.setdefault(name, []).append(uid)
         for name, uids in grouped.items():
-            got = self._fetch(name, uids, "(BODY.PEEK[])", "FETCH body")
-            out |= {(name, u): content_id(f.literal) for u, f in got.items() if f.literal}
+            for batch in chunks(uids):  # one batch's bodies held at a time
+                got = self._fetch(name, batch, "(BODY.PEEK[])", "FETCH body")
+                out |= {(name, u): content_id(f.literal) for u, f in got.items() if f.literal}
         return out
 
     def _scan(self) -> tuple[Mapping[str, frozenset[str]], Scan]:
@@ -1712,21 +1713,27 @@ class ImapAccount:
         for _gone in set(gmail_ids) - set(messages):
             progress.advance()  # gone since listing: skipped, as GmailAccount does
         for name, places in by_folder(messages, gmail_ids).items():
-            try:
-                got = self._fetch(
-                    name, [u for u, _ in places], "(INTERNALDATE BODY.PEEK[])", "FETCH"
-                )
-            except gmailapi.GmailError as exc:
-                failed += [f"{gid}: {exc}" for _uid, gid in places]
-                continue
-            for uid, gid in places:
-                f = got.get(uid)
-                if f is not None and f.literal is None:
-                    failed.append(f"{gid}: {name} returned no body for UID {uid}")
-                elif f is not None:
-                    on_message(response(messages[gid], f.literal, f.internal))
-                # f None: expunged since the scan, so gone, as GmailAccount skips it
-                progress.advance()
+            # A batch at a time, each handed on before the next is fetched: progress
+            # moves, one batch is held in memory, and a drop refetches only that batch.
+            batches = chunks(places)
+            for n, batch in enumerate(batches):
+                try:
+                    got = self._fetch(
+                        name, [u for u, _ in batch], "(INTERNALDATE BODY.PEEK[])", "FETCH"
+                    )
+                except gmailapi.GmailError as exc:  # retried already, or refused: the folder fails
+                    rest = [gid for later in batches[n:] for _uid, gid in later]
+                    failed += [f"{gid}: {exc}" for gid in rest]
+                    progress.advance(len(rest))  # tried, as GmailAccount counts its failures
+                    break
+                for uid, gid in batch:
+                    f = got.get(uid)
+                    if f is not None and f.literal is None:
+                        failed.append(f"{gid}: {name} returned no body for UID {uid}")
+                    elif f is not None:
+                        on_message(response(messages[gid], f.literal, f.internal))
+                    # f None: expunged since the scan, so gone, as GmailAccount skips it
+                    progress.advance()
         return failed
 
     def message_details(self, gmail_ids, failures=None):
