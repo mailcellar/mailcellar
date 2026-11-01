@@ -94,8 +94,12 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
   (`tests/test_reference_docs.py` fails when `--help` lists one the page
   doesn't name); a new guide goes in `docs/guide/`, `mkdocs.yml`'s `nav` and
   the README's Documentation list. The README stays a landing page. Build in
-  strict mode (a broken link fails) with the command above. A change a user
-  would notice also gets a line under `## Unreleased` in `CHANGELOG.md`.
+  strict mode (a broken link fails) with the command above. Write Markdown
+  the site and GitHub render alike (CONTRIBUTING.md, "The documentation
+  site"; `tests/test_docs_markdown.py` checks most of it), and check a docs
+  change in the built `site/`: GitHub and Markdown previews render like
+  each other, not like the site. A change a user would notice also gets a
+  line under `## Unreleased` in `CHANGELOG.md`.
 - Public text (README, docs, posts) about offloading, dedup or restore
   covers IMAP too: say "mailbox", "mail client" and "marked", not
   "Gmail", "label" or "Gmail's web UI", unless the point is Gmail-only.
