@@ -88,10 +88,67 @@ def test_an_imap_account_backs_up_and_follows_changes(server, capsys):
 def test_a_backup_of_another_provider_is_refused(server, capsys):
     assert cli.main(["backup", "home"]) == 0
     con = sidecar.open_meta(backup_folder(ADDRESS))
+    assert sidecar.held_id_kind(con) == "imap"
     sidecar.set_state(con, "provider", "gmail")  # as if the folder held a Gmail backup
+    sidecar.set_state(con, "id_kind", "gmail")
     con.commit()
     con.close()
-    with pytest.raises(SystemExit, match="holds a gmail backup .* now set up as imap"):
+    with pytest.raises(SystemExit, match="under Gmail's message IDs.* made from each message's"):
+        cli.main(["backup", "home"])
+    assert rows("SELECT count(*) FROM uids") == [(3,)]  # nothing added
+
+
+def test_a_backup_from_before_the_id_kind_was_recorded_is_read_by_its_provider(tmp_path):
+    con = sidecar.open_meta(tmp_path)
+    assert sidecar.held_id_kind(con) == "gmail"  # the Gmail API's backups never said
+    sidecar.set_state(con, "provider", "imap")
+    assert sidecar.held_id_kind(con) == "imap"  # any IMAP backup's, Gmail's included
+    sidecar.set_state(con, "id_kind", "gmail")
+    assert sidecar.held_id_kind(con) == "gmail"
+    con.close()
+
+
+def as_gmail(server):
+    """The server as Gmail's: X-GM-EXT-1, each message's X-GM-MSGID, an All Mail."""
+    server.signed_in = (*server.signed_in, "X-GM-EXT-1")
+    server.add_folder("[Gmail]/All Mail", special=["\\All"])
+    for n, folder in enumerate(("INBOX", "Sent", "Trash")):
+        for uid, m in server.folders[folder]["uids"].items():
+            m["gm"] = m["thr"] = 0x100 * (n + 1) + uid
+            if folder != "Trash":
+                server.add("[Gmail]/All Mail", raw=m["raw"], flags=m["flags"], gm=m["gm"])
+
+
+def set_state(**states):
+    con = sidecar.open_meta(backup_folder(ADDRESS))
+    for name, value in states.items():
+        if value is None:
+            con.execute("DELETE FROM meta WHERE name = ?", (name,))
+        else:
+            sidecar.set_state(con, name, value)
+    con.commit()
+    con.close()
+
+
+def test_a_gmail_api_backup_is_carried_on_over_gmails_imap(server, capsys):
+    as_gmail(server)
+    assert cli.main(["backup", "home"]) == 0
+    assert {g for (g,) in rows("SELECT uid FROM uids")} == {"101", "102", "201"}
+    set_state(provider=None, id_kind=None)  # as the Gmail API's backups leave it
+    capsys.readouterr()
+    server.add("INBOX", msgid="<d@x>", flags={"\\Seen"}, gm=0x1FF)
+    assert cli.main(["backup", "home"]) == 0
+    assert "Downloaded 1 messages" in capsys.readouterr().out  # the rest are known
+    folder = backup_folder(ADDRESS)
+    assert (sidecar.provider(folder), sidecar.id_kind(folder)) == ("imap", "gmail")
+    assert cli.main(["verify", "home", "--chain"]) == 0
+
+
+def test_an_imap_backup_of_gmail_from_before_its_own_ids_is_refused(server):
+    assert cli.main(["backup", "home"]) == 0  # header IDs, as before
+    set_state(id_kind=None)  # as an older version left it: provider imap only
+    as_gmail(server)
+    with pytest.raises(SystemExit, match="can only be started again"):
         cli.main(["backup", "home"])
     assert rows("SELECT count(*) FROM uids") == [(3,)]  # nothing added
 
@@ -111,9 +168,10 @@ def test_an_imap_run_doesnt_call_every_message_changed():
     )
 
 
-def test_provider_change_allows_a_first_backup_and_the_same_provider(tmp_path):
+def test_provider_change_allows_a_first_backup_and_the_same_ids(tmp_path):
     assert backup_commands.provider_change(ADDRESS, tmp_path, "gmail", "imap", 0) == ""
     assert backup_commands.provider_change(ADDRESS, tmp_path, "imap", "imap", 5) == ""
+    assert backup_commands.provider_change(ADDRESS, tmp_path, "gmail", "gmail", 5) == ""
     assert "move the backup folder aside" in backup_commands.provider_change(
         ADDRESS, tmp_path, "imap", "gmail", 5
     )

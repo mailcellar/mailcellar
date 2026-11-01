@@ -162,14 +162,39 @@ def test_no_terminal_to_ask_the_password_is_an_error(server, tmp_path, monkeypat
         run(tmp_path)
 
 
-def test_a_gmail_account_isnt_turned_into_an_imap_one(server, tmp_path):
+def gmail_account(tmp_path):
+    """The account set up for the Gmail API: a token in its config folder."""
     folder = tmp_path / "config" / "alex"
     folder.mkdir(parents=True)
     (tmp_path / "config" / "accounts.toml").write_text(f'alex = "{ADDRESS}"\n')
     (folder / "token-readonly.json").write_text("{}")
-    with pytest.raises(SystemExit, match="set up as a Gmail account"):
+    return folder
+
+
+def test_a_gmail_account_isnt_moved_to_another_imap_server(server, tmp_path):
+    folder = gmail_account(tmp_path)
+    with pytest.raises(SystemExit, match="set up as a Gmail account.* isn't Gmail's"):
         run(tmp_path, "--force")
     assert not (folder / gmailapi.IMAP_SETTINGS).exists()
+    with pytest.raises(SystemExit, match="without --no-auth"):
+        run(tmp_path, "--force", "--no-auth")  # which server it is can't be known
+    assert not (folder / gmailapi.IMAP_SETTINGS).exists()
+
+
+def test_a_gmail_account_moves_to_imap_only_as_its_own_mailbox(server, tmp_path):
+    folder = gmail_account(tmp_path)
+    server.signed_in = (*server.signed_in, "X-GM-EXT-1")
+    with pytest.raises(SystemExit, match="log in as alex@example.org, not other@example.org"):
+        run(tmp_path, "--username", "other@example.org")
+    assert not (folder / gmailapi.IMAP_SETTINGS).exists()
+    assert not [c for c in server.commands if c[0] == "LOGIN"]  # refused before signing in
+
+
+def test_a_gmail_account_moves_to_gmails_imap_server(server, tmp_path):
+    folder = gmail_account(tmp_path)
+    server.signed_in = (*server.signed_in, "X-GM-EXT-1")  # the same IDs as the Gmail API's
+    assert run(tmp_path) == 0
+    assert (folder / gmailapi.IMAP_SETTINGS).exists()
 
 
 def test_the_review_mode_is_set_and_kept_when_setting_up_again(server, tmp_path):

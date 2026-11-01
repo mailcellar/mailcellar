@@ -678,6 +678,7 @@ class GmailAccount:
     """The handful of Gmail operations backup and apply need, for one account."""
 
     provider = "gmail"
+    id_kind = "gmail"
 
     def __init__(self, account: str, creds, service=None, sleep=time.sleep):
         self.account = account

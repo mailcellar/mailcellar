@@ -684,13 +684,46 @@ def provider(folder: Path) -> str:
     'imap' for a backup of an IMAP account, else 'gmail'. Opens meta.sqlite
     read-only; raises MetaError if it can't be read, rather than guess.
     """
+    return _read_state(folder, lambda con: get_state(con, "provider") or "gmail")
+
+
+def id_kind(folder: Path) -> str:
+    """Whose message IDs the backup holds (held_id_kind), read as provider() reads."""
+    return _read_state(folder, held_id_kind)
+
+
+def held_id_kind(con: sqlite3.Connection) -> str:
+    """
+    Whose message IDs the backup holds: 'gmail' (the Gmail API's, or Gmail's
+    own over IMAP) or 'imap' (made from each message's headers). Recorded
+    since Gmail's own IDs were used over IMAP; before that, an IMAP backup's
+    were all made from headers.
+    """
+    kind = get_state(con, "id_kind")
+    return kind or ("imap" if get_state(con, "provider") == "imap" else "gmail")
+
+
+def record_provider(con: sqlite3.Connection, provider: str, id_kind: str) -> None:
+    """
+    The provider the backup is kept through now, and whose IDs it holds
+    (held_id_kind). A change of provider clears the stored history point,
+    which is the other's: the Gmail API answers 400 to IMAP's. No commit.
+    """
+    if (get_state(con, "provider") or "gmail") != provider:
+        set_state(con, "history_id", "")  # the next backup lists everything once
+    set_state(con, "provider", provider)
+    set_state(con, "id_kind", id_kind)
+
+
+def _read_state(folder: Path, read):
+    """read(con) on meta.sqlite opened read-only; 'gmail' with no meta.sqlite."""
     path = meta_path(folder)
     if not path.is_file():
         return "gmail"
     try:
         con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
         try:
-            return get_state(con, "provider") or "gmail"
+            return read(con)
         finally:
             con.close()
     except sqlite3.Error as exc:

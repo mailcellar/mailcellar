@@ -963,8 +963,8 @@ def _import(
     system = {label["id"] for label in gmail.label_catalogue() if label["type"] == "system"}
     index_folder = target_folder or folder
     tcon = sidecar.open_meta(target_folder) if target_folder else mcon
-    if tcon is not None and gmail.provider != "gmail":  # its IDs aren't Gmail's, as backup marks
-        sidecar.set_state(tcon, "provider", gmail.provider)
+    if tcon is not None:  # whose IDs it now holds, as backup marks them
+        sidecar.record_provider(tcon, gmail.provider, gmail.id_kind)
         tcon.commit()
     try:
         progress(f"Importing {len(imports):,} messages")

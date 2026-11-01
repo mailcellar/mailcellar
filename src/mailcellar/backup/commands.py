@@ -55,7 +55,7 @@ from pathlib import Path
 
 from mailcellar import gmailapi, mailbox
 from mailcellar.backup import chain, gyb, sidecar, verify
-from mailcellar.mailbox import mailbox_name
+from mailcellar.mailbox import ID_KINDS, mailbox_name
 from mailcellar.message import PARSER_VERSION, parse_eml, parse_message
 from mailcellar.offload import forget
 from mailcellar.paths import backup_folder, config_root
@@ -260,18 +260,21 @@ def missing_backup(account: str, folder: Path, has_backup: bool, anchor_file: Pa
     )
 
 
-def provider_change(account: str, folder: Path, held: str, provider: str, messages: int) -> str:
+def provider_change(account: str, folder: Path, held: str, now: str, messages: int) -> str:
     """
-    Why backing up `provider`'s mail into a backup of `held`'s would be
-    wrong, or "": their message IDs differ, so every message would look
-    deleted and be downloaded again under another ID. Pure.
+    Why backing up mail under `now`'s IDs into a backup holding `held`'s
+    (sidecar.held_id_kind) would be wrong, or "": every message would look
+    deleted and be downloaded again under another ID. Gmail's IDs are the
+    same through the API and over IMAP, so a Gmail account moves between
+    them. Pure.
     """
-    if held == provider or not messages:
+    if held == now or not messages:
         return ""
     return (
-        f"{folder} holds a {held} backup of {account}, but the account is now set up as "
-        f"{provider}; their message IDs differ, so backing up would mix them. Set the "
-        "account up as it was, or move the backup folder aside to start a new one."
+        f"{folder} holds {account}'s mail under {ID_KINDS[held]}, but the account as set up "
+        f"now gives {ID_KINDS[now]}, so backing up would mix them. Set the account up as it "
+        "was, or move the backup folder aside to start a new one (an IMAP backup of Gmail "
+        "made before Gmail's own IDs were used can only be started again)."
     )
 
 
@@ -370,14 +373,13 @@ def _backup(
     gmail, account: str, con, mcon, folder: Path, query, refresh_labels: bool, stats: dict
 ) -> None:
     """The body of backup(): updates stats as it goes."""
-    held = sidecar.get_state(mcon, "provider") or "gmail"
+    kind = gmail.id_kind
     messages = con.execute("SELECT count(*) FROM uids").fetchone()[0]
-    problem = provider_change(account, folder, held, gmail.provider, messages)
+    problem = provider_change(account, folder, sidecar.held_id_kind(mcon), kind, messages)
     if problem:
         raise BackupMissing(problem)
     sidecar.replace_label_catalogue(mcon, gmail.label_catalogue())
-    if gmail.provider != "gmail":  # its IDs aren't Gmail's
-        sidecar.set_state(mcon, "provider", gmail.provider)
+    sidecar.record_provider(mcon, gmail.provider, kind)  # a Gmail account can move between them
     gmail.save_state(mcon)  # an IMAP account's UID map, committed with the backup
     stats["unread"] = gmail.unread()
     logger.info(f"Using backup folder {folder}")

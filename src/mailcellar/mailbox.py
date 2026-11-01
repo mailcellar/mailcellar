@@ -29,7 +29,8 @@ class Mailbox(Protocol):
     """
 
     account: str
-    provider: str  # "gmail", or "imap": whose IDs the backup holds
+    provider: str  # "gmail" (the Gmail API), or "imap"
+    id_kind: str  # whose message IDs: "gmail" (the API's, or Gmail's over IMAP), or "imap"
 
     # ── listing ──────────────────────────────────────────────────────────────
     def list_message_ids(
@@ -191,6 +192,10 @@ def open_mailbox(
     gmail_scope = "modify" if scope == "append" else scope  # Gmail's import needs modify
     creds = gmailapi.load_credentials(config_folder, account, gmail_scope, interactive=interactive)
     return gmailapi.GmailAccount(account, creds)
+
+
+# Whose message IDs a backup holds (Mailbox.id_kind), as output names them.
+ID_KINDS = {"gmail": "Gmail's message IDs", "imap": "IDs made from each message's headers"}
 
 
 def mailbox_name(provider: str, start: bool = False) -> str:

@@ -8,7 +8,7 @@ from googleapiclient.errors import HttpError
 
 from fake_mailbox import ACCOUNT, MS, FakeMailbox, raw_response
 from mailcellar import gmailapi
-from mailcellar.backup import chain, commands, gyb
+from mailcellar.backup import chain, commands, gyb, sidecar
 from mailcellar.backup.gyb import backup_account, iter_backup
 from mailcellar.cli import main as cli_main
 from mailcellar.dedup import cli as dedup
@@ -233,6 +233,36 @@ def test_backup_never_deletes_messages_gone_from_gmail(tmp_path):
     commands.backup(gmail, ACCOUNT, tmp_path)
     assert (tmp_path / "2026/10/22/g1.eml").is_file()
     assert rows(tmp_path)["uids"] == ["g1"]
+
+
+def test_a_backup_moved_from_imap_to_the_gmail_api_lists_everything_once(tmp_path):
+    gmail = FakeMailbox({"g1": raw_response("g1")})
+    commands.backup(gmail, ACCOUNT, tmp_path)
+    con = sidecar.open_meta(tmp_path)
+    sidecar.set_state(con, "provider", "imap")  # as Gmail over IMAP leaves it
+    sidecar.set_state(con, "id_kind", "gmail")
+    sidecar.set_state(con, "history_id", "imap:1")  # not a point the API knows
+    con.commit()
+    con.close()
+    gmail.history_calls = 0
+    stats = commands.backup(gmail, ACCOUNT, tmp_path)
+    assert gmail.history_calls == 0 and stats["downloaded"] == 0
+    commands.backup(gmail, ACCOUNT, tmp_path)
+    assert gmail.history_calls == 1  # its own history from then on
+
+
+def test_recording_another_provider_drops_the_history_point(tmp_path):
+    con = sidecar.open_meta(tmp_path)
+    sidecar.set_state(con, "history_id", "imap:1")
+    sidecar.record_provider(con, "imap", "gmail")  # from the API's default: changed
+    assert sidecar.get_state(con, "history_id") == ""
+    sidecar.set_state(con, "history_id", "imap:1")
+    sidecar.record_provider(con, "imap", "gmail")  # the same again: kept
+    assert sidecar.get_state(con, "history_id") == "imap:1"
+    sidecar.record_provider(con, "gmail", "gmail")  # a restore after moving to the API, say
+    assert sidecar.get_state(con, "history_id") == ""
+    assert (sidecar.held_id_kind(con), sidecar.get_state(con, "provider")) == ("gmail", "gmail")
+    con.close()
 
 
 def test_backup_reports_failures_and_retries_next_run(tmp_path):
