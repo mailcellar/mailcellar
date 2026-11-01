@@ -61,7 +61,7 @@ digits, `.`, `_` and `-`, unique among the holds in force.
 | Option | What it does |
 | --- | --- |
 | `--reason TEXT` | Required. Why the mail is held; recorded with it |
-| `--party ADDRESS\|@DOMAIN` | Mail from or to this address, or any address at the domain (repeatable) |
+| `--party ADDRESS`, `--party @DOMAIN` | Mail from or to this address, or any address at the domain (repeatable) |
 | `--after DATE` | Mail from this date on: YYYY-MM-DD (UTC), or a time ago (`90d`, `3w`, `6m`, `2y`) |
 | `--before DATE` | Mail older than this |
 | `--label NAME` | Mail with this user label |

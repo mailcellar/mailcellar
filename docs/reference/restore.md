@@ -49,6 +49,7 @@ Everything given has to hold at once, and none of them is a selection by
 itself: name `--all`, `--offloaded`, `--batch`, `--rule` or `--id` too.
 
 **How each message comes back** (the first that applies):
+
 - **restored before, and the mailbox still has that copy:** left alone
   ("restored before" in the log); restored before and gone again since, it
   comes back by the ways below, like any other;

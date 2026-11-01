@@ -109,19 +109,19 @@ delete it for good.
 
 1. `--label` marks each candidate for review, one of two ways, set by
    `setup --review`:
-   - **keyword** (the default): `$mailcellar-` and the label
-     (`$mailcellar-offload-candidate`) on every copy. Most mail clients
-     show keywords as tags; **clear it on a message to keep it.** A server
-     that keeps no custom keywords is refused here: review by folder
-     (`setup` and the dry run say so beforehand). One
-     that keeps none in some folders only fails those folders' mail, saying
-     which, and marks the rest.
-   - **folder**: every copy is moved into `mailcellar/review/<label>`
-     (`mailcellar/review/offload-candidate`), and the folders it came from
-     are recorded in the backup, so its labels there don't change while
-     it's reviewed. **Move a message out of that folder to keep it.**
-     Copies in Junk or Trash stay where they are, and a message already
-     under another review (dedup's, say) is left to it and reported.
+    - **keyword** (the default): `$mailcellar-` and the label
+      (`$mailcellar-offload-candidate`) on every copy. Most mail clients
+      show keywords as tags; **clear it on a message to keep it.** A server
+      that keeps no custom keywords is refused here: review by folder
+      (`setup` and the dry run say so beforehand). One
+      that keeps none in some folders only fails those folders' mail, saying
+      which, and marks the rest.
+    - **folder**: every copy is moved into `mailcellar/review/<label>`
+      (`mailcellar/review/offload-candidate`), and the folders it came from
+      are recorded in the backup, so its labels there don't change while
+      it's reviewed. **Move a message out of that folder to keep it.**
+      Copies in Junk or Trash stay where they are, and a message already
+      under another review (dedup's, say) is left to it and reported.
 2. `--trash` checks what is still marked against the backup, moves every
    copy to the server's Trash with MOVE, and reads the mailbox again to
    confirm. Nothing is ever expunged or deleted.

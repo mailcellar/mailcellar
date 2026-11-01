@@ -179,6 +179,7 @@ MOVE or a marked Trash, or, marking by keyword, an INBOX that keeps none.
 See [Backing up an IMAP account](../guide/imap.md#3-offload-and-remove-duplicates).
 
 **How long it takes:**
+
 - labelling is fast: thousands of messages a minute;
 - trashing reads each message back to confirm it is in Trash; on Gmail,
   which takes a thousand messages per call, 2,000 messages take about a
