@@ -11,13 +11,17 @@ the special-use Sent, Drafts, Junk and Trash as INBOX, SENT, DRAFT, SPAM
 and TRASH (known by name for a role the server marks no folder for),
 other folders by name ('/' for nesting), a missing \\Seen as
 UNREAD and \\Flagged as STARRED. A message counts as in Trash or Junk
-only if it lives nowhere else.
+only if it lives nowhere else. A \\All folder repeats the others and is
+skipped, but on Gmail (X-GM-EXT-1) All Mail is the only place archived
+mail with no label lives: it is read, gives no label, and counts only for
+mail in no other folder; it is also where archived mail goes back to.
 
 A message's ID is 16 hex digits, as Gmail's are: a hash of its Message-ID,
 INTERNALDATE and size, which a move keeps, so the same message in two
 folders is one message with two labels. Where that can't tell messages
 apart (no Message-ID, or one header ID at two new places with different
-content), the content's hash is the ID.
+content), the content's hash is the ID; on Gmail, copies sharing an
+X-GM-MSGID are one message without it.
 
 A scan reads (the UID map as the backup last saved it, folders, UIDs,
 flags, the headers of mail the map doesn't know, content hashes where
@@ -53,6 +57,7 @@ TIMEOUT = 120  # seconds a socket may stall
 SPECIAL = {"\\Sent": "SENT", "\\Drafts": "DRAFT", "\\Junk": "SPAM", "\\Trash": "TRASH"}
 BY_NAME = {"sent": "SENT", "drafts": "DRAFT", "junk": "SPAM", "spam": "SPAM", "trash": "TRASH"}
 SKIP = {"\\Noselect", "\\NonExistent", "\\All", "\\Flagged"}  # not mail, or copies of it
+GMAIL_EXT = "X-GM-EXT-1"  # Gmail: X-GM-MSGID, and an All Mail (\\All) that isn't only copies
 SYSTEM = {"INBOX", "SENT", "DRAFT", "SPAM", "TRASH", "UNREAD", "STARRED"}
 HIDDEN = frozenset({"SPAM", "TRASH"})  # left out of listings unless include_spam_trash
 TOKEN = "imap:1"  # a history point: the UID map is the state
@@ -77,6 +82,7 @@ class Folder:
     label: str  # as the backup names it
     review: bool = False  # one of mailcellar's review folders (mailcellar/review/<label>)
     archive: bool = False  # the server marks it \\Archive (RFC 6154): where archived mail goes
+    store: bool = False  # Gmail's All Mail: every message outside Trash and Spam; no label
 
 
 @dataclass(frozen=True)
@@ -88,6 +94,7 @@ class Fetched:
     internal: int | None = None  # ms since epoch
     size: int | None = None
     literal: bytes | None = None
+    gm_msgid: int | None = None  # Gmail's X-GM-MSGID: one message's, in every folder
 
 
 @dataclass(frozen=True)
@@ -114,7 +121,8 @@ class Message:
     # folder named like a mark gives the label, never the mark, so the trash step's
     # check reads this, not labels.
     marks: frozenset[str] = frozenset()
-    places: tuple[Location, ...] = ()  # every copy, folder and UID: what a write acts on
+    # Every copy, folder and UID: what a write acts on. All Mail's only for mail in no other folder.
+    places: tuple[Location, ...] = ()
     keywords: frozenset[str] = frozenset()  # the marks it carries as keywords (on any copy)
 
 
@@ -216,23 +224,27 @@ def list_entries(lines) -> tuple[tuple[str, str | None, frozenset[str]], ...]:
     return tuple(out)
 
 
-def folders_from(entries) -> tuple[Folder, ...]:
+def folders_from(entries, gmail: bool = False) -> tuple[Folder, ...]:
     """
     The folders to back up, with their labels. A name stands for a role
     (Trash, Junk…) only when the server marks no folder for it: a server may
     mark Sent and Trash but not its Junk, while a user's own folder called
-    Junk stays theirs on a server that marks its real one. Pure.
+    Junk stays theirs on a server that marks its real one. On Gmail
+    (`gmail`: X-GM-EXT-1) All Mail (\\All) is kept too, as the store and
+    the archive: archived mail with no label is in no other folder. Pure.
     """
     by_name = frozenset(BY_NAME.values()) - marked_roles(entries)
+    skip = SKIP - {"\\All"} if gmail else SKIP
     return tuple(
         Folder(
             name,
             folder_label(name, delim, flags, by_name=by_name),
             review=review_label(plain_label(name, delim)) is not None,
-            archive="\\Archive" in flags,
+            archive=bool(flags & {"\\Archive", "\\All"}),
+            store="\\All" in flags,
         )
         for name, delim, flags in entries
-        if not flags & SKIP
+        if not flags & skip
     )
 
 
@@ -436,12 +448,14 @@ def parse_fetched(text: bytes, literal: bytes | None) -> Fetched | None:
     flags = re.search(rb"FLAGS \(([^)]*)\)", text)
     date = re.search(rb'INTERNALDATE "([^"]+)"', text)
     size = re.search(rb"RFC822\.SIZE (\d+)", text)
+    gm_msgid = re.search(rb"X-GM-MSGID (\d+)", text)
     return Fetched(
         uid=int(uid[1]),
         flags=frozenset(flags[1].decode().split()) if flags else None,
         internal=internal_ms(date[1].decode()) if date else None,
         size=int(size[1]) if size else None,
         literal=literal,
+        gm_msgid=int(gm_msgid[1]) if gm_msgid else None,
     )
 
 
@@ -468,9 +482,10 @@ def header_key(f: Fetched) -> str | None:
 def needs_content(reads) -> frozenset[Location]:
     """
     New messages whose headers can't name them: no Message-ID, or a header ID
-    at more than one new place, which may be copies or different messages. Pure.
+    at more than one new place, which may be copies or different messages;
+    on Gmail, places sharing one X-GM-MSGID are copies of one. Pure.
     """
-    places: dict[str, list[Location]] = {}
+    places: dict[str, list[tuple[Location, int | None]]] = {}
     without = []
     for read in reads:
         for uid, f in read.headers.items():
@@ -478,9 +493,20 @@ def needs_content(reads) -> frozenset[Location]:
             if key is None:
                 without.append((read.folder.name, uid))
             else:
-                places.setdefault(key, []).append((read.folder.name, uid))
-    shared = [loc for locs in places.values() if len(locs) > 1 for loc in locs]
+                places.setdefault(key, []).append(((read.folder.name, uid), f.gm_msgid))
+    shared = [
+        loc
+        for found in places.values()
+        if len(found) > 1 and not copies_of_one(gm for _loc, gm in found)
+        for loc, _gm in found
+    ]
     return frozenset(without + shared)
+
+
+def copies_of_one(gm_msgids) -> bool:
+    """Whether places are copies of one Gmail message: one X-GM-MSGID, given at each. Pure."""
+    found = set(gm_msgids)
+    return len(found) == 1 and None not in found
 
 
 def assign_ids(reads, digests: Mapping[Location, str]) -> dict[Location, str]:
@@ -517,8 +543,11 @@ def merge(reads, ids: Mapping[Location, str], origins: Mapping | None = None) ->
     (Trash and Junk only if it is in nothing else) and its flags; fetched from
     a folder it lives in. A message in a review folder keeps the labels of the
     folders it was in before (`origins`: ID → ((folder, label), ...)), as a
-    Gmail message keeps its labels when one is added. Pure.
+    Gmail message keeps its labels when one is added. Gmail's All Mail (a
+    store folder) gives no label, and its copy counts only for a message in
+    no other folder. Pure.
     """
+    stores = {read.folder.label for read in reads if read.folder.store}
     placed: dict[str, list[tuple[FolderRead, int]]] = {}
     for read in reads:
         for uid in read.flags:
@@ -527,11 +556,13 @@ def merge(reads, ids: Mapping[Location, str], origins: Mapping | None = None) ->
                 placed.setdefault(ids[loc], []).append((read, uid))
     messages = {}
     for gid, places in placed.items():
+        places = [(r, u) for r, u in places if not r.folder.store] or places
         folder_labels = {read.folder.label for read, _uid in places}
         recorded = (origins or {}).get(gid, {})
         for read, _uid in places:  # the review it's in now: older ones are done with
             if read.folder.review:
                 folder_labels |= {label for _n, label in recorded.get(read.folder.label, ())}
+        folder_labels -= stores
         kept = folder_labels - HIDDEN or folder_labels
         flags = frozenset().union(*(read.flags[uid] for read, uid in places))
         home = [(r, u) for r, u in places if r.folder.label in kept]
@@ -560,7 +591,9 @@ def merge(reads, ids: Mapping[Location, str], origins: Mapping | None = None) ->
         )
         for read in reads
     }
-    labels = frozenset({read.folder.label for read in reads} | {"UNREAD", "STARRED"}).union(
+    labels = frozenset(
+        {read.folder.label for read in reads} - stores | {"UNREAD", "STARRED"}
+    ).union(
         *(m.labels for m in messages.values())  # mailcellar's keywords among them
     )
     return Scan(messages, labels, maps, folders=tuple(read.folder for read in reads))
@@ -1415,7 +1448,9 @@ class ImapAccount:
         greeting's list, and servers name MOVE only once signed in.
         """
         entries = self._read_entries()
-        return ServerInfo(self._capabilities(), folders_from(entries), marked_roles(entries))
+        capabilities = self._capabilities()
+        folders = folders_from(entries, GMAIL_EXT in capabilities)
+        return ServerInfo(capabilities, folders, marked_roles(entries))
 
     def _capabilities(self) -> frozenset[str]:
         return self._retrying(
@@ -1535,8 +1570,8 @@ class ImapAccount:
             self._entries = self._retrying("listing folders", run)
         return self._entries
 
-    def _read_folders(self) -> tuple[Folder, ...]:
-        return folders_from(self._read_entries())
+    def _read_folders(self, gmail: bool = False) -> tuple[Folder, ...]:
+        return folders_from(self._read_entries(), gmail)
 
     def _list_uids(self, conn, exists: int | None) -> list[int]:
         """
@@ -1563,8 +1598,13 @@ class ImapAccount:
             )
         return sorted(found)
 
-    def _read_folder(self, folder: Folder) -> FolderRead | None:
-        """One folder's UIDs, flags and new headers; None if it can't be examined."""
+    def _read_folder(self, folder: Folder, gmail: bool = False) -> FolderRead | None:
+        """
+        One folder's UIDs, flags and new headers (on Gmail with X-GM-MSGID); None
+        if it can't be examined.
+        """
+        items = "(INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)]"
+        items += " X-GM-MSGID)" if gmail else ")"
 
         def run(conn):
             typ, data = conn.select(quote(folder.name), readonly=True)
@@ -1580,11 +1620,7 @@ class ImapAccount:
                 flags |= {uid: f.flags or frozenset() for uid, f in fetched.items()}
             headers: dict[int, Fetched] = {}
             for chunk in chunks(u for u in uids if u not in known and u in flags):
-                typ, data = conn.uid(
-                    "FETCH",
-                    ",".join(map(str, chunk)),
-                    "(INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])",
-                )
+                typ, data = conn.uid("FETCH", ",".join(map(str, chunk)), items)
                 headers |= parse_fetch(self._ok(typ, data, "FETCH headers"))
             # A UID expunged between SEARCH and FETCH has no flags or headers: left out.
             seen = {u: f for u, f in flags.items() if u in known or u in headers}
@@ -1620,12 +1656,13 @@ class ImapAccount:
     def _read_scan(self) -> Scan:
         """Every folder read, and the messages decided."""
         read_at = int(time.time() * 1000)
-        folders = self._read_folders()
+        gmail = GMAIL_EXT in self._capabilities()
+        folders = self._read_folders(gmail)
         reads, skipped = [], []
         # Inside restore's uploads, their line stays instead: see progress.part.
         with progress.part(f"{self.account}: reading folders", len(folders)) as p:
             for folder in folders:
-                read = self._read_folder(folder)
+                read = self._read_folder(folder, gmail)
                 if read is None:
                     skipped.append(folder.name)
                 else:

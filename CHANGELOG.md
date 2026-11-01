@@ -8,6 +8,15 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 
 ## Unreleased
 
+### Fixed
+- A backup of Gmail over IMAP (`setup --imap imap.gmail.com`) left out
+  archived mail with no label, which Gmail keeps only in All Mail. It now
+  reads All Mail too, for mail in no other folder, without a label of its
+  own; offload and restore put such mail back there, not in a new Archive
+  folder. Copies of one message in several folders are matched by Gmail's
+  own message ID rather than by downloading each
+  ([#181](https://github.com/mailcellar/mailcellar/issues/181)).
+
 ## 0.24.0 (2026-10-31)
 
 ### Added
