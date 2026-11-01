@@ -74,6 +74,7 @@ class FakeMailbox:
 
     LABELS = {"INBOX": "INBOX", "Label_1": "work", "CHAT": "CHAT"}
     provider = "gmail"
+    id_kind = "gmail"
 
     def __init__(
         self,

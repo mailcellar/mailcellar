@@ -44,6 +44,7 @@ class FakeImap:
         self.append_adds = b""  # a header line the server adds to what is appended, as some do
         self.drop_after_append = 0  # how many APPENDs store the message, then lose the connection
         self.bodiless: set[int] = set()  # UIDs whose BODY.PEEK[] comes back without a body
+        self.appended_gm = 9_000  # the last X-GM-MSGID Gmail gave an appended message
         self.capabilities = ("IMAP4REV1", "LITERAL+", "AUTH=PLAIN")  # the greeting's, as imaplib
         self.signed_in = ("IMAP4rev1", "LITERAL+", "SPECIAL-USE", "MOVE", "UIDPLUS")  # CAPABILITY
         self.add_folder("INBOX")
@@ -53,13 +54,19 @@ class FakeImap:
         flags = ["\\HasNoChildren", *special] + ([] if selectable else ["\\Noselect"])
         self.folders[name] = {"flags": flags, "uidvalidity": uidvalidity, "next": 1, "uids": {}}
 
-    def add(self, folder, raw=None, flags=(), date=DATE, msgid="<m@example.com>", gm=None):
-        """A message in `folder`; `gm`, Gmail's X-GM-MSGID, the same for each copy of one."""
+    def add(
+        self, folder, raw=None, flags=(), date=DATE, msgid="<m@example.com>", gm=None, thread=None
+    ):
+        """
+        A message in `folder`; `gm`, Gmail's X-GM-MSGID, the same for each copy
+        of one, and `thread` its X-GM-THRID (its own X-GM-MSGID if not given).
+        """
         raw = raw if raw is not None else make_eml(msgid=msgid)
         f = self.folders[folder]
         uid = f["next"]
         f["next"] += 1
-        f["uids"][uid] = {"raw": raw, "flags": set(flags), "date": date, "gm": gm}
+        thread = thread if thread is not None else gm
+        f["uids"][uid] = {"raw": raw, "flags": set(flags), "date": date, "gm": gm, "thr": thread}
         return uid
 
     def move(self, src, uid, dst):
@@ -167,10 +174,11 @@ class FakeImap:
                 prefix += f' INTERNALDATE "{m["date"]}"'
             if "RFC822.SIZE" in items:
                 prefix += f" RFC822.SIZE {len(m['raw'])}"
-            if "X-GM-MSGID" in items:
-                if "X-GM-EXT-1" not in self.signed_in:
-                    raise AssertionError("FETCH X-GM-MSGID: a server without Gmail's extension")
-                prefix += f" X-GM-MSGID {m['gm']}" if m["gm"] is not None else ""
+            for item, key in (("X-GM-MSGID", "gm"), ("X-GM-THRID", "thr")):
+                if item in items:
+                    if "X-GM-EXT-1" not in self.signed_in:
+                        raise AssertionError(f"FETCH {item}: a server without Gmail's extension")
+                    prefix += f" {item} {m[key]}" if m[key] is not None else ""
             literal = None
             if "HEADER.FIELDS (MESSAGE-ID)" in items:
                 mid = BytesHeaderParser().parsebytes(m["raw"]).get("Message-ID")
@@ -215,7 +223,8 @@ class FakeImap:
                 self.move(self.selected, u, name)
             else:
                 m = uids[u]
-                self.add(name, raw=m["raw"], flags=set(m["flags"]), date=m["date"], gm=m["gm"])
+                copied = {"flags": set(m["flags"]), "gm": m["gm"], "thread": m["thr"]}
+                self.add(name, raw=m["raw"], date=m["date"], **copied)
         return "OK", [None]
 
     def append(self, mailbox, flags, date_time, message):
@@ -226,7 +235,12 @@ class FakeImap:
         if name not in self.folders:
             return "NO", [b"[TRYCREATE] no such mailbox"]
         names = set((flags or "()").strip("()").split())
-        uid = self.add(name, raw=self.append_adds + message, flags=names, date=date_time.strip('"'))
+        gm = None
+        if "X-GM-EXT-1" in self.signed_in:  # Gmail gives appended mail an X-GM-MSGID of its own
+            self.appended_gm += 1
+            gm = self.appended_gm
+        raw = self.append_adds + message
+        uid = self.add(name, raw=raw, flags=names, date=date_time.strip('"'), gm=gm)
         if self.drop_after_append:  # stored, but the answer never arrives
             self.drop_after_append -= 1
             raise imaplib.IMAP4.abort("socket error: EOF")

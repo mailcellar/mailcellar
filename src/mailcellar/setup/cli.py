@@ -299,6 +299,44 @@ def gmail_files(folder: Path) -> list[str]:
     return named + sorted(p.name for p in folder.glob("*token-*.json"))
 
 
+def switch_refusal(address: str, held, folder: Path, capabilities) -> str:
+    """
+    Why a Gmail account (`held`: its client, tokens or key) can't be set up
+    over IMAP, or "": its backup holds Gmail's message IDs, which only
+    Gmail's own server gives over IMAP (X-GM-EXT-1). `capabilities` None:
+    not signed in, so not known. Pure.
+    """
+    from mailcellar import imap
+
+    if capabilities is not None and imap.GMAIL_EXT in capabilities:
+        return ""
+    why = (
+        "set it up without --no-auth, so the server can be checked"
+        if capabilities is None
+        else "this server isn't Gmail's, so its IDs would differ"
+    )
+    return (
+        f"{address} is set up as a Gmail account ({', '.join(held)} in {folder}), and its "
+        f"backup holds Gmail's message IDs, which only Gmail's IMAP server gives; {why}"
+    )
+
+
+def login_refusal(address: str, held, folder: Path, username: str) -> str:
+    """
+    Why a Gmail account can't move to IMAP logging in as `username`, or "":
+    another login is another mailbox, whose Gmail IDs a backup can't tell
+    from the account's own, and IMAP has no check of whose mailbox it is,
+    as the Gmail API's sign-in has. Pure.
+    """
+    if username.casefold() == address.casefold():
+        return ""
+    return (
+        f"{address} is set up as a Gmail account ({', '.join(held)} in {folder}), and its "
+        f"backup can carry on over IMAP only from its own mailbox: log in as {address}, "
+        f"not {username}"
+    )
+
+
 def review_report(review: str, keywords: bool | None, account: str) -> str:
     """
     How offload and dedup will mark mail for review: `keywords` is whether
@@ -451,9 +489,16 @@ def run(args) -> int:
         source = checked_client(args.client)
 
     folder = config / name
+    over_imap = gmailapi.is_imap(folder)
+    if over_imap and (
+        refusal := api_move_refusal(address, folder, held_ids(address), args.no_auth)
+    ):
+        raise SetupError(refusal)
     installed = write_account(config, text, entries, name, address, source, args.force)
     print(f"{address} is account '{name}': client {installed} in {folder}")
     print(f"  accounts.toml: {'already listed' if name in entries else 'added'}")
+    if over_imap:
+        return move_to_api(address, name, folder)
 
     if args.no_auth:
         print(f"\nSign in when ready: mailcellar auth {name} --scope readonly")
@@ -471,6 +516,61 @@ def run(args) -> int:
     print("      mailcellar schedule install   # run backups weekly, unattended")
     print("With the consent screen in Testing status Google expires the token after 7 days:")
     print(f"publish the app, or renew with mailcellar auth {name} --scope readonly --renew.")
+    return 0
+
+
+def held_ids(address: str) -> str:
+    """Whose message IDs the address's backup holds (sidecar.id_kind); 'gmail' with none yet."""
+    from mailcellar.backup import sidecar
+    from mailcellar.paths import backup_folder
+
+    try:
+        return sidecar.id_kind(backup_folder(address))
+    except sidecar.MetaError as exc:
+        raise SetupError(str(exc)) from None
+
+
+def api_move_refusal(address: str, folder: Path, held: str, no_auth: bool) -> str:
+    """
+    Why an account backed up over IMAP can't move to the Gmail API, or "":
+    its backup holds IDs made from headers (not Gmail's own, which the API
+    gives), or --no-auth would leave it without a checked sign-in. Pure.
+    """
+    where = folder / gmailapi.IMAP_SETTINGS
+    if held != "gmail":
+        return (
+            f"{address} is backed up over IMAP ({where}) under IDs made from each message's "
+            "headers, not Gmail's, so its backup can't carry on through the Gmail API; move "
+            "its backup folder aside first to start a new one"
+        )
+    if no_auth:
+        return (
+            f"{address} is backed up over IMAP ({where}); to move it to the Gmail API, leave "
+            "out --no-auth: the sign-in is checked before IMAP is left"
+        )
+    return ""
+
+
+def move_to_api(address: str, name: str, folder: Path) -> int:
+    """
+    An account backed up over Gmail's IMAP moved to the Gmail API: signed in
+    read-only first, as auth does (auth leaves an IMAP account alone), then
+    its imap.toml and password removed, so its backups go through the API
+    and carry on. A failed sign-in leaves it on IMAP.
+    """
+    print(f"\nSigning in {address} (read-only access; nothing in Gmail changes)...")
+    try:
+        creds = gmailapi.load_credentials(folder, address, "readonly", exact=True)
+        gmailapi.GmailAccount(address, creds)  # confirms the mailbox identity
+    except gmailapi.GmailError as exc:
+        print(f"\nThe client is set up, but signing in failed: {exc}")
+        print(f"{address} is still backed up over IMAP; run setup again to move it.")
+        return 1
+    for file in (gmailapi.IMAP_SETTINGS, gmailapi.IMAP_PASSWORD):
+        (folder / file).unlink(missing_ok=True)
+    print(f"{address} moved from IMAP to the Gmail API: imap.toml and its password removed")
+    print(f"from {folder}. The backup carries on: Gmail's IDs are the same either way.")
+    print(f"\nNext: mailcellar backup {name}")
     return 0
 
 
@@ -590,12 +690,9 @@ def run_imap(args, config: Path, text: str, entries) -> int:
         raise SetupError(refusal)
     name = pick_name(entries, address, args.name)
     folder = config / name
-    held = gmail_files(folder)
-    if held and not gmailapi.is_imap(folder):
-        raise SetupError(
-            f"{address} is set up as a Gmail account ({', '.join(held)} in {folder}), "
-            "and its backup holds Gmail's message IDs; an address is backed up one way only"
-        )
+    held = [] if gmailapi.is_imap(folder) else gmail_files(folder)
+    if held and args.no_auth:
+        raise SetupError(switch_refusal(address, held, folder, None))
     # Absolute: a scheduled backup runs from another folder.
     cafile = str(Path(args.cafile).expanduser().resolve()) if args.cafile else None
     options = {"port": args.port, "username": args.username, "cafile": cafile}
@@ -610,6 +707,8 @@ def run_imap(args, config: Path, text: str, entries) -> int:
         )
     except gmailapi.GmailError as exc:
         raise SetupError(str(exc)) from None
+    if held and (refusal := login_refusal(address, held, folder, settings.username)):
+        raise SetupError(refusal)
     toml = imap_toml(settings, address).encode()
     dest = folder / gmailapi.IMAP_SETTINGS
     toml_status = private_status(toml, dest, args.force, "imap.toml", IMAP_WHY)
@@ -628,6 +727,8 @@ def run_imap(args, config: Path, text: str, entries) -> int:
         try:
             with closing(imap.ImapAccount(address, settings, password)) as box:
                 info = box.server_info()
+                if held and (refusal := switch_refusal(address, held, folder, info.capabilities)):
+                    raise SetupError(f"{refusal}; nothing was written")
                 # Keywords are kept per folder, and only a SELECT says: one of INBOX, which
                 # changes nothing. Only said, never chosen for the user.
                 if info.can_offload and settings.review != "folder":

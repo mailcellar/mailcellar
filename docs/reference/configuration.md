@@ -92,6 +92,12 @@ restore works into it too, by upload only where it has no MOVE
 ([Backing up an IMAP account](../guide/imap.md)).
 Setting an account up again (for a new password, say) keeps the port, username, CA
 file and review mode its `imap.toml` holds, unless an option changes them.
+A Gmail account moves between the Gmail API and Gmail's IMAP server with
+setup, its backup carrying on: `--imap imap.gmail.com` on an account set
+up for the API, after signing in to a server that turns out to be Gmail's;
+setup without `--imap` on one backed up over Gmail's IMAP, which signs in
+to the API, then removes its `imap.toml` and password
+([Gmail over IMAP, or through the API](../guide/imap.md#gmail-over-imap-or-through-the-api)).
 Where the server would allow offloading, setup also says how mail will be
 marked for review, and whether the server keeps keywords in INBOX (a
 SELECT that changes nothing); where it keeps none, it says to review by

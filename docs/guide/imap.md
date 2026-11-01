@@ -53,7 +53,7 @@ provider's account settings and give that to `setup`.
 | iCloud Mail | `imap.mail.me.com` | `--username` with the part of the address before `@` (Apple: the full address if that fails); it has no MOVE, so offload and dedup are refused and restore only uploads |
 | Yahoo Mail | `imap.mail.yahoo.com` | it keeps no custom keywords: add `--review folder` to offload |
 | Fastmail | `imap.fastmail.com` | not yet tried with mailcellar |
-| Gmail | `imap.gmail.com` | an app password needs no Google Cloud project and doesn't expire, but opens the whole mailbox; the Gmail API (`setup` without `--imap`) can sign in read-only, reads only what changed, and keeps Important, the categories and Gmail searches in offload rules. Over IMAP, archived mail with no label is read from All Mail; after a first backup of a large mailbox, Gmail may answer IMAP slowly for a while |
+| Gmail | `imap.gmail.com` | the quickest start: no Google Cloud project, only an app password (needs 2-Step Verification); [compared with the API](#gmail-over-imap-or-through-the-api). Gmail limits IMAP to about 2,500 MB of downloads a day, so a first backup of a larger mailbox slows partway ([Gmail's daily limits](#gmails-daily-limits)) |
 
 Outlook.com and Microsoft 365 want OAuth over IMAP (XOAUTH2), which
 mailcellar doesn't do yet, so they aren't supported: `setup` refuses an
@@ -85,9 +85,10 @@ includes the account like any other, with no token to renew.
 What the backup keeps, in gyb's layout, as for Gmail:
 
 - **Folders become labels.** INBOX, and the server's Sent and Drafts
-  folders, become `INBOX`, `SENT` and `DRAFT`; other folders keep their
-  names, with `/` for nesting (`Projects/2026`). A message in two
-  folders is backed up once, with both labels.
+  folders, become `INBOX`, `SENT` and `DRAFT` (and Gmail's Important
+  `IMPORTANT`); other folders keep their names, with `/` for nesting
+  (`Projects/2026`). A message in two folders is backed up once, with
+  both labels.
 - **Flags:** an unread message gets `UNREAD`, a flagged one `STARRED`.
 - **A folder of all mail** (Gmail's All Mail, flagged `\All`) repeats
   the others and is left out, except on Gmail, where archived mail with
@@ -98,10 +99,74 @@ What the backup keeps, in gyb's layout, as for Gmail:
   labelled `TRASH`.
 - **Moves keep the message's identity.** Each message is known by its
   Message-ID, date and size, which a move doesn't change, so filing mail
-  into another folder doesn't download it again.
+  into another folder doesn't download it again. On Gmail it is known by
+  Gmail's own message ID, the one the Gmail API gives.
 
 `count` compares the server with the backup; `verify` and
 `verify --chain` check the backup itself, as for Gmail.
+
+### Gmail over IMAP, or through the API
+
+mailcellar reads Gmail either way, and each has something the other
+lacks:
+
+- **Over IMAP** (`setup --imap imap.gmail.com`) needs only an
+  [app password](https://support.google.com/accounts/answer/185833),
+  which Google offers once 2-Step Verification is on, and which lasts
+  until the account's password changes: the quickest start, with no
+  Google Cloud project. Google's page says when the option is missing
+  (security keys only, a work or school account, Advanced Protection).
+  But the password opens the whole mailbox, each backup lists every
+  folder again, and the categories don't come at all.
+- **Through the Gmail API** needs a Google Cloud project of your own,
+  about ten minutes' setup ([Setting up Google Cloud](google-cloud.md)),
+  and its tokens expire weekly unless you publish it. In return a backup
+  signs in read-only and reads only what changed since the last, the
+  categories are kept, and offload rules can use Gmail searches.
+
+A Gmail backup holds the same thing either way: the same messages, byte
+for byte, under Gmail's own IDs and threads, with the same labels, but
+for the categories (`CATEGORY_…`), which only the API gives. So an
+account set up one way can be set up the other later, and its backup
+carries on: nothing is downloaded again, and offloaded batches, legal
+holds and the hash chain still apply. Moving to IMAP:
+
+```bash
+mailcellar setup alex@example.com --imap imap.gmail.com
+```
+
+setup signs in first and goes ahead only if the server is Gmail's. The
+first backup over IMAP reads every folder, downloads only mail that is
+new since the last backup through the API, and drops the category
+labels. Moving back to the API is `setup` without `--imap`:
+
+```bash
+mailcellar setup alex@example.com --client ~/Downloads/client_secret_*.json
+```
+
+It signs in to the Gmail API first (read-only), and only then removes the
+account's `imap.toml` and IMAP password. Its first backup through the API
+lists every message once, and downloads only what is new.
+
+An IMAP backup of Gmail made with mailcellar 0.24.0 or earlier, before
+it used Gmail's own IDs, can't be carried on: backup says so. Move it
+aside and back up again.
+
+#### Gmail's daily limits
+
+Google limits how much mail one account moves over IMAP in a day: about
+2,500 MB downloaded and 500 MB uploaded
+([Gmail bandwidth limits](https://knowledge.workspace.google.com/admin/gmail/gmail-bandwidth-limits),
+written for Google Workspace; the limits "may change without notice").
+A first backup of a larger mailbox goes past it partway. Gmail gives no
+error: it answers every command slowly, for hours (Google's page says
+up to a day). Leave the backup running, or stop it and run it again
+later: it carries on from what it has saved. A backup moved from the
+API downloads only what's new, so this is about a first backup.
+
+A restore into Gmail over IMAP uploads, so a selection larger than
+about 500 MB is better restored over several days with `--limit`, or
+through the API.
 
 ## 3. Offload and remove duplicates
 
@@ -155,6 +220,10 @@ another account (`--to`), IMAP or Gmail, as it does for Gmail:
   server keeps keywords (otherwise restore says so and carries on; in a
   folder that keeps none, the message is restored with a note in the log).
 
+Into Gmail over IMAP, Google allows about 500 MB of uploads a day
+([Gmail's daily limits](#gmails-daily-limits)): restore a large
+selection over several days with `--limit`.
+
 On a server without MOVE (iCloud), restore only uploads: a message still
 in the server's Trash can't be moved out, so it is skipped, saying so,
 and left unrecorded; once the Trash is emptied, the next restore appends
@@ -172,8 +241,9 @@ restored into an IMAP account has its labels made folders (INBOX and the
 server's Sent and Drafts for Gmail's own, a folder per user label,
 matched whatever its case and nested at `/` only; archived mail into the
 folder the server marks as its archive, All Mail on Gmail, else Archive), unread
-and starred as flags, and Important and the categories left out; an
-IMAP backup restored into Gmail has its folders made labels. A message
+and starred as flags, and Important (except into Gmail's own Important
+folder) and the categories left out; an IMAP backup restored into Gmail
+has its folders made labels. A message
 filed under several labels goes into each of those folders.
 
 The message goes back byte for byte: no Date header is added, as it is
@@ -196,8 +266,15 @@ written, and a later run replaces the password. Only a different host,
 port, username or CA file needs `--force`, since it changes `imap.toml`.
 
 **"set up as a Gmail account":** the address already has an OAuth client
-or a token, and its backup holds Gmail's message IDs. An address is
-backed up one way only, Gmail's API or IMAP.
+or a token, and its backup holds Gmail's message IDs, which over IMAP
+only Gmail's own server gives, for the account's own mailbox. Give
+`--imap imap.gmail.com`, log in as the address itself (no other
+`--username`), and leave out `--no-auth`, so setup can check the server.
+
+**"holds … under IDs made from each message's headers":** the backup
+was made over IMAP before mailcellar used Gmail's own IDs there, or the
+account was moved to another provider. Set it up as it was, or move the
+backup folder aside and back up again.
 
 **"can be read by others":** the password file's permissions were widened,
 perhaps by copying the config folder. Run the `chmod 600` the message

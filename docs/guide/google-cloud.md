@@ -8,7 +8,10 @@ mailcellar reads your mail through the Gmail API, so it needs an *OAuth
 client*: a credential, made in a Google Cloud project that you own, that lets
 the program ask you for permission. It is free, takes about ten minutes, and
 is the hardest step of setup. You do it once; one client can serve every
-account.
+account. For Gmail there is a quicker way in, with no Cloud project: an
+app password over IMAP. What the API adds, and how to move between the
+two, is in
+[Gmail over IMAP, or through the API](imap.md#gmail-over-imap-or-through-the-api).
 
 Google changes its console often, so this page names what to look for and
 links to Google's own instructions for each screen rather than showing
