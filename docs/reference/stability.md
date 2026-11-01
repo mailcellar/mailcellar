@@ -26,7 +26,8 @@ says so under **Changed** or **Removed**.
 - **The backup.** Each account's backup stays in
   [gyb](https://github.com/GAM-team/got-your-back)'s format, byte for byte:
   gyb can read it, and mailcellar reads gyb's. An IMAP account's backup
-  is in the same format, with message IDs of mailcellar's own. Each
+  is in the same format, with message IDs of mailcellar's own, except
+  Gmail's: over IMAP its IDs are Gmail's, as through the API. Each
   backup's hash chain (`chain.jsonl`) stays readable, so a later version's
   `verify --chain` checks the links an earlier one wrote.
 - **The data root's layout.** Where backups, plans, logs, manifests and
