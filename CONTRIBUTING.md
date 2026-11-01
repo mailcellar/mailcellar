@@ -92,8 +92,11 @@ Co-Authored-By: <model or agent> <address>   (only if AI helped)
 - **Types:** `feat` (a new command, option or behaviour), `fix`, `docs`,
   `test`, `refactor`, `perf`, `build` (`pyproject.toml`, `uv.lock`), `ci`,
   `chore`.
-- **Scopes,** optional: `backup`, `dedup`, `offload`, `restore`, `search`,
-  `report`, `setup`, `hold`, `gmailapi`, `imap`, `mailbox`, `message`, `cli`, `paths`.
+- **Scopes,** optional: `backup`, `dedup`, `offload`, `restore`, `export`,
+  `search`, `report`, `setup`, `hold`, `gmailapi`, `imap`, `mailbox`,
+  `message`, `cli`, `paths`. A `docs` commit takes the command its page
+  documents, or `guide`, `reference`, `readme` or `changelog` for a change
+  across pages.
 - **Summary** at most 72 characters.
 - **Breaking changes** (a CLI option or output format changes, or the
   backup format) take `!` after the scope and a `BREAKING CHANGE:` footer
