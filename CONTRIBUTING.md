@@ -119,7 +119,23 @@ mode (a broken link fails), and pushes to `main` deploy it. A new guide goes in
 `docs/guide/` and in `mkdocs.yml`'s `nav`. Every command and option is
 documented in `docs/reference/` (one page per command); guides link there for
 options instead of repeating them. Links from a guide to the README use its
-GitHub address, so they work on GitHub and on the site. To preview:
+GitHub address, so they work on GitHub and on the site.
+
+Every page is read in both places: the site is built with Python-Markdown,
+and GitHub renders CommonMark, which read some Markdown differently. Write
+what both render alike:
+
+- a blank line between a paragraph and a list;
+- nested list items indented 4 spaces;
+- in a table, separate code spans (`--party ADDRESS`, `--party @DOMAIN`)
+  rather than `\|` inside one, whose backslash the site shows;
+- an anchor as an inline `<a id="name"></a>`, not `{: #name }`, which GitHub
+  shows as text; link to a heading with punctuation or code in it through
+  such an anchor, as the two derive heading IDs differently.
+
+`tests/test_docs_markdown.py` checks the first three and `{: `; the strict
+build doesn't, and GitHub's view doesn't show what breaks only on the site,
+so look at a change in the preview:
 
 ```bash
 uvx --exclude-newer 2026-10-11 --from zensical==0.0.69 zensical serve
