@@ -43,12 +43,13 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 ### Changed
 - Gmail over IMAP (`setup --imap imap.gmail.com`) is now a quick start
   for Gmail, with no Google Cloud project: its backup is the one the Gmail
-  API makes, under Gmail's own message and thread IDs, with Important as
-  `IMPORTANT`; only the categories need the API. An account can move
-  between the two with `setup`, and its backup carries on without
-  downloading anything again. An IMAP backup of Gmail made with 0.24.0 or
-  earlier can't be carried on: backup says so; move it aside and back up
-  again.
+  API makes, under Gmail's own message and thread IDs and with its labels
+  (Important as `IMPORTANT`, and those of mail in Trash); only the
+  categories need the API, and a backup moved to IMAP keeps those its
+  mail has. An account can move between the two with `setup`, and its
+  backup carries on without downloading anything again. An IMAP backup
+  of Gmail made with 0.24.0 or earlier can't be carried on: backup says
+  so; move it aside and back up again.
 
 ### Fixed
 - A rewritten hash chain stopped showing once the next command recorded a
