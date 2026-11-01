@@ -53,7 +53,7 @@ provider's account settings and give that to `setup`.
 | iCloud Mail | `imap.mail.me.com` | `--username` with the part of the address before `@` (Apple: the full address if that fails); it has no MOVE, so offload and dedup are refused and restore only uploads |
 | Yahoo Mail | `imap.mail.yahoo.com` | it keeps no custom keywords: add `--review folder` to offload |
 | Fastmail | `imap.fastmail.com` | not yet tried with mailcellar |
-| Gmail | `imap.gmail.com` | an app password needs no Google Cloud project and doesn't expire, but opens the whole mailbox; the Gmail API (`setup` without `--imap`) can sign in read-only, reads only what changed, and keeps Important, the categories and Gmail searches in offload rules. Over IMAP, archived mail with no label is read from All Mail; tried on a small scale only |
+| Gmail | `imap.gmail.com` | an app password needs no Google Cloud project and doesn't expire, but opens the whole mailbox; the Gmail API (`setup` without `--imap`) can sign in read-only, reads only what changed, and keeps Important, the categories and Gmail searches in offload rules. Over IMAP, archived mail with no label is read from All Mail; after a first backup of a large mailbox, Gmail may answer IMAP slowly for a while |
 
 Outlook.com and Microsoft 365 want OAuth over IMAP (XOAUTH2), which
 mailcellar doesn't do yet, so they aren't supported: `setup` refuses an
