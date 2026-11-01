@@ -1,6 +1,7 @@
 """imap.ImapAccount over FakeImap: what it lists, labels and fetches, without writing."""
 
 import base64
+import re
 
 import pytest
 
@@ -607,11 +608,11 @@ def gmail():
     return s
 
 
-def add_gmail(server, folders, msgid, gm):
+def add_gmail(server, folders, msgid, gm, thread=None):
     """One Gmail message, a copy in each of `folders` and in All Mail, all one X-GM-MSGID."""
     raw = make_eml(msgid=msgid)
     for folder in (*folders, "[Gmail]/All Mail"):
-        server.add(folder, raw=raw, flags={"\\Seen"}, gm=gm)
+        server.add(folder, raw=raw, flags={"\\Seen"}, gm=gm, thread=thread)
 
 
 def test_gmails_all_mail_is_kept_as_the_store_and_the_archive():
@@ -652,14 +653,105 @@ def test_gmail_copies_are_one_message_without_reading_their_bodies(gmail):
     assert box.message_labels([gid]) == {gid: {"INBOX", "Projects"}}
 
 
-def test_gmail_messages_sharing_a_header_id_but_not_an_x_gm_msgid_are_read(gmail):
+def test_gmail_messages_sharing_a_header_id_are_told_apart_by_x_gm_msgid(gmail):
     one = make_eml(msgid="<same@x>", body="one!")
     two = make_eml(msgid="<same@x>", body="two!")  # same Message-ID, date and size
     gmail.add("INBOX", raw=one, flags={"\\Seen"}, gm=1)
     gmail.add("Projects", raw=two, flags={"\\Seen"}, gm=2)
     box = account(gmail)
-    assert len(box.list_message_ids()) == 2
-    assert [c for c in gmail.commands if "(BODY.PEEK[])" in c]  # hashed, as elsewhere
+    assert sorted(box.list_message_ids()) == ["1", "2"]
+    assert not [c for c in gmail.commands if "(BODY.PEEK[])" in c]  # no hashing needed
+
+
+def test_gmails_ids_and_threads_are_the_gmail_apis(gmail):
+    add_gmail(gmail, ["INBOX"], "<reply@x>", 0x18C2F3A4B5D6E7F8, thread=0x18C2F3A4B5D6E000)
+    box = account(gmail)
+    assert box.list_message_ids() == ["18c2f3a4b5d6e7f8"]
+    got = []
+    box.get_raw(["18c2f3a4b5d6e7f8"], got.append)
+    assert got[0]["id"] == "18c2f3a4b5d6e7f8" and got[0]["threadId"] == "18c2f3a4b5d6e000"
+    (details,) = box.message_details(["18c2f3a4b5d6e7f8"]).values()
+    assert details["threadId"] == "18c2f3a4b5d6e000"
+    assert not [c for c in gmail.commands if "HEADER.FIELDS" in str(c)]  # no headers read
+    assert box.id_kind == "gmail"
+
+
+def test_gmail_ids_are_kept_when_a_message_moves(gmail, tmp_path):
+    uid = gmail.add("INBOX", msgid="<moving@x>", flags={"\\Seen"}, gm=0xABC)
+    gmail.add("[Gmail]/All Mail", msgid="<moving@x>", flags={"\\Seen"}, gm=0xABC)
+    assert account(gmail, tmp_path).list_message_ids() == ["abc"]
+    gmail.move("INBOX", uid, "Projects")
+    box = account(gmail, tmp_path)
+    assert box.message_labels(["abc"]) == {"abc": {"Projects"}}
+    touched, deleted, _ = box.history_changes(imap.TOKEN)
+    assert touched == {"abc"} and deleted == set()
+
+
+def test_gmails_important_folder_gives_the_apis_label(gmail):
+    gmail.add_folder("[Gmail]/Important", special=["\\Important"])
+    add_gmail(gmail, ["[Gmail]/Important"], "<vip@x>", 5)
+    box = account(gmail)
+    assert box.message_labels(["5"]) == {"5": {"IMPORTANT"}}
+    assert {"id": "IMPORTANT", "name": "IMPORTANT", "type": "system"} in box.label_catalogue()
+    lines = [b'(\\HasNoChildren \\Important) "/" "Important"']
+    (plain,) = imap.folders_from(imap.list_entries(lines))  # elsewhere, a folder like any
+    assert plain.label == "Important"
+
+
+def test_x_gm_labels_are_read_whole_and_out_of_the_way():
+    text = (
+        b'1 (X-GM-LABELS ("\\\\Important" Work "UID 9" "FLAGS (x)" "a \\"b\\"") '
+        b"UID 4 FLAGS (\\Seen))"
+    )
+    names, rest = imap.gm_labels_of(text)
+    assert names == ("\\Important", "Work", "UID 9", "FLAGS (x)", 'a "b"')
+    assert rest == b"1 ( UID 4 FLAGS (\\Seen))"
+    assert imap.parse_fetched(text, None) == imap.Fetched(
+        4, frozenset({"\\Seen"}), gm_labels=names
+    )  # not UID 9, nor the label's flags
+    assert imap.gm_labels_of(b"1 (UID 4 X-GM-LABELS ())") == ((), b"1 (UID 4 )")
+    cut = b"1 (UID 4 X-GM-LABELS (Work {5}"
+    assert imap.gm_labels_of(cut) == (None, cut)  # not whole: unknown, not none
+    assert imap.gm_labels_of(b"1 (UID 4 FLAGS ())") == (None, b"1 (UID 4 FLAGS ())")
+
+
+def test_x_gm_labels_name_gmails_labels_as_the_api_does():
+    names = ("\\Inbox", "\\IMPORTANT", "\\Starred", "\\Muted", "Travel/Far", "&AOk-t&AOk-")
+    assert imap.gmail_labels(names) == {"INBOX", "IMPORTANT", "STARRED", "Travel/Far", "été"}
+    assert imap.gmail_labels(["mailcellar/review/offload-candidate"]) == {"offload-candidate"}
+
+
+def test_gmail_labels_with_no_folder_here_come_from_x_gm_labels(gmail):
+    # Trashed: in Trash only, as Gmail moves it out of every folder, its labels kept.
+    gmail.add("[Gmail]/Trash", msgid="<gone@x>", gm=1, labels=("Projects", "\\Important"))
+    # A label shown in no folder (hidden from IMAP), and the Inbox copy's own left out.
+    raw = make_eml(msgid="<in@x>")
+    gmail.add("INBOX", raw=raw, flags={"\\Seen"}, gm=2, labels=("Receipts",))
+    gmail.add("[Gmail]/All Mail", raw=raw, flags={"\\Seen"}, gm=2, labels=("\\Inbox", "Receipts"))
+    box = account(gmail)
+    assert box.message_labels(["1", "2"]) == {
+        "1": {"TRASH", "Projects", "IMPORTANT", "UNREAD"},
+        "2": {"INBOX", "Receipts"},
+    }
+    assert box.list_message_ids() == ["2"]  # in Trash by its folder, whatever its labels
+    assert [p[0] for p in box._scan()[1].messages["2"].places] == ["INBOX"]
+
+
+def test_gmail_mail_without_x_gm_labels_is_labelled_by_its_folders(gmail, caplog):
+    gmail.add("INBOX", msgid="<in@x>", flags={"\\Seen"}, gm=3, labels=("Receipts",))
+    real = gmail.uid
+
+    def without_labels(command, *args):  # as if Gmail left the item out
+        typ, data = real(command, *args)
+        return typ, [re.sub(rb" X-GM-LABELS \([^)]*\)", b"", d) for d in data if d]
+
+    gmail.uid = without_labels
+    assert account(gmail).message_labels(["3"]) == {"3": {"INBOX"}}
+    assert "1 messages came without X-GM-LABELS; labelled by their folders only" in caplog.text
+
+
+def test_other_servers_give_ids_of_their_own(server):
+    assert account(server).id_kind == "imap"
 
 
 def test_x_gm_msgid_is_asked_only_of_gmail(server):

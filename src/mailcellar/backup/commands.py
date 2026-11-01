@@ -55,7 +55,7 @@ from pathlib import Path
 
 from mailcellar import gmailapi, mailbox
 from mailcellar.backup import chain, gyb, sidecar, verify
-from mailcellar.mailbox import mailbox_name
+from mailcellar.mailbox import ID_KINDS, mailbox_name
 from mailcellar.message import PARSER_VERSION, parse_eml, parse_message
 from mailcellar.offload import forget
 from mailcellar.paths import backup_folder, config_root
@@ -113,8 +113,25 @@ def write_meta(mcon, response: dict, raw: bytes | None = None) -> bool:
 SKIP_LABELS = {"SPAM", "TRASH"}  # excluded from backups, as messages.list does
 
 
+def with_categories(label_ids, held, provider: str) -> list[str]:
+    """
+    A backed-up message's labels from the mailbox's (`label_ids`) and those
+    the backup holds (`held`): the mailbox's, but over IMAP with the Gmail
+    categories it holds, which only the Gmail API gives: a backup moved
+    from the API keeps them, and mail backed up over IMAP has none. Pure.
+    """
+    if provider != "imap":
+        return list(label_ids)
+    return sorted(set(label_ids) | {label for label in held if label.startswith("CATEGORY_")})
+
+
 def apply_labels(con, mcon, gmail, gmail_id: str, label_ids) -> bool:
-    """Set a backed-up message's labels in both databases. True if gyb's changed."""
+    """
+    Set a backed-up message's labels in both databases (keeping its categories
+    over IMAP, with_categories). True if gyb's changed.
+    """
+    held = sidecar.message_label_ids(mcon, gmail_id)
+    label_ids = with_categories(label_ids, held, gmail.provider)
     changed = gyb.replace_labels(con, gmail_id, sorted(gmail.label_names(label_ids)))
     sidecar.set_message_labels(mcon, gmail_id, label_ids)
     return changed
@@ -260,18 +277,21 @@ def missing_backup(account: str, folder: Path, has_backup: bool, anchor_file: Pa
     )
 
 
-def provider_change(account: str, folder: Path, held: str, provider: str, messages: int) -> str:
+def provider_change(account: str, folder: Path, held: str, now: str, messages: int) -> str:
     """
-    Why backing up `provider`'s mail into a backup of `held`'s would be
-    wrong, or "": their message IDs differ, so every message would look
-    deleted and be downloaded again under another ID. Pure.
+    Why backing up mail under `now`'s IDs into a backup holding `held`'s
+    (sidecar.held_id_kind) would be wrong, or "": every message would look
+    deleted and be downloaded again under another ID. Gmail's IDs are the
+    same through the API and over IMAP, so a Gmail account moves between
+    them. Pure.
     """
-    if held == provider or not messages:
+    if held == now or not messages:
         return ""
     return (
-        f"{folder} holds a {held} backup of {account}, but the account is now set up as "
-        f"{provider}; their message IDs differ, so backing up would mix them. Set the "
-        "account up as it was, or move the backup folder aside to start a new one."
+        f"{folder} holds {account}'s mail under {ID_KINDS[held]}, but the account as set up "
+        f"now gives {ID_KINDS[now]}, so backing up would mix them. Set the account up as it "
+        "was, or move the backup folder aside to start a new one (an IMAP backup of Gmail "
+        "made before Gmail's own IDs were used can only be started again)."
     )
 
 
@@ -370,14 +390,13 @@ def _backup(
     gmail, account: str, con, mcon, folder: Path, query, refresh_labels: bool, stats: dict
 ) -> None:
     """The body of backup(): updates stats as it goes."""
-    held = sidecar.get_state(mcon, "provider") or "gmail"
+    kind = gmail.id_kind
     messages = con.execute("SELECT count(*) FROM uids").fetchone()[0]
-    problem = provider_change(account, folder, held, gmail.provider, messages)
+    problem = provider_change(account, folder, sidecar.held_id_kind(mcon), kind, messages)
     if problem:
         raise BackupMissing(problem)
     sidecar.replace_label_catalogue(mcon, gmail.label_catalogue())
-    if gmail.provider != "gmail":  # its IDs aren't Gmail's
-        sidecar.set_state(mcon, "provider", gmail.provider)
+    sidecar.record_provider(mcon, gmail.provider, kind)  # a Gmail account can move between them
     gmail.save_state(mcon)  # an IMAP account's UID map, committed with the backup
     stats["unread"] = gmail.unread()
     logger.info(f"Using backup folder {folder}")

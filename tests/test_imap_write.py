@@ -251,6 +251,17 @@ def test_a_message_without_a_message_id_is_read_back_by_its_content(server):
     assert got == {"k": imap.content_id(stored)}  # what the server stored, not what was sent
 
 
+def test_gmail_gives_appended_mail_an_id_of_its_own_which_is_read_back(server):
+    server.signed_in = (*server.signed_in, "X-GM-EXT-1")
+    server.add_folder("[Gmail]/Important", special=["\\Important"])
+    raw = make_eml(msgid="<vip@x>").replace(b"\n", b"\r\n")
+    got = {}
+    assert imap_box(server).import_messages({"k": (raw, ["IMPORTANT"])}, got.__setitem__) == []
+    (stored,) = server.folders["[Gmail]/Important"]["uids"].values()
+    assert got == {"k": imap.gmail_id(stored["gm"])}  # X-GM-MSGID, not a header ID
+    assert not server.folders["INBOX"]["uids"]
+
+
 def test_each_append_advances_the_run_it_belongs_to(server):
     from mailcellar import progress
 
@@ -1035,6 +1046,11 @@ def test_gmail_only_labels_make_no_folders():
     folders = (imap.Folder("INBOX", "INBOX"),)
     plan = imap.append_plan({"INBOX", "IMPORTANT", "CATEGORY_PROMOTIONS", "CHAT"}, folders, "/")
     assert plan.folders == ("INBOX",) and plan.create == ()
+    gmail = (*folders, imap.Folder("[Gmail]/Important", "IMPORTANT"))
+    plan = imap.append_plan({"INBOX", "IMPORTANT", "CATEGORY_PROMOTIONS"}, gmail, "/")
+    assert plan.folders == ("INBOX", "[Gmail]/Important") and plan.create == ()
+    plain = (*folders, imap.Folder("Important", "Important"))  # a folder of the user's own
+    assert imap.append_plan({"IMPORTANT"}, plain, "/").folders == (imap.archive_folder(plain)[0],)
 
 
 def test_the_newest_review_says_where_mail_goes_back(tmp_path):
@@ -1276,7 +1292,8 @@ def test_a_same_account_restore_across_providers_is_refused():
     from mailcellar.restore.cli import same_account_problem
 
     assert same_account_problem("imap", "imap") == ""
-    assert "now set up as gmail" in same_account_problem("imap", "gmail")
+    assert same_account_problem("gmail", "gmail") == ""  # the API's and Gmail's over IMAP
+    assert "now gives Gmail's message IDs" in same_account_problem("imap", "gmail")
 
 
 def test_the_servers_archive_flag_is_read_from_its_listing():
@@ -1318,7 +1335,7 @@ def test_gmail_archived_mail_goes_back_to_all_mail_not_a_new_archive(server):
 def test_restore_into_an_account_set_up_with_the_other_provider_is_refused(home, tmp_path):
     assert cli.main(["backup", "home"]) == 0
     (tmp_path / "config" / "home" / gmailapi.IMAP_SETTINGS).unlink()  # now a Gmail account
-    with pytest.raises(SystemExit, match="holds imap IDs but the account is now set up as gmail"):
+    with pytest.raises(SystemExit, match="holds IDs made from .* now gives Gmail's message IDs"):
         cli.main(["restore", "home", "--all"])
 
 

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from mailcellar.backup import sidecar
 from mailcellar.dedup.apply import limit_count
+from mailcellar.mailbox import ID_KINDS
 from mailcellar.paths import backup_folder, config_root, data_root
 from mailcellar.report.cli import parse_before
 from mailcellar.report.db import AnalyticsError
@@ -127,14 +128,15 @@ def restore_dir() -> Path:
     return data_root() / "restore"
 
 
-def source_provider(folder: Path) -> str:
+def source_ids(folder: Path) -> str:
     """
-    Which provider's IDs `folder`'s backup holds; exits if its sidecar can't be
-    read, so nothing is restored on a guess. Mail goes between Gmail and IMAP
-    accounts either way, labels and folders mapped by the target.
+    Whose message IDs `folder`'s backup holds (sidecar.id_kind); exits if its
+    sidecar can't be read, so nothing is restored on a guess. Mail goes
+    between Gmail and IMAP accounts either way, labels and folders mapped by
+    the target.
     """
     try:
-        return sidecar.provider(folder)
+        return sidecar.id_kind(folder)
     except sidecar.MetaError as exc:
         sys.exit(f"error: {exc}")
 
@@ -149,14 +151,16 @@ def provider_of(config_folder: Path) -> str:
 def same_account_problem(source: str, target: str) -> str:
     """
     Why a backup can't go back into its own account, or "": one set up since
-    with the other provider holds none of the backup's IDs, which a restore
-    into its own account takes as its own. Pure.
+    to give other IDs (sidecar.held_id_kind; Gmail's are the same through
+    the API and over IMAP) holds none of the backup's, which a restore into
+    its own account takes as its own. Pure.
     """
     if source == target:
         return ""
     return (
-        f"the backup holds {source} IDs but the account is now set up as {target}; "
-        "set it up as it was to restore into it, or restore into another account with --to"
+        f"the backup holds {ID_KINDS[source]} but the account as set up now gives "
+        f"{ID_KINDS[target]}; set it up as it was to restore into it, or restore into "
+        "another account with --to"
     )
 
 
@@ -300,9 +304,10 @@ def main(argv=None, prog: str | None = None) -> int:
     folder = backup_folder(account)
     if not sidecar.meta_path(folder).is_file():
         sys.exit(f"error: {folder} has no meta.sqlite; run mailcellar meta")
-    source = source_provider(folder)
-    if not other and (problem := same_account_problem(source, provider_of(target_config))):
-        sys.exit(f"error: {problem}")
+    source = source_ids(folder)
+    if not other and provider_of(target_config) == "gmail":  # known without signing in
+        if problem := same_account_problem(source, "gmail"):
+            sys.exit(f"error: {problem}")
     try:
         cands = candidates(
             folder,
@@ -348,6 +353,8 @@ def main(argv=None, prog: str | None = None) -> int:
                 folder=backup_folder(target),  # an IMAP account's map, and where mail lived
             )
         ) as gmail:
+            if not other and (problem := same_account_problem(source, gmail.id_kind)):
+                sys.exit(f"error: {problem}")  # an IMAP server says once signed in
             decisions = plan(
                 gmail,
                 cands,
@@ -424,7 +431,7 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
                     "--from-folder is the backup of the account restored into; select its "
                     "mail with --offloaded, --batch, --rule, --id or --all instead"
                 )
-            source_provider(folder)
+            source_ids(folder)
             cands = sources.from_folder(folder)
     except sources.SourceError as exc:
         sys.exit(f"error: {exc}")

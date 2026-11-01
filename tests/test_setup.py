@@ -225,3 +225,75 @@ def test_setup_without_a_terminal_asks_for_arguments(monkeypatch):
     monkeypatch.setattr("builtins.input", eof)
     with pytest.raises(SystemExit, match="pass it on the command line"):
         cli.main(["setup"])
+
+
+# ── moving an account backed up over Gmail's IMAP to the Gmail API ──────────
+
+
+@pytest.fixture
+def over_imap(tmp_path):
+    """alex, backed up over IMAP: imap.toml and its password in its config folder."""
+    folder = tmp_path / "config" / "alex"
+    folder.mkdir(parents=True)
+    (tmp_path / "config" / "accounts.toml").write_text('alex = "alex@example.org"\n')
+    (folder / "imap.toml").write_text('host = "imap.gmail.com"\n')
+    (folder / "imap-password").write_text("secret\n")
+    return folder
+
+
+@pytest.fixture
+def signs_in(monkeypatch):
+    """Stand in for the Gmail sign-in: record who signed in, and succeed."""
+    from mailcellar import gmailapi
+
+    who = []
+    monkeypatch.setattr(gmailapi, "load_credentials", lambda folder, account, scope, **kw: scope)
+    monkeypatch.setattr(gmailapi, "GmailAccount", lambda account, creds: who.append(account))
+    return who
+
+
+def imap_backup(provider_ids):
+    """A backup of alex made over IMAP, holding Gmail's IDs or ones made from headers."""
+    from mailcellar.backup import sidecar
+    from mailcellar.paths import backup_folder
+
+    con = sidecar.open_meta(backup_folder("alex@example.org"))
+    sidecar.set_state(con, "provider", "imap")
+    if provider_ids == "gmail":
+        sidecar.set_state(con, "id_kind", "gmail")
+    con.commit()
+    con.close()
+
+
+def test_setup_moves_an_imap_account_to_the_gmail_api(over_imap, download, signs_in, auth_calls):
+    imap_backup("gmail")
+    assert cli.main(["setup", "alex@example.org", "--client", str(download)]) == 0
+    assert signs_in == ["alex@example.org"] and auth_calls == []  # auth skips IMAP accounts
+    assert (over_imap / "client_secrets.json").is_file()
+    assert not (over_imap / "imap.toml").exists() and not (over_imap / "imap-password").exists()
+
+
+def test_an_imap_backup_of_header_ids_isnt_moved_to_the_api(over_imap, download, signs_in):
+    imap_backup("imap")
+    with pytest.raises(SystemExit, match="IDs made from each message's headers"):
+        cli.main(["setup", "alex@example.org", "--client", str(download)])
+    assert not (over_imap / "client_secrets.json").exists() and signs_in == []
+    assert (over_imap / "imap.toml").is_file()
+
+
+def test_a_move_to_the_api_needs_the_sign_in(over_imap, download, signs_in):
+    with pytest.raises(SystemExit, match="leave out --no-auth"):
+        cli.main(["setup", "alex@example.org", "--client", str(download), "--no-auth"])
+    assert (over_imap / "imap.toml").is_file() and signs_in == []
+
+
+def test_a_failed_sign_in_leaves_the_account_on_imap(over_imap, download, monkeypatch, capsys):
+    from mailcellar import gmailapi
+
+    def refused(*args, **kwargs):
+        raise gmailapi.GmailError("signed in as someone@example.com, expected alex@example.org")
+
+    monkeypatch.setattr(gmailapi, "load_credentials", refused)
+    assert cli.main(["setup", "alex@example.org", "--client", str(download)]) == 1
+    assert "still backed up over IMAP" in capsys.readouterr().out
+    assert (over_imap / "imap.toml").is_file() and (over_imap / "imap-password").is_file()
