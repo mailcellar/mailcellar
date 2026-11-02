@@ -296,6 +296,15 @@ def test_sources_narrow_by_id_date_sender_and_limit(env, capsys, tmp_path):
         run("--from-folder", str(other), "--sender", "@nowhere.example")
 
 
+def test_repeated_runs_from_a_folder_with_a_limit_carry_on(env, tmp_path):
+    other = tmp_path / "elsewhere"
+    gids = ("s1", "s2", "s3")
+    commands.backup(Gmail({g: message(g) for g in gids}), "old@example.org", other)
+    for _ in range(3):  # found by Message-ID once uploaded, which doesn't use up the limit
+        run("--from-folder", str(other), "--limit", "2", "--yes")
+    assert [c[1] for c in env.calls if c[0] == "import"] == ["s1", "s2", "s3"]  # each once
+
+
 @pytest.mark.parametrize(
     "args, message_",
     [

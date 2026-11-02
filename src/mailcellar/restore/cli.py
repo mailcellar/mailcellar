@@ -35,6 +35,7 @@ from mailcellar.restore.apply import (
     plan,
     restored_into,
     restored_label,
+    within_limit,
 )
 
 logger = logging.getLogger(__name__)
@@ -233,7 +234,7 @@ def main(argv=None, prog: str | None = None) -> int:
         help="Restore into this configured account instead (its backup gets the new IDs)",
     )
     p.add_argument(
-        "--limit", type=limit_count, default=None, help="Only the first N (oldest first)"
+        "--limit", type=limit_count, default=None, help="Only the first N to restore, oldest first"
     )
     labels = p.add_argument_group("labels on imported messages")
     labels.add_argument(
@@ -324,8 +325,6 @@ def main(argv=None, prog: str | None = None) -> int:
             f"{gone_for_good:,} selected messages were deleted from the backup by "
             "'mailcellar forget' and can't be restored from it."
         )
-    if args.limit is not None:
-        cands = cands[: args.limit]
     if not cands:
         sys.exit("Nothing to do: no matching messages left to restore.")
 
@@ -362,6 +361,7 @@ def main(argv=None, prog: str | None = None) -> int:
                     else frozenset()
                 ),
             )
+            decisions = within_limit(decisions, args.limit)
             with RestoreLog(Path(args.log), mode, account, target if other else "") as log:
                 if args.yes:
                     run = datetime.now().strftime("%Y-%m-%d-%H%M%S")
@@ -432,8 +432,6 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
         (c for c in cands if (not args.id or c.source_id in args.id) and matches(c, narrowing)),
         key=lambda c: (c.internal_date, c.source_id),
     )
-    if args.limit is not None:
-        cands = cands[: args.limit]
     if not cands:
         sys.exit("Nothing to do: no matching messages.")
 
@@ -456,6 +454,7 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
                 into=args.into,
                 recorded=restored_there(backup_folder(target)) if args.into else frozenset(),
             )
+            decisions = within_limit(decisions, args.limit)
             target_name = target if target != account else ""
             with RestoreLog(Path(args.log), mode, account, target_name) as log:
                 if args.yes:

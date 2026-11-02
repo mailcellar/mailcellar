@@ -16,6 +16,12 @@ keep stable is in [What stays stable](docs/reference/stability.md).
   issue about a server mailcellar hasn't been tried on.
 
 ### Fixed
+- A restore run again with `--limit` didn't always carry on where the last
+  stopped. Into another account (`--to`), or from `--from-mbox` or
+  `--from-folder`, every run took the same oldest messages again and found
+  them already there; into the same account, messages that couldn't be
+  restored, or were already back, kept their place at the front.
+  `--limit` now counts only the messages a run uploads or moves.
 - A backup of Gmail over IMAP (`setup --imap imap.gmail.com`) left out
   archived mail with no label, which Gmail keeps only in All Mail. It now
   reads All Mail too, for mail in no other folder, without a label of its

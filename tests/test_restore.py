@@ -341,6 +341,26 @@ def test_limit_takes_the_oldest_first(env, monkeypatch):
     assert list(log()) == ["g2"]
 
 
+def test_repeated_runs_with_a_limit_carry_on_where_the_last_stopped(env):
+    runs = []
+    for _ in range(4):
+        Path("log.csv").unlink(missing_ok=True)
+        run("--offloaded", "--limit", "1", "--yes")
+        runs.append({g for g, (outcome, _) in log().items() if outcome in restore.DONE})
+    # c1 can't be restored and comes first every time; o1, already out of Trash, is only
+    # recorded, so it doesn't use up the limit either
+    assert runs == [{"g1"}, {"g2"}, {"o1", "t1"}, set()]
+
+
+def test_repeated_runs_with_a_limit_into_another_account_carry_on_too(env):
+    runs = []
+    for _ in range(4):
+        Path("log.csv").unlink(missing_ok=True)
+        run("--all", "--to", "b", "--limit", "2", "--yes")
+        runs.append({g for g, (outcome, _) in log().items() if outcome in restore.DONE})
+    assert runs == [{"c1", "g1"}, {"g2", "k1"}, {"o1", "t1"}, set()]  # B's records: done ones
+
+
 @pytest.mark.parametrize("value", ["0", "-1"])
 def test_limit_must_be_one_or_more(value, capsys):
     with pytest.raises(SystemExit) as exc:
@@ -822,7 +842,7 @@ def test_the_oldest_messages_come_first(env):
 
 def test_a_rule_and_a_limit_narrow_a_run(env):
     assert run("--rule", "old work", "--limit", "2") == 1  # c1, the oldest by ID, is skipped
-    assert sorted(log()) == ["c1", "g1"]  # a dry run of just the two oldest
+    assert sorted(log()) == ["c1", "g1", "g2"]  # the two oldest to restore; c1 doesn't count
     with pytest.raises(SystemExit, match="Nothing to do"):
         run("--rule", "another rule")
 
@@ -1087,7 +1107,7 @@ def test_the_command_takes_repeated_senders_and_labels(varied):
 
 def test_the_limit_applies_after_narrowing_and_takes_the_oldest(varied):
     assert fresh("--all", "--sender", "alice@example.com", "--limit", "2") == 1  # c1 is skipped
-    assert cli_ids() == {"t1", "c1"}
+    assert cli_ids() == {"t1", "c1", "k1"}  # only t1 to restore; c1 and k1 don't use up the limit
 
 
 def test_nothing_matching_is_nothing_to_do(varied):
