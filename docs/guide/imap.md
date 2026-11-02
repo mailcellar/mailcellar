@@ -168,10 +168,6 @@ It signs in to the Gmail API first (read-only), and only then removes the
 account's `imap.toml` and IMAP password. Its first backup through the API
 lists every message once, and downloads only what is new.
 
-An IMAP backup of Gmail made with mailcellar 0.24.0 or earlier, before
-it used Gmail's own IDs, can't be carried on: backup says so. Move it
-aside and back up again.
-
 #### Gmail's daily limits
 
 Google limits how much mail one account moves over IMAP in a day: about
