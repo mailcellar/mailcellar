@@ -71,6 +71,11 @@ def now_ms() -> int:
 
 
 def connect(args) -> tuple[str, Path, mailbox.Mailbox]:
+    """
+    For backup and count: the account opened read-only. An IMAP account
+    reads only folders changed since the last backup, unless --full or
+    --refresh-labels asks for every one.
+    """
     config_root = Path(args.config)
     account, config_folder = gmailapi.resolve_account(config_root, args.account)
     folder = Path(args.folder) if args.folder else backup_folder(account)
@@ -80,6 +85,7 @@ def connect(args) -> tuple[str, Path, mailbox.Mailbox]:
         "readonly",
         interactive=not getattr(args, "unattended", False),
         folder=folder,
+        incremental=not (getattr(args, "full", False) or getattr(args, "refresh_labels", False)),
     )
     return account, folder, gmail
 
@@ -910,7 +916,8 @@ def main(argv=None, prog: str | None = None) -> int:
     p_backup.add_argument(
         "--full",
         action="store_true",
-        help="List every message instead of reading Gmail's history since the last run",
+        help="List every message instead of reading Gmail's history since the last run; "
+        "over IMAP, read every folder in full, not only what changed since the last backup",
     )
     p_backup.add_argument(
         "--verify",

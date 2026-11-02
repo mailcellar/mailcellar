@@ -8,6 +8,16 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 
 ## Unreleased
 
+### Changed
+- An IMAP backup reads only what changed since the last one, where the
+  server keeps count of changes (CONDSTORE: Gmail, iCloud, Fastmail and
+  Dovecot): only the changed messages are fetched, where before every
+  folder's flags were, and a folder with no changes is skipped (on Gmail,
+  which counts changes for the whole mailbox, each folder is still asked,
+  in one short request). A backup with little new mail is much quicker
+  on a large mailbox. `count` does the same; `backup --full` reads every
+  folder.
+
 ## 0.25.0 (2026-11-02)
 
 ### Added

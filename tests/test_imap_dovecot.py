@@ -252,6 +252,54 @@ def test_setup_then_backups_follow_the_mailbox(dovecot, monkeypatch, capsys):
         assert cli.main(["verify", "home", "--chain"]) == 0
 
 
+def test_a_backup_reads_only_the_folders_that_changed(dovecot, monkeypatch, tmp_path, capsys):
+    user = "condstore@example.org"
+    settings = gmailapi.ImapSettings("localhost", dovecot.port, user, dovecot.cafile)
+
+    def scan(incremental: bool):
+        box = imap.ImapAccount(
+            user, settings, PASSWORD, folder=backup_folder(user), incremental=incremental
+        )
+        with closing(box):
+            return box._scan()[1]
+
+    with dovecot.session(user) as c:
+        for name in ("Projects", "Quiet"):
+            c.create(name)
+        trash = trash_folder(c)
+        c.append("INBOX", r"(\Seen)", None, make_eml(msgid="<a@x>"))
+        c.append("INBOX", None, None, make_eml(msgid="<b@x>"))
+        c.append("Projects", r"(\Seen)", None, make_eml(msgid="<c@x>"))
+        c.append("Quiet", r"(\Seen)", None, make_eml(msgid="<q@x>"))
+        assert set_up(dovecot, monkeypatch, user) == 0
+        assert cli.main(["backup", "home"]) == 0
+        con = sqlite3.connect(backup_folder(user) / "meta.sqlite")
+        assert con.execute("SELECT count(*) FROM imap_folder").fetchone()[0] >= 4
+        con.close()
+
+        c.select('"INBOX"')
+        c.uid("STORE", uid_of(c, "INBOX", "<b@x>"), "+FLAGS", r"(\Seen $mailcellar-x)")
+        c.uid("MOVE", uid_of(c, "INBOX", "<a@x>"), f'"{trash}"')
+        c.uid("STORE", uid_of(c, "Projects", "<c@x>"), "+FLAGS", r"(\Deleted)")
+        c.expunge()
+        c.append("Projects", None, None, make_eml(msgid="<d@x>"))
+        c.create("New")
+        c.append("New", r"(\Seen)", None, make_eml(msgid="<e@x>"))
+
+        capsys.readouterr()
+        assert cli.main(["backup", "home", "-v"]) == 0
+        # Drafts, Junk, Sent and Quiet; INBOX, Projects and Trash changed, New is new.
+        assert "4 of 8 folders unchanged since the last backup" in capsys.readouterr().err
+        # What it saved, which the next backup reads every folder from, is a full read.
+        incremental, full = scan(incremental=True), scan(incremental=False)
+        assert "8 of 8 folders unchanged" in capsys.readouterr().err
+        assert (incremental.messages, incremental.labels) == (full.messages, full.labels)
+        assert incremental.maps == full.maps
+        got = labels(user)
+        assert got["<b@x>"] == {"INBOX", "x"}  # read, and marked by its keyword
+        assert "TRASH" in got["<a@x>"] and "<d@x>" in got
+
+
 def test_check_reports_what_a_real_server_keeps(dovecot, monkeypatch, tmp_path, capsys):
     user = "check@example.org"
     with dovecot.session(user) as c:
