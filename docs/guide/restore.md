@@ -50,7 +50,8 @@ Open Gmail and look at them. Restored messages carry the label
 `restored/<date>` (`--label NAME` to choose another), so
 `label:restored` finds everything a restore brought back. When they look
 right, run without `--limit`. `--limit` takes the oldest messages first, and
-the next run carries on where the last one stopped.
+the next run carries on where the last one stopped: mail already back, or
+that can't be restored, doesn't count toward it.
 
 Messages still in Trash come back quickly, a thousand per Gmail call.
 Uploads are slower, about six a second, so 4,500 messages take about 13

@@ -715,6 +715,30 @@ def plan(
     ]
 
 
+# The ways that change the mailbox, which --limit counts: mail already there, mail that
+# can't be restored, and a copy merely found (taken out of Trash if it is there) don't use
+# it up, as they would come first again on every run.
+CHANGES = (UNTRASH, IMPORT, INTO)
+
+
+def within_limit(decisions: list[Decision], limit: int | None) -> list[Decision]:
+    """
+    The decisions, oldest first, up to the `limit`-th that changes the
+    mailbox (CHANGES), with those before it that don't; all of them without
+    a limit. So repeated runs with --limit carry on where the last stopped,
+    whatever the earlier ones left behind. Pure.
+    """
+    if limit is None:
+        return list(decisions)
+    taken, changes = [], 0
+    for d in decisions:
+        if changes == limit:
+            break
+        taken.append(d)
+        changes += d.way in CHANGES
+    return taken
+
+
 def in_folder(labels: set[str] | None, into: str) -> bool:
     """Whether a message with these labels is in the folder `into` names, case ignored. Pure."""
     return bool(into) and any(label.casefold() == into.casefold() for label in labels or ())

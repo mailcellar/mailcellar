@@ -24,7 +24,8 @@ mailcellar restore work --all --to personal --label-prefix work   # into another
 
 Batch names are the folders in `<data root>/offload/batches/`. `--limit`
 takes the oldest messages first, and repeated runs carry on where the
-last one stopped.
+last one stopped: mail already in the mailbox, or that can't be restored,
+doesn't count toward it.
 
 <a id="narrowing-a-selection"></a>**Narrowing a selection.** Any of the
 selections above can be narrowed, so "last year's mail from one sender"
@@ -153,7 +154,10 @@ None of these has IDs that mean anything in the account restored
 into, so each message is looked up there by Message-ID and content, as
 with `--to`: recorded if the mailbox has it, uploaded otherwise. Nothing is
 recorded in a backup or indexed: a run again finds what was restored by
-its Message-ID, and the next `backup` downloads it.
+its Message-ID, and the next `backup` downloads it. So a run again with
+`--limit` reads back each message earlier runs uploaded to compare its
+content; into Gmail over IMAP that counts toward Google's daily download
+limit (2,500 MB for Workspace accounts).
 
 ## Options
 
@@ -200,7 +204,7 @@ account restored into. Without `--yes` it is a dry run.
 
 | Option | What it does |
 | --- | --- |
-| `--limit N` | Only the first N, oldest first |
+| `--limit N` | Only the first N to restore, oldest first |
 | `--yes` | Restore; without it, a dry run |
 | `--config CONFIG` | Config folder |
 | `--log LOG` | Restore log, appended to (default `<data root>/restore/restore-log.csv`) |
