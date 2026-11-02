@@ -1,13 +1,13 @@
 ---
-description: "Back up iCloud Mail, Yahoo Mail, Fastmail or a self-hosted Dovecot server over IMAP, read-only, then search, offload, deduplicate and restore it as with Gmail."
+description: "Back up Gmail, iCloud Mail, Yahoo Mail, Fastmail or a self-hosted Dovecot server over IMAP, read-only, then search, offload, deduplicate and restore it."
 ---
 
 # Backing up an IMAP account
 
-mailcellar can back up an account on another provider's server, or your
-own, over IMAP: Fastmail, iCloud, a self-hosted Dovecot. The backup sits
-next to your Gmail backups, so `search`, `export`, the reports, `verify`
-and legal holds cover it too.
+mailcellar can back up any mailbox over IMAP: Gmail with only an app
+password, iCloud, Yahoo, Fastmail, or your own server. The backup sits
+next to any others, so `search`, `export`, the reports, `verify` and
+legal holds cover it too.
 
 **Backing up is read-only.** Folders are opened with IMAP's `EXAMINE` and
 messages fetched with `BODY.PEEK[]`, so nothing on the server changes,
@@ -106,7 +106,7 @@ Yahoo's counts say which folders changed, and only those are read.
 (`mailcellar schedule install`) includes the account like any other,
 with no token to renew.
 
-What the backup keeps, in gyb's layout, as for Gmail:
+What the backup keeps, in gyb's layout, as through the Gmail API:
 
 - **Folders become labels.** INBOX, and the server's Sent and Drafts
   folders, become `INBOX`, `SENT` and `DRAFT` (and Gmail's Important
@@ -129,7 +129,7 @@ What the backup keeps, in gyb's layout, as for Gmail:
   Gmail's own message ID, the one the Gmail API gives.
 
 `count` compares the server with the backup; `verify` and
-`verify --chain` check the backup itself, as for Gmail.
+`verify --chain` check the backup itself, as for any account.
 
 ### Gmail over IMAP, or through the API
 
