@@ -83,7 +83,7 @@ backups need no sign-in; other addresses in the domain keep their own.
 Read-only only; see
 [Workspace: backing up through a service account](../guide/workspace-service-account.md).
 
-An account on another provider's IMAP server (`--imap HOST`): setup asks
+An IMAP account, Gmail's included (`--imap HOST`): setup asks
 for its password, signs in, and says what the server allows, then writes
 `<config>/<name>/imap.toml` (the server) and `<config>/<name>/imap-password`,
 owner-only. Nothing on the server changes when it is backed up; offload and
