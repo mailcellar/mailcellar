@@ -32,6 +32,10 @@ keep stable is in [What stays stable](docs/reference/stability.md).
   the earlier runs uploaded.
 
 ### Fixed
+- `restore --to` into an account whose backup was made with the other
+  provider (Gmail through the API, or over IMAP) added the restored mail
+  to it under the other kind of ID. It is now refused, as `backup` refuses
+  such a backup.
 - A restore run again with `--limit` didn't always carry on where the last
   stopped. Into another account (`--to`), or from `--from-mbox` or
   `--from-folder`, every run took the same oldest messages again and found
