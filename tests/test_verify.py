@@ -7,7 +7,7 @@ import pytest
 
 from fake_mailbox import ACCOUNT, MS, FakeMailbox, raw_response
 from mailcellar import cli
-from mailcellar.backup import commands, gyb, sidecar, verify
+from mailcellar.backup import chain, commands, gyb, sidecar, verify
 from mailcellar.backup.verify import (
     MISMATCH,
     MISSING,
@@ -321,6 +321,68 @@ def test_a_slice_finds_a_damaged_file_in_it_and_only_then(folder):
         con.close()
 
 
+def test_judge_bytes():
+    assert verify.judge_bytes("aa", "aa") == OK
+    assert verify.judge_bytes("aa", "bb") == chain.CHANGED
+    assert verify.judge_bytes("aa", None) == chain.UNEXPLAINED
+    assert verify.judge_bytes(None, "aa") == OK  # a missing file is judge()'s to report
+
+
+def test_a_slice_finds_a_changed_header_that_the_content_hash_ignores(folder):
+    path = eml_path(folder, "g1")
+    path.write_bytes(path.read_bytes().replace(b"From: Alice", b"From: Mallory"))
+    assert verify.verify_backup(folder).ok  # the content hash covers text and attachments
+    assert problems(verify.verify_next(folder, 2)[0]) == {("g1", chain.CHANGED)}
+
+
+def test_a_slice_compares_the_bytes_of_messages_it_counts_as_unchecked(folder, capsys):
+    sql(folder, "meta.sqlite", "UPDATE messages SET parser_version = '0'")
+    eml_path(folder, "g1").write_bytes(eml("g1", "tampered with"))
+    report = verify.verify_next(folder, 3)[0]
+    assert problems(report) == {("g1", chain.CHANGED)} and report.unchecked == 2
+    verify.show(report, top=10, only_offloaded=False, chain_checked=True)
+    captured = capsys.readouterr()
+    assert "2 unchecked (their bytes are in the hash chain check)" in captured.out
+    assert "mailcellar meta" in captured.err  # the rows still want filling in
+
+
+def test_a_slice_finds_a_change_made_to_agree_with_meta_sqlite(folder):
+    eml_path(folder, "g1").write_bytes(eml("g1", "rewritten"))
+    fields = verify.read_eml(eml_path(folder, "g1"))
+    sql(
+        folder,
+        "meta.sqlite",
+        "UPDATE messages SET content_hash = ? WHERE gmail_id = 'g1'",
+        fields.content_hash,
+    )
+    assert verify.verify_backup(folder).ok  # meta.sqlite agrees with the file now
+    assert problems(verify.verify_next(folder, 2)[0]) == {("g1", chain.CHANGED)}
+
+
+def test_a_slice_compares_the_bytes_of_a_message_with_nothing_to_hash(folder):
+    eml_path(folder, "g1").write_bytes(make_eml(msgid="<g1@x>", body="", subject="Hello"))
+    sql(folder, "meta.sqlite", "UPDATE messages SET content_hash = '' WHERE gmail_id = 'g1'")
+    report = verify.verify_backup(folder)
+    assert report.ok and report.empty == 1  # nothing for meta.sqlite to compare
+    assert problems(verify.verify_next(folder, 2)[0]) == {("g1", chain.CHANGED)}
+
+
+def test_a_slice_finds_a_message_no_link_added(folder):
+    con = gyb.open_backup(folder, ACCOUNT)
+    gyb.write_message(con, folder, raw_response("g0", body=eml("g0")), ["INBOX"])  # behind its back
+    con.commit()
+    con.close()
+    found = set()
+    for _ in range(2):
+        found |= problems(verify.verify_next(folder, 2)[0])
+    assert found == {("g0", chain.UNEXPLAINED)}
+
+
+def test_a_slice_reports_a_damaged_file_once(folder):
+    eml_path(folder, "g1").write_bytes(eml("g1", "changed"))  # its content and bytes both differ
+    assert problems(verify.verify_next(folder, 2)[0]) == {("g1", MISMATCH)}
+
+
 @pytest.fixture
 def run_backup(folder, monkeypatch):
     """`mailcellar backup` on the fixture's backup, its mailbox a FakeMailbox."""
@@ -336,6 +398,13 @@ def test_backup_checks_the_next_slice_and_exits_1_on_damage(folder, run_backup, 
     assert run_backup("--verify", "2") == 1
     out = capsys.readouterr()
     assert f"g3  {MISMATCH}" in out.out and f"mailcellar verify {ACCOUNT} --chain" in out.err
+
+
+def test_backup_exits_1_on_a_changed_header_its_check_finds(folder, run_backup, capsys):
+    path = eml_path(folder, "g1")
+    path.write_bytes(path.read_bytes().replace(b"Subject: Hi", b"Subject: Re: Hi"))
+    assert run_backup() == 1
+    assert f"g1  {chain.CHANGED}" in capsys.readouterr().out
 
 
 def test_backup_checks_the_whole_of_a_small_backup_by_default(run_backup, capsys):

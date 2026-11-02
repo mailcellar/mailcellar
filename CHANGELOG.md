@@ -20,6 +20,12 @@ keep stable is in [What stays stable](docs/reference/stability.md).
   limit Gmail may slow down or refuse sign-in for up to a day.
 
 ### Changed
+- The check `backup` runs on a slice of the backup after each run also
+  compares each file's bytes with the hash chain, as `verify --chain`
+  does. It now finds a changed header, a change to a message with no text
+  or attachments, a change made to agree with `meta.sqlite`, and a
+  message no command added, none of which the content hash shows; a
+  weekly backup has compared every file within two months.
 - A restore's dry run estimates upload time from Google's published limit
   for one account through the Gmail API, at most 4 messages a second,
   rather than a measured 6, so its estimates are about half as long again.
