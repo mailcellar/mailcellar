@@ -41,6 +41,10 @@ UIDVALIDITY, UIDNEXT, MESSAGES and HIGHESTMODSEQ are as saved is read from
 the map, with nothing sent; a changed one lists its UIDs and fetches only
 what changed (CHANGEDSINCE), or, without CONDSTORE, is read in full.
 Commands that write read every folder in full: their checks rest on it.
+
+On Gmail a search (an offload rule's query, backup --search) is Gmail's
+own: UID SEARCH X-GM-RAW in All Mail, the UIDs found named through the
+scan's map. Other servers refuse a query.
 """
 
 import ast
@@ -330,6 +334,18 @@ def marked_roles(entries) -> frozenset[str]:
         if not flags & SKIP
         for flag in flags & set(SPECIAL)
     )
+
+
+def gmail_search(query: str) -> tuple[tuple[str, ...], bytes | None]:
+    """
+    UID SEARCH's arguments for Gmail's search (X-GM-RAW) of `query`, and
+    the literal imaplib sends after them: a quoted string where the query
+    can be one (ASCII, no line break), else a UTF-8 literal, which Gmail
+    takes with CHARSET UTF-8. Pure.
+    """
+    if query.isascii() and not {"\r", "\n"} & set(query):
+        return ("X-GM-RAW", quote(query)), None
+    return ("CHARSET", "UTF-8", "X-GM-RAW"), query.encode()
 
 
 def search_uids(data) -> frozenset[int]:
@@ -2134,16 +2150,46 @@ class ImapAccount:
 
     # ── Mailbox: listing ─────────────────────────────────────────────────────
     def list_message_ids(self, query=None, include_spam_trash=False, label_id=None):
-        if query is not None:
-            raise gmailapi.GmailError(
-                f"{self.account} is an IMAP account: Gmail's search ({query!r}) doesn't apply"
-            )
+        found = None if query is None else self._search(query, include_spam_trash)
         return [
             gid
             for gid, m in self._messages().items()
-            if (include_spam_trash or not m.labels & HIDDEN)
+            if (found is None or gid in found)
+            and (include_spam_trash or not m.labels & HIDDEN)
             and (label_id is None or label_id in m.labels)
         ]
+
+    def _search(self, query: str, include_spam_trash: bool) -> frozenset[str]:
+        """
+        The IDs Gmail's own search finds for `query` (X-GM-RAW) in All Mail:
+        everything but Spam and Trash, as the API's search without
+        includeSpamTrash. A UID the scan didn't name (mail newer than the
+        scan) is left out, as mail newer than the API's listing would be.
+        Gmail only: other servers have no such search.
+        """
+        if GMAIL_EXT not in self._capabilities():
+            raise gmailapi.GmailError(
+                f"{self.account}: the server has no Gmail search (X-GM-RAW) for {query!r}"
+            )
+        if include_spam_trash:  # All Mail holds neither; no caller asks for them with a query
+            raise gmailapi.GmailError(f"{self.account}: Spam and Trash aren't searched over IMAP")
+        scan = self._scan()[1]
+        store = next((f.name for f in scan.folders if f.store), None)
+        saved = scan.maps.get(store) if store is not None else None
+        if saved is None:
+            raise gmailapi.GmailError(f"{self.account}: All Mail wasn't read, so can't be searched")
+        args, literal = gmail_search(query)
+
+        def run(conn):
+            self._ok(*conn.select(quote(store), readonly=True), f"EXAMINE {store}")
+            _code, (uidvalidity, *_rest) = conn.response("UIDVALIDITY")
+            if int(uidvalidity) != saved.uidvalidity:  # renumbered since the scan
+                raise gmailapi.GmailError(f"{store}'s UIDs changed since the scan; run it again")
+            conn.literal = literal
+            return search_uids(self._ok(*conn.uid("SEARCH", *args), f"searching for {query!r}"))
+
+        uids = self._retrying(f"searching {store}", run)
+        return frozenset(saved.rows[uid].id for uid in uids if uid in saved.rows)
 
     def labels_by_listing(self):
         return {gid: sorted(m.labels) for gid, m in self._messages().items()}

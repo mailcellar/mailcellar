@@ -96,8 +96,8 @@ mailcellar offload plan --try 'bulk = true, before = "2017-01-01"'   # one rule,
 sender) and what its `keep` and `keep_if` kept, per reason. To keep particular messages, add a
 user label in the mailbox (a folder, on an IMAP account) and run a backup.
 
-`query` is a Gmail search, for Gmail accounts, written as in Gmail's search box
-(`query = "has:attachment filename:pdf"`). It narrows a rule like the other
+`query` is a Gmail search, for Gmail accounts through the API or over IMAP,
+written as in Gmail's search box (`query = "has:attachment filename:pdf"`). It narrows a rule like the other
 keys, and works in `keep_if` too. `plan` asks Gmail which messages each
 search finds, with read-only access, and selects only those the backup
 has; it says how many it found that the backup lacks (run a backup, then

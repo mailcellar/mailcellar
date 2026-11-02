@@ -73,7 +73,7 @@ keep_if = { subject = "release" }
   `audio`, `office`, `archive` or `any`), `larger_than_mb`, and `query`,
   a search written as in Gmail's search box
   (`"has:attachment older_than:5y"`), which `plan` runs in Gmail,
-  read-only. At least one is needed, or `scope = "all"` to select by
+  read-only (Gmail only, through the API or over IMAP). At least one is needed, or `scope = "all"` to select by
   date alone (everything from `after` to `before`, less what `keep` and
   `keep_if` keep); different keys must all match, and a key given a list matches any of
   its values. Here one key, `sender`, does it.

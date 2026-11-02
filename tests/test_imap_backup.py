@@ -144,6 +144,19 @@ def test_a_gmail_api_backup_is_carried_on_over_gmails_imap(server, capsys):
     assert cli.main(["verify", "home", "--chain"]) == 0
 
 
+def test_a_search_backs_up_only_what_gmails_search_finds(server, capsys):
+    as_gmail(server)
+    server.gmail_finds["from:example.com"] = {0x101, 0x301}  # 0x301 is in Trash
+    assert cli.main(["backup", "home", "--search", "from:example.com"]) == 0
+    assert {g for (g,) in rows("SELECT uid FROM uids")} == {"101"}
+    assert "matching 'from:example.com'" in capsys.readouterr().err
+
+
+def test_a_search_is_refused_by_a_server_without_gmails(server):
+    with pytest.raises(SystemExit, match=r"no Gmail search \(X-GM-RAW\)"):
+        cli.main(["backup", "home", "--search", "from:example.com"])
+
+
 def test_gmail_mail_moved_to_trash_keeps_its_labels_in_the_backup(server):
     as_gmail(server)
     server.folders["INBOX"]["uids"][1]["labels"] = ("Receipts",)

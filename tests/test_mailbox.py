@@ -7,8 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from fake_imap import FakeImap
 from fake_mailbox import ACCOUNT, FakeMailbox, message_id, raw_response
-from mailcellar import gmailapi, mailbox
+from mailcellar import gmailapi, imap, mailbox
 from mailcellar.backup import commands
 from mailcellar.paths import backup_folder
 from test_backup import FakeService, Req, http_error
@@ -119,6 +120,7 @@ class GmailService(FakeService):
         self.messages_: dict[str, dict] = {}
         self.history_: list[tuple[int, str, str]] = []  # (historyId, kind, gmail_id)
         self.imported = 0
+        self.finds: dict[str, set[str]] = {}  # Gmail's search: query → the IDs it finds
 
     def add(self, response: dict) -> None:
         self.messages_[response["id"]] = dict(response, labelIds=list(response["labelIds"]))
@@ -178,6 +180,8 @@ class GmailService(FakeService):
                         if q and q.startswith("rfc822msgid:"):
                             if message_id(m["raw"]) != q.removeprefix("rfc822msgid:"):
                                 continue
+                        if q in service.finds and gid not in service.finds[q]:
+                            continue
                         out.append({"id": gid})
                     return {"messages": out} if out else {}
 
@@ -329,3 +333,33 @@ def test_contract_history():
         return touched, deleted
 
     both(changes)
+
+
+def test_contract_gmail_search_through_the_api_and_over_imap():
+    # The same Gmail mailbox, and what Gmail's search finds in it, both ways.
+    folders = {1: ["INBOX"], 2: ["work"], 3: [], 4: None}  # 3 archived; 4 in Trash
+    service = GmailService({"INBOX": "INBOX", "TRASH": "TRASH", "Label_1": "work"})
+    server = FakeImap()
+    server.signed_in = (*server.signed_in, "X-GM-EXT-1")
+    for name, special in (("[Gmail]/All Mail", ["\\All"]), ("[Gmail]/Trash", ["\\Trash"])):
+        server.add_folder(name, special=special)
+    server.add_folder("work")
+    for gm, where in folders.items():
+        gid, raw = imap.gmail_id(gm), make_eml(msgid=f"<{gm}@x>")
+        labels = ["TRASH"] if where is None else [{"work": "Label_1"}.get(f, f) for f in where]
+        service.add(raw_response(gid, label_ids=labels))
+        for folder in ["[Gmail]/Trash"] if where is None else [*where, "[Gmail]/All Mail"]:
+            server.add(folder, raw=raw, flags={"\\Seen"}, gm=gm)
+    service.finds["older_than:1y"] = {imap.gmail_id(n) for n in (1, 3, 4)}
+    server.gmail_finds["older_than:1y"] = {1, 3, 4}
+    api = gmailapi.GmailAccount(ACCOUNT, None, service=service, sleep=lambda s: None)
+    over_imap = imap.ImapAccount(
+        ACCOUNT,
+        gmailapi.ImapSettings("imap.example.org", 993, ACCOUNT),
+        "secret",
+        connect=lambda: server,
+        sleep=lambda s: None,
+    )
+    for box in (api, over_imap):
+        assert sorted(box.list_message_ids("older_than:1y")) == [imap.gmail_id(1), imap.gmail_id(3)]
+        assert box.list_message_ids("older_than:1y", label_id="INBOX") == [imap.gmail_id(1)]

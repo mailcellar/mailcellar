@@ -8,6 +8,13 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 
 ## Unreleased
 
+### Added
+- Gmail searches over IMAP: an offload rule's `query` and
+  `backup --search` work for a Gmail account set up over IMAP, using
+  Gmail's own search, as they do through the API. They find the same
+  mail, except for chats, which are never backed up. Other IMAP servers
+  still refuse a query.
+
 ### Changed
 - An IMAP backup reads only what changed since the last one, where the
   server keeps count of changes (CONDSTORE: Gmail, iCloud, Fastmail and
