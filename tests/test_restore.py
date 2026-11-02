@@ -597,6 +597,22 @@ def test_restore_into_another_account(env):
     assert [c for c in other.calls if c[0] == "import"] == list(imports.values())
 
 
+def test_restore_into_another_account_whose_backup_holds_the_other_providers_ids_is_refused(env):
+    from mailcellar.paths import backup_folder
+
+    other = env.other
+    other.messages["b1"] = message("b1")
+    folder = backup_folder(B)
+    commands.backup(other, B, folder)
+    con = sidecar.open_meta(folder)
+    sidecar.set_state(con, "provider", "imap")  # B's backup holds IMAP IDs; B is now Gmail
+    con.commit()
+    con.close()
+    with pytest.raises(SystemExit, match="would mix them"):
+        run("--offloaded", "--to", "b", "--yes")
+    assert not [c for c in other.calls if c[0] == "import"]
+
+
 def test_a_message_restored_into_another_account_and_deleted_there_goes_back(env):
     other = env.other
     run("--id", "g2", "--to", "b", "--yes")

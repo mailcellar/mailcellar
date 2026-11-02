@@ -142,6 +142,34 @@ def source_provider(folder: Path) -> str:
         sys.exit(f"error: {exc}")
 
 
+def index_problem(account: str, folder: Path, provider: str) -> str:
+    """
+    Why mail restored into `account` can't be indexed in its backup `folder`,
+    or "": a backup it had that isn't there (a volume not mounted), as backup
+    refuses it, or one holding the other provider's IDs, which the new ones
+    would mix with. A first backup of the account starts with what is restored.
+    """
+    import sqlite3
+
+    from mailcellar.backup import gyb
+    from mailcellar.backup.commands import provider_change, why_missing
+
+    if problem := why_missing(account, folder):
+        return problem
+    if not (folder / gyb.DB_NAME).is_file():
+        return ""
+    con = sqlite3.connect(f"file:{folder / gyb.DB_NAME}?mode=ro", uri=True)
+    try:
+        messages = con.execute("SELECT count(*) FROM uids").fetchone()[0]
+    finally:
+        con.close()
+    try:
+        held = sidecar.provider(folder)
+    except sidecar.MetaError as exc:
+        return str(exc)
+    return provider_change(account, folder, held, provider, messages)
+
+
 def provider_of(config_folder: Path) -> str:
     """The provider an account is set up with: imap where it has imap.toml."""
     from mailcellar import gmailapi
@@ -368,13 +396,8 @@ def main(argv=None, prog: str | None = None) -> int:
     mode = "restore" if args.yes else "dry-run"
     progress = logger.info
     target_folder = backup_folder(target) if other else None
-    if target_folder is not None:
-        from mailcellar.backup.commands import why_missing
-
-        # A first backup of the other account starts with what is restored; but one it
-        # had that isn't there (a volume not mounted) is refused, as backup refuses it.
-        if problem := why_missing(target, target_folder):
-            sys.exit(f"error: {problem}")
+    if other and (problem := index_problem(target, target_folder, provider_of(target_config))):
+        sys.exit(f"error: {problem}")
     try:
         with closing(
             mailbox.open_mailbox(
