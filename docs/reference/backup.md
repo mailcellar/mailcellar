@@ -32,14 +32,15 @@ would otherwise go unnoticed: a failing disk, a sync tool rewriting files,
 an accidental delete. It needs no access to the mailbox and changes nothing (both
 databases are opened read-only).
 
-Each `backup` also checks part of the backup as `verify` does: an eighth
-of its messages by default, at least 1,000, starting where the last
-backup's check stopped, so a weekly backup has checked every message
-after eight runs, two months. A damaged file makes `backup` exit 1, and
-`report health` lists each check as a `verify` run, with the problems it
-found as Failed. `--verify N` checks N instead, and `--verify 0` none.
-Only the full `verify` also checks that the two databases agree, and
-only `verify --chain` checks every byte.
+Each `backup` also checks part of the backup, as `verify --chain` does
+file by file: an eighth of its messages by default, at least 1,000,
+starting where the last backup's check stopped, so a weekly backup has
+checked every message after eight runs, two months. A damaged or
+changed file makes `backup` exit 1, and `report health` lists each check
+as a `verify` run, with the problems it found as Failed. `--verify N`
+checks N instead, and `--verify 0` none. Only the full `verify` also
+checks that the two databases agree, and only `verify --chain` checks
+every file in one run.
 
 ```bash
 mailcellar verify                  # every backup, every message
@@ -57,7 +58,8 @@ catches damage to a message's content but not every changed byte;
 `--offloaded`, that every offloaded message is in the backup. Problems are
 listed (`--top N` sets how many) and the exit status is 1 if there are any.
 A message with no current `meta.sqlite` row has nothing to compare with: it
-is counted as unchecked, with a warning, and `mailcellar meta` fills it in.
+is counted as unchecked, with a warning, and `mailcellar meta` fills it in;
+the check after each backup and `verify --chain` still compare its bytes.
 A message with no visible text or attachments (a body that is only a link,
 images or nothing) has no content hash, by design; it is counted apart, as
 having nothing to compare, and `verify --chain` checks its bytes instead.
@@ -149,7 +151,7 @@ now and then, and compare.
 
 | Check | Runs | Compares | Catches |
 | --- | --- | --- | --- |
-| After each `backup` | Every run, a slice of the backup (`--verify N`) | Files with `meta.sqlite` | Damage; not a change made to agree |
+| After each `backup` | Every run, a slice of the backup (`--verify N`) | Files with `meta.sqlite` and with the chain | Damage, and any file changed or added outside those commands, a slice at a time |
 | `verify` | When you run it | Every file with `meta.sqlite`, and the two databases | Damage, and databases out of step |
 | `verify --chain` | When you run it | Every file with the chain, and the chain with the anchor | Any file changed, missing or added outside those commands, and a rewritten chain |
 | `report health` | When you run it | The chain with the anchor, reading no file | A rewritten or edited chain |

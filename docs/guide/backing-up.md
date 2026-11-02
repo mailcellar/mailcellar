@@ -52,14 +52,16 @@ file, the file parses, and its content hash matches the one recorded in
 `meta.sqlite`. It needs no Gmail access and changes nothing. It is what
 catches a failing disk, a sync tool that rewrote files, or an accidental
 delete. Each `backup` runs part of it, an eighth of the backup by
-default, carrying on from where the last one stopped, so a weekly backup
-has checked every file after two months; a damaged file makes it exit 1
-and shows as a failed `verify` run in `report health`. Run the full
+default, carrying on from where the last one stopped, and compares that
+part with the hash chain below as well, so a weekly backup has checked
+every file, byte for byte, after two months; a damaged or changed file
+makes it exit 1 and shows as a failed `verify` run in `report health`. Run the full
 `mailcellar verify` occasionally too: it parses every message, so on a
 large backup it takes a while, and it also checks that the two databases
 agree.
 
-`verify --chain` also catches a change made on purpose. Every `backup`,
+`verify --chain` checks the whole backup that way in one run, and also
+catches a change made on purpose. Every `backup`,
 `restore` and `forget` records what it added or removed,
 with a hash of each file, in a chain whose latest link is also kept in
 the config folder; the check fails on anything changed, missing or added

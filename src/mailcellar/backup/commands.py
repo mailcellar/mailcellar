@@ -535,7 +535,10 @@ def cmd_backup(args) -> int:
 
 
 def check_next(account: str, folder: Path, sample: int | None) -> int:
-    """backup --verify: the next slice of the backup's files (verify.verify_next); 1 if damaged."""
+    """
+    backup --verify: the next slice of the backup's files, against meta.sqlite
+    and the hash chain (verify.verify_next); 1 if damaged or changed.
+    """
     try:
         report, start, taken = verify.verify_next(folder, sample)
     except (sqlite3.Error, OSError, ValueError, sidecar.MetaError) as exc:
@@ -545,7 +548,7 @@ def check_next(account: str, folder: Path, sample: int | None) -> int:
         f"Checked {taken:,} of the backup's {report.indexed:,} messages, "
         f"from number {start + 1:,} on"
     )
-    verify.show(report, top=10, only_offloaded=False)
+    verify.show(report, top=10, only_offloaded=False, chain_checked=True)
     if report.ok:
         return 0
     logger.warning(f"Run 'mailcellar verify {account} --chain' to check the whole backup.")

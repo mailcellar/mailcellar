@@ -19,7 +19,9 @@ indexed in msg-db.sqlite it checks that
 and that msg-db.sqlite and meta.sqlite agree on which messages exist. With
 --chain it also replays the backup's hash chain (backup/chain.py) against
 every file's bytes and the anchor in the config folder: the check that
-nothing at all changed. With
+nothing at all changed. backup's check after each run (verify_next)
+compares its slice's bytes with the chain as well, so that a change made
+to agree with meta.sqlite, or to a header, shows a slice at a time. With
 --offloaded it also checks that every message recorded as offloaded is in the
 index. A message whose meta.sqlite row is missing or from an older parser has
 nothing to compare with: it is counted as unchecked, and `mailcellar meta`
@@ -126,6 +128,19 @@ def judge(read: Read, stored: Stored | None) -> str:
     if not stored.content_hash and not read.content_hash:
         return EMPTY
     return OK if read.content_hash == stored.content_hash else MISMATCH
+
+
+def judge_bytes(sha: str | None, recorded: str | None) -> str:
+    """
+    OK, or how a file's bytes differ from what the hash chain recorded for
+    it: changed, or added by nothing the chain knows. A missing file is
+    judge()'s to report. Pure.
+    """
+    if sha is None:
+        return OK
+    if recorded is None:
+        return chain.UNEXPLAINED
+    return OK if sha == recorded else chain.CHANGED
 
 
 def select(
@@ -250,15 +265,21 @@ def verify_backup(
     sample: int | None = None,
     rng: random.Random | None = None,
     start: int | None = None,
+    chained: bool = False,
 ) -> Report:
     """
     Check one backup folder: every message, `sample` at random, or, with
-    `start`, the `sample` from that position in the index (select). Raises
-    VerifyError when --offloaded can't be answered.
+    `start`, the `sample` from that position in the index (select). With
+    `chained`, each chosen file's bytes are also compared with the hash
+    chain (judge_bytes), one finding a message: meta.sqlite's, if it has
+    one. Raises VerifyError when --offloaded can't be answered.
     """
     rng = rng or random.Random()
     account = backup_account(folder)
     entries = read_index(folder)
+    # After the index: a link is appended before its messages are committed, so
+    # every message indexed by now has one.
+    held = chain.held(folder) if chained else {}
     stored, offloaded, note = read_meta(folder)
     if only_offloaded and note:
         raise VerifyError(f"{account}: the offload record is unavailable ({note})")
@@ -274,6 +295,10 @@ def verify_backup(
         for entry in chosen:
             read = read_eml(folder / entry.path)
             verdict = judge(read, stored.get(entry.gmail_id))
+            if chained and verdict in (OK, UNCHECKED, EMPTY):
+                sha = chain.file_hash(folder / entry.path)
+                if (bytes_verdict := judge_bytes(sha, held.get(entry.gmail_id))) != OK:
+                    verdict = bytes_verdict
             if verdict == OK:
                 checked += 1
             elif verdict == UNCHECKED:
@@ -290,17 +315,17 @@ def verify_next(folder: Path, sample: int | None = None) -> tuple[Report, int, i
     """
     backup's check after each run: the next `sample` messages of the index
     (default slice_size), from where the last check stopped, so that
-    successive backups check the whole backup. Records where the next one
-    starts, and the check as a 'verify' run (problems as `failed`), in
-    meta.sqlite: the only things it writes. Returns the report, where this
-    one started and how many it took.
+    successive backups check the whole backup, against meta.sqlite and the
+    hash chain. Records where the next one starts, and the check as a
+    'verify' run (problems as `failed`), in meta.sqlite: the only things it
+    writes. Returns the report, where this one started and how many it took.
     """
     sample = sample or slice_size(len(read_index(folder)))
     mcon = sidecar.open_meta(folder)
     try:
         started = int(time.time() * 1000)
         start = cursor(sidecar.get_state(mcon, CURSOR))
-        report = verify_backup(folder, sample=sample, start=start)
+        report = verify_backup(folder, sample=sample, start=start, chained=True)
         sidecar.set_state(mcon, CURSOR, str(advance(start, sample, report.indexed)))
         sidecar.record_run(  # commits
             mcon,
@@ -320,17 +345,16 @@ def verify_next(folder: Path, sample: int | None = None) -> tuple[Report, int, i
 
 def show(report: Report, top: int, only_offloaded: bool, chain_checked: bool = False) -> None:
     what = "offloaded messages" if only_offloaded else "messages"
+    in_chain = " (their bytes are in the hash chain check)" if chain_checked else ""
     empty = ""
     if report.empty:
         empty = f", {report.empty:,} with no text or attachments to compare" + (
-            " (their bytes are in the hash chain check)"
-            if chain_checked
-            else " (--chain checks their bytes)"
+            in_chain or " (--chain checks their bytes)"
         )
     print(
         f"{report.account}: {report.checked:,} {what} verified"
         + empty
-        + (f", {report.unchecked:,} unchecked" if report.unchecked else "")
+        + (f", {report.unchecked:,} unchecked{in_chain}" if report.unchecked else "")
         + (f", {len(report.findings):,} problems" if report.findings else ", no problems")
     )
     for finding in report.findings[:top]:
