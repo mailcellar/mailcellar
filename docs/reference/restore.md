@@ -158,13 +158,14 @@ mailcellar restore personal --from-folder /Volumes/old/GYB-GMail-Backup-old@exam
 
 None of these has IDs that mean anything in the account restored
 into, so each message is looked up there by Message-ID and content, as
-with `--to`: recorded if the mailbox has it, uploaded otherwise. Nothing is
-recorded in a backup or indexed: a run again finds what was restored by
-its Message-ID, and the next `backup` downloads it. So a run again with
-`--limit` reads back each message earlier runs uploaded to compare its
-content, unless a backup has downloaded it since; into Gmail over IMAP that
-counts toward Google's daily download limit (2,500 MB for Workspace
-accounts). A scheduled backup between runs avoids it.
+with `--to`: recorded if the mailbox has it, uploaded otherwise. The
+source is only read. What is uploaded goes into the backup of the account
+restored into, as with `--to`, so a run again finds it there without
+reading it back, and the next `backup` doesn't download it. That backup is
+refused if it isn't where it was (a disk not mounted) or holds the other
+provider's IDs (the account set up with Gmail since an IMAP backup, or the
+other way round); a first backup of the account starts with what is
+restored.
 
 ## Options
 

@@ -500,6 +500,9 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
     if not cands:
         sys.exit("Nothing to do: no matching messages.")
 
+    target_folder = backup_folder(target)  # where what is uploaded is indexed
+    if problem := index_problem(target, target_folder, provider_of(target_config)):
+        sys.exit(f"error: {problem}")
     mode = "restore" if args.yes else "dry-run"
     progress = logger.info
     try:
@@ -508,7 +511,7 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
                 target,
                 target_config,
                 "append" if args.yes else "readonly",  # untrashing needs MOVE: can_move()
-                folder=backup_folder(target),  # an IMAP account's map, and where mail lived
+                folder=target_folder,  # an IMAP account's map, and where mail lived
             )
         ) as gmail:
             decisions = plan(
@@ -517,8 +520,8 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
                 same_account=False,
                 progress=progress,
                 into=args.into,
-                recorded=restored_there(backup_folder(target)) if args.into else frozenset(),
-                backup=backup_folder(target),
+                recorded=restored_there(target_folder) if args.into else frozenset(),
+                backup=target_folder,
             )
             decisions = within_limit(decisions, args.limit)
             note = gmail_limit_note(gmail, decisions)
@@ -535,6 +538,7 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
                         run,
                         args.label or restored_label(),
                         target=target,
+                        target_folder=target_folder,
                         prefix=args.label_prefix,
                         strip=args.strip_labels,
                         into=args.into,
