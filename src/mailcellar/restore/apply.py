@@ -629,10 +629,13 @@ def plan(
     restored: Mapping[str, str] | None = None,
     into: str = "",
     recorded: frozenset[str] = frozenset(),
+    backup: Path | None = None,
 ) -> list[Decision]:
     """
     Read what deciding needs — each backup copy, Gmail's state, matching
     Message-IDs — and decide() each candidate's way back. Reads only.
+    A copy found by Message-ID is compared by content: by the hash the
+    mailbox's own `backup` holds for it, else read from the mailbox.
     `gmail` is the account restored into; `restored` maps the source IDs an
     earlier restore put into it to the IDs they went back under, which count
     as done only while the mailbox still has them; with `into`, those not in
@@ -682,12 +685,17 @@ def plan(
         for c in gone
     }
     others = sorted({g for found in hits.values() for g in found})
-    hashes: dict[str, str] = {}
+    hashes = sidecar.current_hashes(backup, others) if backup and others else {}
+    unknown = [g for g in others if g not in hashes]
     if others:
-        progress(f"Comparing content with {len(others):,} messages that share a Message-ID")
-        with Progress("Reading messages that share a Message-ID", len(others)):
+        backed_up = f", {len(hashes):,} by the backup's hashes" if hashes else ""
+        progress(
+            f"Comparing content with {len(others):,} messages that share a Message-ID{backed_up}"
+        )
+    if unknown:
+        with Progress("Reading messages that share a Message-ID", len(unknown)):
             gmail.get_raw(
-                others,
+                unknown,
                 lambda r: hashes.__setitem__(
                     r["id"], parse_message(_decode(r["raw"]))["content_hash"]
                 ),

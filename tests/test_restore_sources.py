@@ -305,6 +305,21 @@ def test_repeated_runs_from_a_folder_with_a_limit_carry_on(env, tmp_path):
     assert [c[1] for c in env.calls if c[0] == "import"] == ["s1", "s2", "s3"]  # each once
 
 
+def test_a_run_again_after_a_backup_compares_by_the_backups_hashes(env, tmp_path):
+    other = tmp_path / "elsewhere"
+    commands.backup(Gmail({g: message(g) for g in ("s1", "s2")}), "old@example.org", other)
+    run("--from-folder", str(other), "--yes")
+    new = {c[2] for c in env.calls if c[0] == "import"}
+    env.fetched.clear()
+    run("--from-folder", str(other), "--yes")
+    assert new <= set(env.fetched)  # found, then read back to compare their content
+    commands.backup(env, A, env.folder)  # the restored mail is backed up
+    env.fetched.clear()
+    run("--from-folder", str(other), "--yes")
+    assert not new & set(env.fetched)  # compared by the backup's hashes instead
+    assert len([c for c in env.calls if c[0] == "import"]) == 2  # still found, not sent again
+
+
 @pytest.mark.parametrize(
     "args, message_",
     [

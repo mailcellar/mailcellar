@@ -423,6 +423,35 @@ def current_rows(folder: Path) -> dict[str, tuple[dict, int]]:
         con.close()
 
 
+def current_hashes(folder: Path, gmail_ids) -> dict[str, str]:
+    """
+    gmail_id → content hash, for those of `gmail_ids` parsed with the current
+    parser; {} without a current meta.sqlite. Opens it read-only.
+    """
+    path = meta_path(folder)
+    if not path.is_file():
+        return {}
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        row = con.execute("SELECT value FROM meta WHERE name = 'schema_version'").fetchone()
+        if row is None or row[0] != SCHEMA_VERSION:
+            return {}
+        ids, out = list(gmail_ids), {}
+        for start in range(0, len(ids), 500):  # under SQLite's limit on parameters
+            chunk = ids[start : start + 500]
+            marks = ", ".join("?" * len(chunk))
+            out |= dict(
+                con.execute(
+                    f"SELECT gmail_id, content_hash FROM messages "
+                    f"WHERE parser_version = ? AND gmail_id IN ({marks})",
+                    (PARSER_VERSION, *chunk),
+                )
+            )
+        return out
+    finally:
+        con.close()
+
+
 def current_fields(folder: Path) -> dict[str, dict]:
     """gmail_id → parsed fields, for messages parsed with the current parser."""
     return {gid: fields for gid, (fields, _date) in current_rows(folder).items()}

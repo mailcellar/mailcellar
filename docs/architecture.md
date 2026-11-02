@@ -242,8 +242,10 @@ since the plan. Removing the label in Gmail vetoes a message.
 1. **`plan()`** (read-only) checks each backup copy (the `.eml` parses and
    matches the sidecar's content hash), reads Gmail's state (one lookup
    per message, or two ID listings above 1,000 messages) and searches for
-   matching Message-IDs. Then **`decide()`**, a pure function of what was
-   read, picks each message's way back: `untrash`, `in gmail`
+   matching Message-IDs, comparing the content of a copy found by the hash
+   the mailbox's own backup holds for it, else by reading it. Then
+   **`decide()`**, a pure function of what was read, picks each message's
+   way back: `untrash`, `in gmail`
    (offloaded, already out of Trash), `present` (never offloaded, still
    there), `found` (same Message-ID and content under another ID, from a
    batched `rfc822msgid:` search), `import`, or `skipped` (unusable

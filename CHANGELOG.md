@@ -25,6 +25,11 @@ keep stable is in [What stays stable](docs/reference/stability.md).
   rather than a measured 6, so its estimates are about half as long again.
   Into an IMAP server it gives only the count and size: each server sets
   its own pace.
+- A restore that finds a message already in the mailbox under another ID
+  compares their content by the hash the mailbox's backup holds, where it
+  has one, rather than downloading the copy. A restore from `--from-mbox`
+  or `--from-folder` run again after a backup no longer reads back what
+  the earlier runs uploaded.
 
 ### Fixed
 - A restore run again with `--limit` didn't always carry on where the last

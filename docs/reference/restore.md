@@ -162,8 +162,9 @@ with `--to`: recorded if the mailbox has it, uploaded otherwise. Nothing is
 recorded in a backup or indexed: a run again finds what was restored by
 its Message-ID, and the next `backup` downloads it. So a run again with
 `--limit` reads back each message earlier runs uploaded to compare its
-content; into Gmail over IMAP that counts toward Google's daily download
-limit (2,500 MB for Workspace accounts).
+content, unless a backup has downloaded it since; into Gmail over IMAP that
+counts toward Google's daily download limit (2,500 MB for Workspace
+accounts). A scheduled backup between runs avoids it.
 
 ## Options
 
