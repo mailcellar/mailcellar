@@ -10,6 +10,7 @@ import time
 from collections import Counter
 from contextlib import closing
 from datetime import datetime
+from itertools import accumulate
 from pathlib import Path
 
 from mailcellar.backup import sidecar
@@ -20,6 +21,7 @@ from mailcellar.report.db import AnalyticsError
 from mailcellar.report.output import human_size
 from mailcellar.restore import sources
 from mailcellar.restore.apply import (
+    CHANGES,
     DONE,
     DRY_RUN,
     IMPORT,
@@ -198,6 +200,41 @@ def gmail_into(provider: str, into: str) -> str:
     return ""
 
 
+# Google's daily limit on uploads over IMAP: its figure for Workspace; consumer Gmail's isn't given
+GMAIL_IMAP_UPLOADS = 500_000_000
+
+
+def upload_limit_note(decisions, limit: int) -> str:
+    """
+    What to say where `decisions` would upload more than `limit` bytes, Gmail's
+    daily limit over IMAP, or "": how many to take a day with --limit, which
+    counts the changes oldest first (within_limit), each run carrying on
+    where the last stopped. Pure.
+    """
+    uploaded = accumulate(d.size if d.way == IMPORT else 0 for d in decisions)
+    past = next((n for n, total in enumerate(uploaded) if total > limit), None)
+    if past is None:
+        return ""
+    changes = sum(d.way in CHANGES for d in decisions[:past])  # what --limit counts
+    return (
+        f"Gmail allows about {limit // 1_000_000:,} MB of uploads over IMAP a day (Google's "
+        "figure for Workspace) and may slow down or refuse sign-in for up to a day past it: "
+        f"restore this over several days, with --limit {max(changes, 1)} a day; each run carries "
+        "on where the last stopped."
+    )
+
+
+def gmail_limit_note(box, decisions) -> str:
+    """
+    upload_limit_note() where `box` is Gmail over IMAP (X-GM-EXT-1), else "".
+    The server is asked only when the uploads would pass the limit.
+    """
+    from mailcellar import imap
+
+    note = upload_limit_note(decisions, GMAIL_IMAP_UPLOADS) if box.provider == "imap" else ""
+    return note if note and imap.GMAIL_EXT in box.server_info().capabilities else ""
+
+
 def main(argv=None, prog: str | None = None) -> int:
     log = restore_dir() / "restore-log.csv"
     p = argparse.ArgumentParser(
@@ -362,8 +399,11 @@ def main(argv=None, prog: str | None = None) -> int:
                 ),
             )
             decisions = within_limit(decisions, args.limit)
+            note = gmail_limit_note(gmail, decisions)
             with RestoreLog(Path(args.log), mode, account, target if other else "") as log:
                 if args.yes:
+                    if note:
+                        logger.warning(note)
                     run = datetime.now().strftime("%Y-%m-%d-%H%M%S")
                     results = apply(
                         gmail,
@@ -393,6 +433,7 @@ def main(argv=None, prog: str | None = None) -> int:
         target,
         label=args.label or restored_label(),
         provider=provider_of(target_config),
+        note=note,
     )
     print(f"Log → {args.log}")
     return 1 if any(r.outcome in ("failed", "skipped") for r in results) else 0
@@ -455,9 +496,12 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
                 recorded=restored_there(backup_folder(target)) if args.into else frozenset(),
             )
             decisions = within_limit(decisions, args.limit)
+            note = gmail_limit_note(gmail, decisions)
             target_name = target if target != account else ""
             with RestoreLog(Path(args.log), mode, account, target_name) as log:
                 if args.yes:
+                    if note:
+                        logger.warning(note)
                     run = datetime.now().strftime("%Y-%m-%d-%H%M%S")
                     results = apply(
                         gmail,
@@ -487,6 +531,7 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
         where,
         label=args.label or restored_label(),
         provider=provider_of(target_config),
+        note=note,
     )
     print(f"Log → {args.log}")
     return 1 if any(r.outcome in ("failed", "skipped") for r in results) else 0
@@ -515,6 +560,7 @@ def report(
     label: str = "",
     *,
     provider: str,
+    note: str = "",
 ) -> None:
     counts = Counter(r.outcome for r in results)
     into = f" → {target}" if target != account else ""
@@ -536,6 +582,8 @@ def report(
             "(more for large messages)."
         )
     if mode == "dry-run":
+        if note:
+            print(note)
         print("Nothing in the mailbox or the backup was changed. Run again with --yes to restore.")
     else:
         done = sum(counts[o] for o in DONE)
