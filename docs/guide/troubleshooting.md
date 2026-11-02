@@ -33,8 +33,8 @@ takes more than a few minutes (trashing is about 2,000 messages a minute,
 uploading at most four messages a second through the Gmail API), run it in the background.
 
 Over IMAP, Gmail says nothing when an account goes past its daily limit
-(about 2,500 MB downloaded): it answers every command slowly, for hours.
-A first backup of a large mailbox meets it; see
+(about 2,500 MB downloaded): it answers every command slowly, for up to
+a day. A first backup of a large mailbox meets it; see
 [Gmail's daily limits](imap.md#gmails-daily-limits).
 
 ## `count` reports mail missing from the backup

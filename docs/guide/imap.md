@@ -184,10 +184,10 @@ Google limits how much mail one account moves over IMAP in a day: about
 ([Gmail bandwidth limits](https://knowledge.workspace.google.com/admin/gmail/gmail-bandwidth-limits),
 written for Google Workspace; the limits "may change without notice").
 A first backup of a larger mailbox goes past it partway. Gmail gives no
-error: it answers every command slowly, for hours (Google's page says
-up to a day). Leave the backup running, or stop it and run it again
-later: it carries on from what it has saved. A backup moved from the
-API downloads only what's new, so this is about a first backup.
+error: it answers every command slowly, for up to a day. Leave the
+backup running, or stop it and run it again later: it carries on from
+what it has saved. A backup moved from the API downloads only what's
+new, so this is about a first backup.
 
 A restore into Gmail over IMAP uploads, so a selection larger than
 about 500 MB is better restored over several days with `--limit`, or
