@@ -92,6 +92,18 @@ def test_backup_writes_meta_for_new_messages(tmp_path):
     assert fields["g2"]["forwarded_from"] == "a@x"
 
 
+def test_current_hashes_are_read_for_the_ids_asked_and_the_current_parser(tmp_path):
+    _gmail, folder = backed_up(tmp_path)
+    want = sidecar.current_fields(folder)["g1"]["content_hash"]
+    assert want and sidecar.current_hashes(folder, ["g1", "nope"]) == {"g1": want}
+    con = sqlite3.connect(folder / "meta.sqlite")
+    con.execute("UPDATE messages SET parser_version = 'old' WHERE gmail_id = 'g1'")
+    con.commit()
+    con.close()
+    assert sidecar.current_hashes(folder, ["g1", "g2"]).keys() == {"g2"}  # g1 is stale
+    assert sidecar.current_hashes(tmp_path / "none", ["g1"]) == {}
+
+
 def test_unparseable_download_still_backs_up(tmp_path, monkeypatch, capsys):
     def boom(raw):
         raise ValueError("bad mail")

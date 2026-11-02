@@ -397,6 +397,7 @@ def main(argv=None, prog: str | None = None) -> int:
                     if args.into
                     else frozenset()
                 ),
+                backup=backup_folder(target),
             )
             decisions = within_limit(decisions, args.limit)
             note = gmail_limit_note(gmail, decisions)
@@ -494,6 +495,7 @@ def restore_from_elsewhere(p: argparse.ArgumentParser, args, narrowing: Narrowin
                 progress=progress,
                 into=args.into,
                 recorded=restored_there(backup_folder(target)) if args.into else frozenset(),
+                backup=backup_folder(target),
             )
             decisions = within_limit(decisions, args.limit)
             note = gmail_limit_note(gmail, decisions)
