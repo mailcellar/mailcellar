@@ -17,8 +17,10 @@ unchanged until they are set up the same way. Anything that
 changes Gmail still needs the user's own OAuth client and sign-in.
 
 An IMAP account (--imap HOST, #111) is set up with its server and password:
-imap.toml in its config folder, the password owner-only beside it. It is
-backed up only; nothing on the server changes. Microsoft's servers are
+imap.toml in its config folder, the password owner-only beside it.
+Setting it up changes nothing on the server, and nor does a backup;
+offload, dedup and restore change it where the server allows
+(imap.write_refusal). Microsoft's servers are
 refused before the password is asked: they take only OAuth over IMAP.
 `setup ACCOUNT --review MODE` changes how offload and dedup mark its mail
 for review, in imap.toml alone, asking no password. `setup ACCOUNT --check`
@@ -756,7 +758,7 @@ def run_service_account(args, config: Path, text: str, entries) -> int:
 
 
 def run_imap(args, config: Path, text: str, entries) -> int:
-    """setup ADDRESS --imap HOST: an IMAP account, backed up only."""
+    """setup ADDRESS --imap HOST: an IMAP account, from its server and password."""
     if not args.address:
         raise SetupError("--imap needs the address to back up")
     if args.service_account is not None or args.client is not None:
@@ -900,11 +902,12 @@ def run_check(args, config: Path, entries) -> int:
 def main(argv=None, prog: str | None = None) -> int:
     p = argparse.ArgumentParser(
         prog=prog or "mailcellar setup",
-        description="Add an account from a downloaded OAuth client: copies the client "
-        "into the config folder, lists the account in accounts.toml and signs in "
-        "(read-only). Asks for what is not given. Changes nothing in Gmail.",
+        description="Add an account: from a downloaded OAuth client (--client), a "
+        "Workspace service-account key (--service-account) or an IMAP server and its "
+        "password (--imap). Lists the account in accounts.toml and signs in, read-only; "
+        "changes nothing in the mailbox. Asks for what is not given.",
     )
-    p.add_argument("address", nargs="?", help="The Gmail or Workspace address to back up")
+    p.add_argument("address", nargs="?", help="The address to back up: Gmail, Workspace or IMAP")
     p.add_argument(
         "--client",
         metavar="FILE",
@@ -919,8 +922,8 @@ def main(argv=None, prog: str | None = None) -> int:
     p.add_argument(
         "--imap",
         metavar="HOST",
-        help="An IMAP account on this server (port 993, TLS): backed up only, read-only; "
-        "asks for the password and keeps it owner-only in the config folder",
+        help="An IMAP account on this server (port 993, TLS), Gmail's included: asks "
+        "for the password and keeps it owner-only in the config folder",
     )
     p.add_argument("--port", type=int, help="With --imap: the server's port (default 993)")
     p.add_argument("--username", help="With --imap: the login name (default: the address)")

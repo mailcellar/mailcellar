@@ -1,12 +1,15 @@
 """
-imap: an IMAP account as a read-only Mailbox (#108, step 2 #111).
+imap: an IMAP account as a Mailbox (#108, #111).
 
     with closing(ImapAccount(account, settings, password, folder=backup_folder)) as box:
         ids = box.list_message_ids()
 
-Nothing on the server changes: folders are opened with EXAMINE and bodies
-fetched with BODY.PEEK[], so not even \\Seen is set; every write method
-raises. Folders and flags become labels, as Gmail's labels are: INBOX and
+Backup and count change nothing on the server: folders are opened with
+EXAMINE and bodies fetched with BODY.PEEK[], so not even \\Seen is set.
+The writes are offload's and dedup's review marks and moves to Trash, and
+restore's moves out of Trash and uploads; write_refusal says which
+servers they are refused on, and nothing is ever expunged. Folders and
+flags become labels, as Gmail's labels are: INBOX and
 the special-use Sent, Drafts, Junk and Trash as INBOX, SENT, DRAFT, SPAM
 and TRASH (known by name for a role the server marks no folder for),
 other folders by name ('/' for nesting), a missing \\Seen as
@@ -1063,7 +1066,7 @@ def write_refusal(info: ServerInfo, scope: str = "modify") -> str:
     if missing:
         return (
             f"the server has no {' and no '.join(missing)}, so mailcellar won't move mail "
-            "on it (without them a move can delete for good); it is backed up only"
+            "on it (without them a move can delete for good), so offload and dedup can't run there"
         )
     return ""
 

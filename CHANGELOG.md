@@ -14,6 +14,9 @@ keep stable is in [What stays stable](docs/reference/stability.md).
   "the mailbox" where offloading, dedup and restore work on any account.
   Migrating from gyb shows `setup` for both routes: a gyb backup carries
   on over IMAP with an app password, without downloading anything again.
+- `setup --help` no longer says an IMAP account is backed up only, and
+  names all three ways to add an account. A server without MOVE is said
+  to rule out offload and dedup, not restore.
 
 ## 0.26.0 (2026-11-02)
 
