@@ -25,7 +25,10 @@ mailcellar restore work --all --to personal --label-prefix work   # into another
 Batch names are the folders in `<data root>/offload/batches/`. `--limit`
 takes the oldest messages first, and repeated runs carry on where the
 last one stopped: mail already in the mailbox, or that can't be restored,
-doesn't count toward it.
+doesn't count toward it. Into Gmail over IMAP, a restore that would upload
+more than about 500 MB says so, with a `--limit` that stays under it, and
+uploads all the same with `--yes`. That is Google's daily limit for
+Workspace accounts; it gives none for personal Gmail.
 
 <a id="narrowing-a-selection"></a>**Narrowing a selection.** Any of the
 selections above can be narrowed, so "last year's mail from one sender"

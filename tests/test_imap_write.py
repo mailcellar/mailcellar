@@ -14,6 +14,7 @@ from mailcellar.dedup.apply import DEDUP_LABEL, apply_plan
 from mailcellar.offload import cli as offload_cli
 from mailcellar.paths import backup_folder, data_root
 from mailcellar.restore import apply as restore_apply
+from mailcellar.restore import cli as restore_cli
 from test_imap_scan import account, ids_by_msgid
 from test_index import make_eml
 
@@ -1161,6 +1162,28 @@ def test_a_takeout_mbox_restores_into_an_imap_account_without_gmails_folders(hom
     assert len(home.folders["INBOX"]["uids"]) == 1 and len(home.folders["Receipts"]["uids"]) == 1
 
 
+@pytest.mark.parametrize("gmail", [True, False])
+def test_restore_past_gmails_imap_limit_says_to_spread_it(
+    home, tmp_path, monkeypatch, capsys, gmail
+):
+    if gmail:
+        home.signed_in = (*home.signed_in, "X-GM-EXT-1")
+    raws = [make_eml(msgid=f"<m{n}@x>").replace(b"\n", b"\r\n") for n in range(3)]
+    mbox = tmp_path / "takeout.mbox"
+    mbox.write_bytes(
+        b"".join(b"From 1234@xxx Thu Jan 01 10:00:00 +0000 2015\r\n" + r + b"\r\n" for r in raws)
+    )
+    monkeypatch.setattr(restore_cli, "GMAIL_IMAP_UPLOADS", sum(len(r) for r in raws) - 1)
+    restore = ["restore", "home", "--from-mbox", str(mbox)]
+    said = "restore this over several days, with --limit 2 a day"
+    assert cli.main(restore) == 0
+    assert (said in capsys.readouterr().out) == gmail
+    assert cli.main([*restore, "--yes"]) == 0
+    out, err = capsys.readouterr()
+    assert (said in err) == gmail and said not in out  # warned, but restored all the same
+    assert sum(len(f["uids"]) for f in home.folders.values()) == 3 + 3  # and the three in Projects
+
+
 # ── restore between Gmail and IMAP accounts ─────────────────────────────────
 
 GMAIL = "gee@example.com"
@@ -1412,6 +1435,25 @@ def work(home, tmp_path, monkeypatch):
 def outcomes(log="restore.csv") -> list[str]:
     with open(log, newline="", encoding="utf-8") as fh:
         return sorted(r["outcome"] for r in csv.DictReader(fh) if r["mode"] == "restore")
+
+
+def test_restore_into_gmail_over_imap_past_its_limit_goes_over_several_days(
+    work, monkeypatch, capsys
+):
+    from mailcellar.restore.apply import candidates
+
+    work.signed_in = (*work.signed_in, "X-GM-EXT-1")
+    cands = candidates(backup_folder(ADDRESS), everything=True)
+    monkeypatch.setattr(
+        restore_cli, "GMAIL_IMAP_UPLOADS", sum(c.path.stat().st_size for c in cands) - 1
+    )
+    restore = ["restore", "home", "--all", "--to", "work"]
+    assert cli.main(restore) == 0
+    assert "with --limit 2 a day" in capsys.readouterr().out
+    for uploaded in (2, 3):  # as the note says: each run carries on where the last stopped
+        assert cli.main([*restore, "--limit", "2", "--yes"]) == 0
+        assert len(work.folders["Projects"]["uids"]) == uploaded
+    assert "with --limit" not in capsys.readouterr().err  # each run under the limit: no warning
 
 
 def test_restore_into_puts_every_upload_in_one_folder(work, capsys):

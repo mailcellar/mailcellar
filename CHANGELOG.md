@@ -14,6 +14,10 @@ keep stable is in [What stays stable](docs/reference/stability.md).
   including the flags each folder keeps, without writing anything. It names
   none of your folders and not your address, so it can be pasted into an
   issue about a server mailcellar hasn't been tried on.
+- A restore into Gmail over IMAP that would upload more than about 500 MB,
+  Google's daily limit for Workspace accounts (it gives none for personal
+  Gmail), says so, with a `--limit` that keeps each run under it. Past the
+  limit Gmail may slow down or refuse sign-in for up to a day.
 
 ### Fixed
 - A restore run again with `--limit` didn't always carry on where the last

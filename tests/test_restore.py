@@ -1222,6 +1222,24 @@ def test_the_closing_line_claims_only_what_the_provider_does(provider, line):
     assert restore_cli.restored_line(3, "19:26", "restored/x", provider) == line
 
 
+def test_uploads_past_gmails_imap_limit_are_spread_over_days():
+    up = restore.Decision(cand(), restore.IMPORT, size=40)
+    there = restore.Decision(cand(), restore.PRESENT, size=40)
+    decisions = [up, there, up, up]
+    note = restore_cli.upload_limit_note(decisions, 100)
+    assert "--limit 2 a day" in note  # two uploads are 80 bytes, the third goes past; not `there`
+    taken = restore.within_limit(decisions, 2)  # what that --limit takes, under the limit
+    assert taken == [up, there, up] and sum(d.size for d in taken if d.way == restore.IMPORT) <= 100
+    assert restore_cli.upload_limit_note([up, there, up], 80) == ""  # up to it is fine
+    assert restore_cli.upload_limit_note([there] * 9, 100) == ""  # nothing to upload
+
+
+def test_only_gmail_over_imap_is_told_of_its_limit(monkeypatch):
+    monkeypatch.setattr(restore_cli, "GMAIL_IMAP_UPLOADS", 10)
+    up = [restore.Decision(cand(), restore.IMPORT, size=40)] * 2
+    assert restore_cli.gmail_limit_note(FakeMailbox(), up) == ""  # the API has no such limit
+
+
 def test_decisions_name_the_mailbox_restored_into():
     d = restore.decide(
         cand(),
