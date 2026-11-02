@@ -171,6 +171,42 @@ def test_gmail_mail_moved_to_trash_keeps_its_labels_in_the_backup(server):
     assert labels()["<a@x>"] == {"TRASH", "Receipts", "IMPORTANT"}
 
 
+def test_a_move_from_the_gmail_api_gives_labels_their_names_and_reads_them_again(server, capsys):
+    as_gmail(server)
+    server.folders["INBOX"]["uids"][1]["labels"] = ("Receipts",)
+    assert cli.main(["backup", "home"]) == 0
+    folder = backup_folder(ADDRESS)
+    con = sidecar.open_meta(folder)  # as the Gmail API leaves it: Label_N, its own history
+    con.execute("UPDATE message_labels SET label_id = 'Label_9' WHERE label_id = 'Receipts'")
+    con.execute("INSERT INTO message_labels VALUES ('201', 'Label_9')")  # c@x
+    api_catalogue = [
+        {"id": "INBOX", "name": "INBOX", "type": "system"},
+        {"id": "Label_9", "name": "Receipts", "type": "user"},
+    ]
+    sidecar.replace_label_catalogue(con, api_catalogue)
+    for name in ("provider", "id_kind"):
+        con.execute("DELETE FROM meta WHERE name = ?", (name,))
+    sidecar.set_state(con, "history_id", "12345")
+    con.commit()
+    con.close()
+    del server.folders["Sent"]["uids"][1]  # c@x offloaded: only the backup has it
+    del server.folders["[Gmail]/All Mail"]["uids"][3]
+    server.folders["INBOX"]["uids"][2]["labels"] = ("Receipts",)  # b@x labelled meanwhile
+    capsys.readouterr()
+    assert cli.main(["backup", "home"]) == 0  # the first run after the move
+    assert "updated labels on 1" in capsys.readouterr().out  # b@x's Receipts
+    con = sidecar.open_meta(folder)
+    held = {}
+    for gid, label in con.execute("SELECT gmail_id, label_id FROM message_labels"):
+        held.setdefault(gid, set()).add(label)
+    con.close()
+    assert held == {
+        "101": {"INBOX", "Receipts"},
+        "102": {"INBOX", "UNREAD", "Receipts"},
+        "201": {"SENT", "Receipts"},
+    }
+
+
 def test_gmails_categories_are_read_over_imap(server):
     as_gmail(server)
     server.categories = {0x101: "updates", 0x201: "personal", 0x301: "promotions"}

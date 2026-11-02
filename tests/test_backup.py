@@ -251,6 +251,82 @@ def test_a_backup_moved_from_imap_to_the_gmail_api_lists_everything_once(tmp_pat
     assert gmail.history_calls == 1  # its own history from then on
 
 
+def meta_labels(folder):
+    """{ID: its label IDs} from meta.sqlite."""
+    con = sidecar.open_meta(folder)
+    out = {}
+    for gid, label in con.execute("SELECT gmail_id, label_id FROM message_labels"):
+        out.setdefault(gid, set()).add(label)
+    con.close()
+    return out
+
+
+def as_imap_left_it(folder, catalogue):
+    """The backup as Gmail over IMAP leaves it: a label's ID is its name."""
+    con = sidecar.open_meta(folder)
+    names = sidecar.label_names(con)
+    for old in sidecar.held_label_ids(con):
+        con.execute("UPDATE message_labels SET label_id = ? WHERE label_id = ?", (names[old], old))
+    sidecar.replace_label_catalogue(con, catalogue)
+    sidecar.set_state(con, "provider", "imap")
+    sidecar.set_state(con, "id_kind", "gmail")
+    sidecar.set_state(con, "history_id", "imap:1")
+    con.commit()
+    con.close()
+
+
+@pytest.mark.parametrize("restored_first", [False, True])
+def test_a_move_to_the_gmail_api_gives_labels_their_ids_and_reads_them_again(
+    tmp_path, restored_first
+):
+    gmail = FakeMailbox(
+        {
+            "g1": raw_response("g1", label_ids=["INBOX", "Label_1"]),
+            "g2": raw_response("g2", label_ids=["Label_1"]),
+        }
+    )
+    commands.backup(gmail, ACCOUNT, tmp_path)
+    imap_catalogue = [
+        {"id": "INBOX", "name": "INBOX", "type": "system"},
+        {"id": "work", "name": "work", "type": "user"},
+    ]
+    as_imap_left_it(tmp_path, imap_catalogue)
+    assert meta_labels(tmp_path) == {"g1": {"INBOX", "work"}, "g2": {"work"}}
+    del gmail.messages["g2"]  # offloaded: only the backup has it
+    gmail.messages["g1"]["labelIds"] = ["Label_1"]  # archived since the last backup over IMAP
+    if restored_first:  # a restore into it records the move before any backup
+        con = sidecar.open_meta(tmp_path)
+        sidecar.record_provider(con, "gmail", "gmail")
+        con.commit()
+        con.close()
+    stats = commands.backup(gmail, ACCOUNT, tmp_path)
+    assert meta_labels(tmp_path) == {"g1": {"Label_1"}, "g2": {"Label_1"}}
+    assert stats["labels_changed"] == 1  # g1's INBOX: read again, as the history is new
+    assert ("g1", "work") in rows(tmp_path)["labels"] and ("g1", "INBOX") not in rows(tmp_path)[
+        "labels"
+    ]
+    gmail.listings = 0
+    commands.backup(gmail, ACCOUNT, tmp_path)
+    assert gmail.listings == 0  # once only: its own history from then on
+
+
+def test_labels_are_renamed_by_name_to_the_mailboxs_ids():
+    api = [
+        {"id": "INBOX", "name": "INBOX", "type": "system"},
+        {"id": "Label_1", "name": "work", "type": "user"},
+        {"id": "Label_2", "name": "a/b", "type": "user"},
+    ]
+    names = {label["name"]: label["name"] for label in api}  # the catalogue over IMAP
+    held = {"INBOX", "work", "a/b", "gone"}
+    assert sidecar.label_renames(held, names, api) == {"work": "Label_1", "a/b": "Label_2"}
+    imap = [{"id": n, "name": n, "type": t["type"]} for n, t in zip(names, api, strict=True)]
+    before = {label["id"]: label["name"] for label in api}
+    held = {"INBOX", "Label_1", "Label_2", "Label_9"}  # Label_9: a label since deleted
+    assert sidecar.label_renames(held, before, imap) == {"Label_1": "work", "Label_2": "a/b"}
+    assert sidecar.label_renames({"INBOX", "Label_1"}, before, api) == {}  # nothing moved
+    assert sidecar.label_renames({"work"}, {}, api) == {"work": "Label_1"}  # moved earlier
+
+
 def test_recording_another_provider_drops_the_history_point(tmp_path):
     con = sidecar.open_meta(tmp_path)
     sidecar.set_state(con, "history_id", "imap:1")
