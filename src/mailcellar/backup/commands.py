@@ -304,11 +304,14 @@ def backup(
     history_id only after a run without download failures. Records the run
     in meta.sqlite's runs table, also when it fails. Raises BackupMissing,
     creating nothing, when the account was backed up before and the
-    backup isn't in `folder`.
+    backup isn't in `folder`, and chain.AnchorMismatch when its chain isn't
+    the one the anchor recorded.
     """
     problem = why_missing(account, folder)
     if problem:
         raise BackupMissing(problem)
+    if problem := chain.why_unanchored(folder, account):
+        raise chain.AnchorMismatch(problem)
     con = gyb.open_backup(folder, account)
     mcon = sidecar.open_meta(folder)
     started = now_ms()
@@ -932,7 +935,13 @@ def main(argv=None, prog: str | None = None) -> int:
             print(f"\n── {account} ──")
         try:
             status = max(status, args.func(argparse.Namespace(**vars(args), account=account)))
-        except (gmailapi.GmailError, gyb.FormatError, sidecar.MetaError, BackupMissing) as exc:
+        except (
+            gmailapi.GmailError,
+            gyb.FormatError,
+            sidecar.MetaError,
+            BackupMissing,
+            chain.AnchorMismatch,
+        ) as exc:
             if len(accounts) == 1:
                 sys.exit(f"error: {exc}")
             logger.error(f"{account}: {exc}")

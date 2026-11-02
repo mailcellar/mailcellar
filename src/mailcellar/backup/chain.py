@@ -20,11 +20,14 @@ in "note", and change nothing in the backup.
 
 A link is appended before the change it records is committed, so a crash
 leaves a link whose messages never arrived (shown as missing; the next
-backup fetches them again), never messages no link explains. Labels are
+backup fetches them again), never messages no link explains. A link is
+appended only to the chain the anchor recorded: one rewritten in the data
+root, or put back from an older copy, is refused (AnchorMismatch) rather
+than anchored, which would make it check clean from then on. Labels are
 not covered: they change in Gmail all the time and aren't the mail.
 
-next_link(), replay(), compare() and check_anchor() decide from plain
-values; the rest reads and writes.
+next_link(), replay(), compare(), check_anchor() and anchor_problem()
+decide from plain values; the rest reads and writes.
 """
 
 import fcntl
@@ -63,6 +66,10 @@ Pair = tuple[str, str]  # (Gmail ID, sha256 of its .eml)
 
 class ChainError(Exception):
     pass
+
+
+class AnchorMismatch(ChainError):
+    """The chain isn't the one its anchor recorded, so nothing is appended to it."""
 
 
 @dataclass(frozen=True)
@@ -227,6 +234,37 @@ def check_anchor(heads: list[tuple[int, str]], anchor: dict | None) -> list[Prob
     return []
 
 
+def anchor_problem(account: str, lines: list[str], anchor: dict | None, anchor_file: Path) -> str:
+    """
+    Why a link mustn't be appended to the chain `lines`, or "": the anchor
+    names a link that isn't its last as recorded (a rewritten chain, links
+    added past the anchor, or a backup put back from an older copy). No
+    anchor is no objection: the first append writes it. A link's seq is
+    its line number in a chain that isn't broken, which spares parsing
+    every line on every append; only the last is hashed unless it differs.
+    Pure.
+    """
+    if anchor is None:
+        return ""
+    if lines and len(lines) == anchor.get("seq") and hash_line(lines[-1]) == anchor.get("hash"):
+        return ""
+    heads = [(n, hash_line(line)) for n, line in enumerate(lines, 1)]
+    found = check_anchor(heads, anchor)  # for what to say: it can't be empty here
+    return (
+        f"the hash chain of {account}'s backup doesn't match its anchor {anchor_file} "
+        f"({found[0].detail}), so nothing was recorded or changed. The chain may have been "
+        "rewritten, or the backup put back from an older copy. Run 'mailcellar verify "
+        f"{account} --chain' to see what differs. If the backup was put back from an older "
+        "copy on purpose, move the anchor file aside and run again: the next link "
+        "recorded anchors the chain as it is."
+    )
+
+
+def why_unanchored(folder: Path, account: str) -> str:
+    """anchor_problem() for this backup's chain and the account's anchor, as they are now."""
+    return anchor_problem(account, read_lines(folder), read_anchor(account), anchor_path(account))
+
+
 # ── reading and writing ──────────────────────────────────────────────────────
 
 
@@ -290,11 +328,13 @@ def append(
     """
     Append a link and update the anchor. Nothing to record (no messages, and
     not an event: genesis, hold, release) appends nothing. The line is on
-    disk before this returns. The chain file is locked while the last link
-    is read, the next written and the anchor updated, so two commands
-    running at once (the scheduled backup and one typed by hand) can't both
-    link to the same previous link. A genesis, if the chain has begun
-    meanwhile, appends nothing.
+    disk before this returns. Raises AnchorMismatch, appending nothing,
+    when the chain isn't the one the anchor recorded (anchor_problem()).
+    The chain file is locked while the last link is read, checked and the
+    next written and the anchor updated, so two commands running at once
+    (the scheduled backup and one typed by hand) can't both link to the
+    same previous link. A genesis, if the chain has begun meanwhile,
+    appends nothing.
     """
     added, removed = tuple(added), tuple(removed)
     if not added and not removed and op not in EVENTS:
@@ -307,6 +347,8 @@ def append(
         lines = read_lines(folder)
         if lines and op == "genesis":
             return None
+        if problem := anchor_problem(account, lines, read_anchor(account), anchor_path(account)):
+            raise AnchorMismatch(problem)
         last = None
         if lines:
             try:
