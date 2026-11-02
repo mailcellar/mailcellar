@@ -119,14 +119,15 @@ def write_meta(mcon, response: dict, raw: bytes | None = None) -> bool:
 SKIP_LABELS = {"SPAM", "TRASH"}  # excluded from backups, as messages.list does
 
 
-def with_categories(label_ids, held, provider: str) -> list[str]:
+def with_categories(label_ids, held, read: bool) -> list[str]:
     """
     A backed-up message's labels from the mailbox's (`label_ids`) and those
-    the backup holds (`held`): the mailbox's, but over IMAP with the Gmail
-    categories it holds, which only the Gmail API gives: a backup moved
-    from the API keeps them, and mail backed up over IMAP has none. Pure.
+    the backup holds (`held`): the mailbox's, but with the Gmail categories
+    it holds where the mailbox's labels don't say (`read` False: an IMAP
+    account other than Gmail, or Gmail's search failed), so a backup moved
+    from the Gmail API keeps them. Pure.
     """
-    if provider != "imap":
+    if read:
         return list(label_ids)
     return sorted(set(label_ids) | {label for label in held if label.startswith("CATEGORY_")})
 
@@ -134,10 +135,10 @@ def with_categories(label_ids, held, provider: str) -> list[str]:
 def apply_labels(con, mcon, gmail, gmail_id: str, label_ids) -> bool:
     """
     Set a backed-up message's labels in both databases (keeping its categories
-    over IMAP, with_categories). True if gyb's changed.
+    where the mailbox doesn't give them, with_categories). True if gyb's changed.
     """
     held = sidecar.message_label_ids(mcon, gmail_id)
-    label_ids = with_categories(label_ids, held, gmail.provider)
+    label_ids = with_categories(label_ids, held, gmail.has_categories())
     changed = gyb.replace_labels(con, gmail_id, sorted(gmail.label_names(label_ids)))
     sidecar.set_message_labels(mcon, gmail_id, label_ids)
     return changed

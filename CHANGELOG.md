@@ -14,6 +14,11 @@ keep stable is in [What stays stable](docs/reference/stability.md).
   Gmail's own search, as they do through the API. They find the same
   mail, except for chats, which are never backed up. Other IMAP servers
   still refuse a query.
+- Gmail's categories over IMAP: a backup of a Gmail account set up over
+  IMAP holds each message's category (Primary, Social, Promotions,
+  Updates, Forums), read with Gmail's own search, and keeps it current,
+  so an offload rule's `category` and `report bulk` work for it as
+  through the API. Before, only mail backed up through the API had one.
 
 ### Changed
 - An IMAP backup reads only what changed since the last one, where the

@@ -171,32 +171,85 @@ def test_gmail_mail_moved_to_trash_keeps_its_labels_in_the_backup(server):
     assert labels()["<a@x>"] == {"TRASH", "Receipts", "IMPORTANT"}
 
 
-def test_a_gmail_api_backup_keeps_its_categories_over_imap(server):
+def test_gmails_categories_are_read_over_imap(server):
     as_gmail(server)
+    server.categories = {0x101: "updates", 0x201: "personal", 0x301: "promotions"}
     assert cli.main(["backup", "home"]) == 0
+    assert labels() == {
+        "<a@x>": {"INBOX", "CATEGORY_UPDATES"},
+        "<b@x>": {"INBOX", "UNREAD"},  # in none, as Gmail leaves some
+        "<c@x>": {"SENT", "CATEGORY_PERSONAL"},
+    }
+    server.categories[0x101] = "social"  # moved to another tab
+    assert cli.main(["backup", "home"]) == 0
+    assert labels()["<a@x>"] == {"INBOX", "CATEGORY_SOCIAL"}
+
+
+def held_categories():
+    """The backup as the Gmail API left it: a@x in Updates."""
     folder = backup_folder(ADDRESS)
     con, mcon = gyb.open_backup(folder, ADDRESS), sidecar.open_meta(folder)
     for gid, labels_now in (("101", ["INBOX", "CATEGORY_UPDATES"]), ("102", ["INBOX", "UNREAD"])):
-        gyb.replace_labels(con, gid, labels_now)  # as the Gmail API backed them up
+        gyb.replace_labels(con, gid, labels_now)
         sidecar.set_message_labels(mcon, gid, labels_now)
     for c in (con, mcon):
         c.commit()
         c.close()
+
+
+@pytest.mark.parametrize("fails", ["search", "uidvalidity", "two"])
+def test_a_backup_keeps_its_categories_when_gmails_search_cant_give_them(
+    server, capsys, monkeypatch, fails
+):
+    as_gmail(server)
+    assert cli.main(["backup", "home"]) == 0
+    held_categories()
     server.move("INBOX", 1, "Projects")  # a@x filed: a label change to apply
+    if fails == "search":
+        server.gmail_finds["category:forums"] = None
+    elif fails == "uidvalidity":  # renumbered between the scan and the search
+        categorise = imap.ImapAccount._categorise
+
+        def renumbered(self, scan):
+            server.folders["[Gmail]/All Mail"]["uidvalidity"] = 2
+            return categorise(self, scan)
+
+        monkeypatch.setattr(imap.ImapAccount, "_categorise", renumbered)
+    else:
+        server.gmail_finds["category:social"] = {0x101}
+        server.gmail_finds["category:updates"] = {0x101}
     assert cli.main(["backup", "home"]) == 0
     got = labels()
-    assert got["<a@x>"] == {"Projects", "CATEGORY_UPDATES"}  # IMAP can't see it: kept
+    assert got["<a@x>"] == {"Projects", "CATEGORY_UPDATES"}  # the search can't say: kept
     assert got["<b@x>"] == {"INBOX", "UNREAD"}
-    meta = sqlite3.connect(folder / "meta.sqlite")
+    assert "Gmail's categories couldn't be read" in capsys.readouterr().err
+    meta = sqlite3.connect(backup_folder(ADDRESS) / "meta.sqlite")
     held = meta.execute("SELECT label_id FROM message_labels WHERE gmail_id = '101'").fetchall()
     meta.close()
     assert sorted(held) == [("CATEGORY_UPDATES",), ("Projects",)]
 
 
-def test_categories_are_kept_over_imap_only():
+def test_another_servers_backup_keeps_its_categories(server):
+    assert cli.main(["backup", "home"]) == 0
+    folder = backup_folder(ADDRESS)
+    con, mcon = gyb.open_backup(folder, ADDRESS), sidecar.open_meta(folder)
+    gid = next(g for (g,) in rows("SELECT uid FROM uids"))
+    gyb.replace_labels(con, gid, ["INBOX", "CATEGORY_UPDATES"])  # a backup moved from Gmail's
+    sidecar.set_message_labels(mcon, gid, ["INBOX", "CATEGORY_UPDATES"])
+    for c in (con, mcon):
+        c.commit()
+        c.close()
+    server.add("INBOX", msgid="<d@x>")  # a change: the run applies labels
+    assert cli.main(["backup", "home"]) == 0
+    mcon = sidecar.open_meta(folder)
+    assert "CATEGORY_UPDATES" in sidecar.message_label_ids(mcon, gid)
+    mcon.close()
+
+
+def test_categories_are_kept_where_the_mailbox_cant_say():
     held = {"INBOX", "CATEGORY_UPDATES", "Projects"}
-    assert backup_commands.with_categories(["Work"], held, "imap") == ["CATEGORY_UPDATES", "Work"]
-    assert backup_commands.with_categories(["Work"], held, "gmail") == ["Work"]  # the API's say
+    assert backup_commands.with_categories(["Work"], held, False) == ["CATEGORY_UPDATES", "Work"]
+    assert backup_commands.with_categories(["Work"], held, True) == ["Work"]  # the mailbox's say
 
 
 def test_an_imap_backup_of_gmail_from_before_its_own_ids_is_refused(server):

@@ -78,6 +78,8 @@ GMAIL_EXT = "X-GM-EXT-1"  # Gmail: X-GM-MSGID, and an All Mail (\\All) that isn'
 SYSTEM = {"INBOX", "SENT", "DRAFT", "SPAM", "TRASH", "UNREAD", "STARRED", "IMPORTANT"}
 HIDDEN = frozenset({"SPAM", "TRASH"})  # left out of listings unless include_spam_trash
 TOKEN = "imap:1"  # a history point: the UID map is the state
+# Gmail's categories as its search names them (category:…); CATEGORY_… on the API.
+CATEGORIES = ("personal", "social", "promotions", "updates", "forums")
 # X-GM-LABELS's system labels as the Gmail API names them; any other is dropped.
 GMAIL_SYSTEM = {
     "\\inbox": "INBOX",
@@ -228,6 +230,7 @@ class Scan:
     skipped: frozenset[str] = field(default_factory=frozenset)  # folders that couldn't be read
     folders: tuple[Folder, ...] = ()  # the folders read
     read_at: int = 0  # ms since epoch: when the read began
+    categories: bool = False  # the messages' labels include Gmail's categories (categorised)
 
 
 # ── pure: parsing ────────────────────────────────────────────────────────────
@@ -346,6 +349,41 @@ def gmail_search(query: str) -> tuple[tuple[str, ...], bytes | None]:
     if query.isascii() and not {"\r", "\n"} & set(query):
         return ("X-GM-RAW", quote(query)), None
     return ("CHARSET", "UTF-8", "X-GM-RAW"), query.encode()
+
+
+def category_folders(scan: Scan) -> tuple[str, ...] | None:
+    """
+    The folders Gmail's category searches cover every message in: All Mail,
+    and Trash and Spam, which All Mail leaves out, where they were read; None
+    if All Mail wasn't. Pure.
+    """
+    store = next((f.name for f in scan.folders if f.store), None)
+    if store is None:
+        return None
+    return (store, *(f.name for f in scan.folders if f.label in HIDDEN))
+
+
+def categorised(scan: Scan, found: Mapping[tuple[str, str], frozenset[int]]) -> Scan | None:
+    """
+    The scan with each message's Gmail category (CATEGORY_PERSONAL and so
+    on) among its labels, from what the searches found: (folder, category)
+    → UIDs. A UID the scan didn't map (mail newer than it) is left out; a
+    message with none has no category, as on the API. None if a message is
+    found under two, which Gmail doesn't do. Pure.
+    """
+    of: dict[str, str] = {}
+    for (folder, category), uids in found.items():
+        rows = scan.maps[folder].rows
+        for uid in uids & rows.keys():
+            label = "CATEGORY_" + category.upper()
+            if of.setdefault(rows[uid].id, label) != label:
+                return None
+    messages = {
+        gid: replace(m, labels=m.labels | {of[gid]}) if gid in of else m
+        for gid, m in scan.messages.items()
+    }
+    labels = scan.labels | {"CATEGORY_" + c.upper() for c in CATEGORIES}  # as the API lists them
+    return replace(scan, messages=messages, labels=labels, categories=True)
 
 
 def search_uids(data) -> frozenset[int]:
@@ -1817,6 +1855,10 @@ class ImapAccount:
         """The folders this run's scan skipped: refused, or listed short."""
         return tuple(sorted(self._cache[1].skipped)) if self._cache is not None else ()
 
+    def has_categories(self) -> bool:
+        """Whether Gmail's search gave this run's categories (_categorise)."""
+        return self._cache is not None and self._cache[1].categories
+
     def close(self) -> None:
         """
         Log out, if signed in: the server sees the session end, not a dropped
@@ -2143,7 +2185,52 @@ class ImapAccount:
             )
         digests = self._read_digests(needs_content(reads))
         decided = merge(reads, assign_ids(reads, digests), self._reviews())
+        if gmail:
+            decided = self._categorise(decided)
         return replace(decided, skipped=frozenset(skipped), read_at=read_at)
+
+    def _categorise(self, scan: Scan) -> Scan:
+        """
+        The scan with Gmail's categories, which X-GM-LABELS doesn't give, from
+        Gmail's own search (category:…) in each folder category_folders names;
+        as it was, categories unknown, if All Mail wasn't read, a search fails
+        or a folder's UIDs changed since the scan: backup then keeps those the
+        backup holds (has_categories).
+        """
+        folders = category_folders(scan)
+        if folders is None:
+            logger.debug("%s: All Mail wasn't read, so neither are the categories", self.account)
+            return scan
+
+        def run(conn):
+            found = {}
+            for name in folders:
+                self._ok(*conn.select(quote(name), readonly=True), f"EXAMINE {name}")
+                _code, (uidvalidity, *_rest) = conn.response("UIDVALIDITY")
+                if int(uidvalidity) != scan.maps[name].uidvalidity:  # renumbered since the scan
+                    raise gmailapi.GmailError(f"{name}'s UIDs changed since the scan")
+                for category in CATEGORIES:
+                    args, _literal = gmail_search(f"category:{category}")
+                    typ, data = conn.uid("SEARCH", *args)
+                    found[name, category] = search_uids(
+                        self._ok(typ, data, f"searching {name} for category:{category}")
+                    )
+            return found
+
+        try:
+            out = categorised(scan, self._retrying("reading the categories", run))
+        except gmailapi.GmailError as exc:
+            out, why = None, str(exc)
+        else:
+            why = "a message is in two"
+        if out is None:
+            logger.warning(
+                "%s: Gmail's categories couldn't be read (%s); the backup keeps those it has",
+                self.account,
+                why,
+            )
+            return scan
+        return out
 
     def _messages(self) -> Mapping[str, Message]:
         return self._scan()[1].messages
@@ -2281,7 +2368,11 @@ class ImapAccount:
 
     def label_catalogue(self):
         return [
-            {"id": name, "name": name, "type": "system" if name in SYSTEM else "user"}
+            {
+                "id": name,
+                "name": name,
+                "type": "system" if name in SYSTEM or name.startswith("CATEGORY_") else "user",
+            }
             for name in sorted(self._scan()[1].labels)
         ]
 

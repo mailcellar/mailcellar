@@ -58,6 +58,7 @@ class FakeImap:
         # Gmail's search (X-GM-RAW): query → the X-GM-MSGIDs it finds, None to answer NO;
         # the queries searched, as the server read them; imaplib's literal for the next command.
         self.gmail_finds: dict[str, set[int] | None] = {}
+        self.categories: dict[int, str] = {}  # X-GM-MSGID → its category, as category:… finds it
         self.searched: list[str] = []
         self.literal: bytes | None = None
         self.untagged: dict[str, list] = {}  # LIST-STATUS's answers, until response() takes them
@@ -253,11 +254,18 @@ class FakeImap:
                 raise AssertionError(f"X-GM-RAW's query not a quoted string: {quoted!r}")
             query = re.sub(r"\\(.)", r"\1", quoted[1:-1])
         self.searched.append(query)
+        category = query.removeprefix("category:")
+        if query not in self.gmail_finds and category != query:
+            return self._found(uids, {gm for gm, c in self.categories.items() if c == category})
         if query not in self.gmail_finds:
             raise AssertionError(f"no answer set for Gmail's search {query!r}")
         found = self.gmail_finds[query]
         if found is None:
             return "NO", [b"[CANNOT] Unsupported search"]
+        return self._found(uids, found)
+
+    @staticmethod
+    def _found(uids, found):
         hits = sorted(u for u, m in uids.items() if m["gm"] in found)
         return "OK", [b" ".join(str(u).encode() for u in hits)]
 

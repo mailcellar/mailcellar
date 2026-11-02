@@ -1256,6 +1256,10 @@ class GmailAccount:
         """Nothing: a listing that fails raises instead."""
         return ()
 
+    def has_categories(self) -> bool:
+        """Always: the API gives them as labels."""
+        return True
+
     def can_move(self) -> bool:
         """Always: Gmail untrashes by label."""
         return True

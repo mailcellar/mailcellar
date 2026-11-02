@@ -289,6 +289,9 @@ class FakeMailbox:
     def unread(self):
         return ()
 
+    def has_categories(self):
+        return True
+
     def can_move(self):
         return True
 
