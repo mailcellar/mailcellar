@@ -6,24 +6,31 @@ description: "How mailcellar works inside: one command over one Python package, 
 
 One command, `mailcellar`, over one Python package, `src/mailcellar/`:
 
-- **`mailcellar setup`** adds an account from a downloaded OAuth client:
-  checks the file, copies it into the config folder, lists the account in
-  `accounts.toml` and signs in read-only.
-- **`mailcellar backup | count | meta`** keeps a local backup of each Gmail
-  account, in Got-Your-Back's (gyb) on-disk format; **`verify`** checks,
+- **`mailcellar setup`** adds an account: a Gmail account from a
+  downloaded OAuth client (checked, copied into the config folder, listed
+  in `accounts.toml`, then a read-only sign-in) or a Workspace domain's
+  service-account key; an IMAP account from its server and password.
+- **`mailcellar backup | count | meta`** keeps a local backup of each
+  account, Gmail through its API or any mailbox over IMAP, in
+  Got-Your-Back's (gyb) on-disk format; **`verify`** checks,
   read-only, that its files are still intact; **`schedule`** runs backups
   regularly, unattended.
 - **`mailcellar dedup`** finds duplicate messages within and across the
   backed-up accounts, decides which copies to remove, and removes them
-  from Gmail — in stages, with checks, never permanently.
-- **`mailcellar offload`** takes old mail out of Gmail by rule, keeping it
-  in the backup, in the same stages.
-- **`mailcellar restore`** puts mail back: offloaded mail out of Gmail's
-  Trash within 30 days, otherwise uploaded from the backup; a whole
-  backup, into its own account or another one.
+  from the mailbox — in stages, with checks, never permanently.
+- **`mailcellar offload`** takes old mail out of the mailbox by rule,
+  keeping it in the backup, in the same stages; `offload suggest` drafts
+  rules from the bulk report.
+- **`mailcellar forget`** deletes mail from the backup on purpose:
+  offloaded mail, mail deleted in the mailbox, or what a rule's retention
+  makes due, held 30 days first. **`mailcellar hold`** places legal holds,
+  mail nothing may remove.
+- **`mailcellar restore`** puts mail back: offloaded mail out of the
+  mailbox's Trash while it's still there, otherwise uploaded from the
+  backup; a whole backup, into its own account or another one.
 - **`mailcellar export`** copies a selection of the backup out, read-only,
-  as an mbox file for a mail client or a zip of the `.eml` files with a CSV
-  index.
+  as an mbox file for a mail client, a zip of the `.eml` files with a CSV
+  index, or the attachments alone.
 - **`mailcellar search`** finds mail in the backups, offloaded mail included,
   by words in the sender, recipients, subject and body, from a full-text
   index in the data root.
@@ -36,14 +43,15 @@ and real-data measurements are kept outside the repository.
 
 ## Data flow
 
-Gmail is read from one place and changed from another, and the backup sits
-between them. Everything else reads the backup, not Gmail.
+The mailbox is read from one place and changed from another, and the
+backup sits between them. Everything else reads the backup, not the
+mailbox.
 
 ```
-   Gmail
+   the mailbox (Gmail API or IMAP)
      │  ▲
-     │  └─────────────────────────────── changes Gmail (gmail.modify) ──────┐
-     │ reads (gmail.readonly)                                               │
+     │  └─────────────────────────────── changes it (modify access) ────────┐
+     │ reads (read-only access)                                             │
      ▼                                                                      │
    backup · count · meta                                                    │
      │ add to                                                               │
@@ -60,33 +68,36 @@ between them. Everything else reads the backup, not Gmail.
    offload plan                    ──► offload-plan.csv ┤                   │
                                                         ▼                   │
                       dedup apply · offload apply · restore --yes ──────────┘
-                      (labels, Trash, untrash, messages.import)
+                      (review marks, Trash, untrash, upload)
                                   │
                                   ▼
                logs and records: dedup-apply-log.csv, offload-apply-log.csv,
                restore-log.csv, and meta.sqlite (`offloaded`, `restored`)
 ```
 
-Reading the picture from the top: `backup` copies Gmail into the backup and
-touches nothing in Gmail. The planning commands only read the backup and write
-their own plan file. Only the three steps at the bottom change Gmail, and only
-when run for real (`--label`/`--trash`, or `--yes`), with the broader
-`gmail.modify` permission. Their dry runs still read Gmail, to check each
-message, but change nothing. Each takes its instructions from a plan or a
+Reading the picture from the top: `backup` copies the mailbox into the
+backup and changes nothing there. The planning commands only read the backup
+and write their own plan file. Only the three steps at the bottom change the
+mailbox, and only when run for real (`--label`/`--trash`, or `--yes`): on
+Gmail with the broader `gmail.modify` scope; over IMAP the password allows
+both, so the server's abilities (MOVE, a marked Trash) are the check. Their
+dry runs still read the mailbox, to check each message, but change nothing. Each takes its instructions from a plan or a
 selection you can see first. The `apply` steps record what they did in a
 log and in `meta.sqlite`, and `restore` also indexes the messages it uploads
 in the backup of the account they went into.
 
 Who touches what:
 
-| Command | Reads | Writes | Gmail |
+| Command | Reads | Writes | Mailbox |
 |---|---|---|---|
-| `setup` | the client JSON you name; `accounts.toml` | the account's `client_secrets.json`, `accounts.toml`, a readonly token | read-only sign-in |
-| `backup` | Gmail | the backup | read-only |
+| `setup` | the client JSON or key you name; `accounts.toml` | the account's `client_secrets.json`, `accounts.toml`, a readonly token; or `imap.toml` and the password; or the domain's service-account key | read-only sign-in; over IMAP a sign-in that changes nothing |
+| `auth` | the config folder | the account's token (a Gmail API account; nothing for IMAP) | sign-in |
+| `config` | the config folder, the backups | nothing | none |
+| `backup` | the mailbox | the backup | read-only |
 | `schedule install`, `remove` | the config folder | the launchd agent (macOS) or nothing (a cron line is printed); `logs/backup.log` when it runs | none |
 | `schedule status` | the backups' `runs`, the token files | nothing | none |
-| `count` | Gmail, the backup | nothing (a line in `runs`) | read-only |
-| `meta` | the `.eml` files; Gmail, for label and thread details | `meta.sqlite` | read-only |
+| `count` | the mailbox, the backup | nothing (a line in `runs`) | read-only |
+| `meta` | the `.eml` files; the mailbox, for label and thread details | `meta.sqlite` | read-only |
 | `verify`, `export`, `report` | the backup | `export`: the file you name; the others, nothing | none |
 | `hold add`, `release` | the backup | `meta.sqlite` (`holds`), `chain.jsonl` | none |
 | `hold list`, `show` | the backup | nothing | none |
@@ -94,8 +105,10 @@ Who touches what:
 | `dedup index` | the backups | `dedup.sqlite` | none |
 | `dedup match`, `plan` | `dedup.sqlite` | `dedup.sqlite` (groups); `dedup-plan.csv` | none |
 | `offload plan` | the backup, `rules.toml`; Gmail's search, for rules with a `query` | `offload-plan.csv`, `plans/` | none, or read-only for a `query` |
-| `dedup apply`, `offload apply` | the plan; Gmail, to check each message | with `--label`/`--trash`: Gmail labels and Trash; logs; `meta.sqlite` (offload) | read-only for a dry run, modify with `--label`/`--trash` |
-| `restore` | the backup; Gmail, to look each message up | with `--yes`: Gmail; `restore-log.csv`; `meta.sqlite` | read-only for a dry run, modify with `--yes` |
+| `offload suggest` | the backup, `rules.toml` | nothing (prints rules); with `--append`, `rules.toml`, commented out | none |
+| `dedup apply`, `offload apply` | the plan; the mailbox, to check each message | with `--label`/`--trash`: review marks and Trash in the mailbox; logs; `meta.sqlite` (offload) | read-only for a dry run, modify with `--label`/`--trash` |
+| `restore` | the backup; the mailbox, to look each message up | with `--yes`: the mailbox; `restore-log.csv`; `meta.sqlite` | read-only for a dry run, modify with `--yes` |
+| `forget` | the backup; the mailbox, to confirm mail is gone | with `--yes`: the backup (files moved to `_forgotten/`, rows deleted), `chain.jsonl`, the search index, dedup catalogue, plans and logs; `--empty` deletes held runs | read-only |
 
 ## Modules
 
@@ -107,11 +120,11 @@ mailcellar` and `python -m mailcellar` both work.
 | `cli.py` | The `mailcellar` command: dispatches `setup`, `backup`, `count`, `meta` (every configured account by default), `verify`, `auth`, `schedule`, `dedup`, `offload`, `forget`, `restore`, `export`, `hold`, `search`, `report` (plus `senders`), and `config`, which shows paths and each account's state without printing secrets; sets up logging (stderr; `-v`/`-q` anywhere on the line) |
 | `progress.py` | Progress for long steps: done of total, rate and time left, rewritten on a terminal or logged now and then; Gmail's batches advance the innermost open `Progress` |
 | `paths.py` | Where things are: `config_root()`, `data_root()` and where each was set, `backup_folder()`, `find_backups()` |
-| `mailbox.py` | What the commands need from a mail account: the `Mailbox` protocol (listing, history, raw messages, labels, trash and untrash, Message-ID lookup, import), which `GmailAccount` provides, and `open_mailbox()`, the one place backup, dedup, offload and restore open an account. `auth` and `setup` use `gmailapi` directly, since they manage Gmail's credentials |
-| `gmailapi.py` | Accounts (`<config>/accounts.toml`), OAuth tokens and scopes, a Workspace domain's service-account key for read-only access (`<config>/service-accounts/<domain>.json`, `delegated_credentials`), `GmailAccount`: adaptive batching, retries with backoff, listing, history, labels, trash and untrash, batched Message-ID searches, `messages.import` |
-| `imap.py` | An IMAP account as a read-only `Mailbox`: a scan reads folders, UIDs, flags and new headers (EXAMINE, BODY.PEEK) and decides with pure functions over frozen values (IDs from Message-ID, date and size or content, folders and flags as labels, what is gone); the UID map, with each message's flags and each folder's counters, is kept in `meta.sqlite` (`imap_map`, `imap_folder`) and written only through backup's connection (`save_state`). Backup and count read incrementally: a folder whose counters (CONDSTORE) are as saved is read from the map, a changed one fetches only what changed (on Gmail the counter is the account's, so nearly every folder counts as changed), and `save_state` writes only the rows that changed. On Gmail a query is Gmail's own search (`UID SEARCH X-GM-RAW` in All Mail), its UIDs named through the scan's map; other servers refuse one. The same search gives Gmail's categories, which X-GM-LABELS leaves out: the scan runs `category:…` for each in All Mail, Trash and Spam; where it can't, `has_categories()` is False and backup keeps the categories the backup holds. Writes raise |
+| `mailbox.py` | What the commands need from a mail account: the `Mailbox` protocol (listing, history, raw messages, labels, trash and untrash, Message-ID lookup, import), which `GmailAccount` and `ImapAccount` provide, and `open_mailbox()`, the one place backup, dedup, offload and restore open an account, choosing by the account's config (`imap.toml` or not). `auth` and `setup` use `gmailapi` directly, since they manage the credentials |
+| `gmailapi.py` | Accounts (`<config>/accounts.toml`), an IMAP account's settings (`imap.toml`, `imap_settings`), OAuth tokens and scopes, a Workspace domain's service-account key for read-only access (`<config>/service-accounts/<domain>.json`, `delegated_credentials`), `GmailAccount`: adaptive batching, retries with backoff, listing, history, labels, trash and untrash, batched Message-ID searches, `messages.import` |
+| `imap.py` | An IMAP account as a `Mailbox`: a scan reads folders, UIDs, flags and new headers (EXAMINE, BODY.PEEK) and decides with pure functions over frozen values (IDs from Message-ID, date and size or content, folders and flags as labels, what is gone); the UID map, with each message's flags and each folder's counters, is kept in `meta.sqlite` (`imap_map`, `imap_folder`) and written only through backup's connection (`save_state`). Backup and count read incrementally: a folder whose counters (CONDSTORE) are as saved is read from the map, a changed one fetches only what changed (on Gmail the counter is the account's, so nearly every folder counts as changed), and `save_state` writes only the rows that changed. On Gmail a query is Gmail's own search (`UID SEARCH X-GM-RAW` in All Mail), its UIDs named through the scan's map; other servers refuse one. The same search gives Gmail's categories, which X-GM-LABELS leaves out: the scan runs `category:…` for each in All Mail, Trash and Spam; where it can't, `has_categories()` is False and backup keeps the categories the backup holds. Backup and count only read (EXAMINE, BODY.PEEK, so not even `\Seen` is set). The writes, for offload, dedup and restore, read every folder in full first: a review mark is a `$mailcellar-` keyword or a move into a `mailcellar/review/` folder, Trash a MOVE to the folder marked `\Trash` (refused on a server without MOVE or a marked Trash), and an upload an APPEND with the message's flags and date; nothing is ever expunged |
 | `message.py` | Message parsing: `parse_message()`, `content_hash()`, `header_key()`, `extract_address()`, `PARSER_VERSION` |
-| `setup/cli.py` | `setup`: from a downloaded OAuth client to a configured, signed-in account. `check_client`, `accounts_entries`, `pick_name`, `add_account`, `latest_download` are pure; `accounts.toml` is only appended to, the client is written owner-only, and the sign-in is `mailcellar auth`'s read-only one |
+| `setup/cli.py` | `setup`: from a downloaded OAuth client to a configured, signed-in account; or a Workspace address read through the domain's service-account key (`--service-account`); or an IMAP account from its server and password (`--imap`, checked with `--check`; `--review` sets how its mail is marked for review). `check_client`, `accounts_entries`, `pick_name`, `add_account`, `latest_download` are pure; `accounts.toml` is only appended to, the client is written owner-only, and the sign-in is `mailcellar auth`'s read-only one |
 | `setup/auth.py` | `auth`: obtains or renews each account's Gmail token, for every command; changes nothing in the mailbox. It was `dedup auth` until 0.21.0 |
 | `backup/commands.py` | `backup` (history-based or full listing), `count`, `meta` (sidecar backfill); the runs log |
 | `backup/gyb.py` | gyb's format: writes `msg-db.sqlite` and `<y>/<m>/<d>/<id>.eml`, reads them back (`iter_backup`, `backup_account`), `prune` (moving files out, with a manifest) for `forget` |
@@ -126,8 +139,8 @@ mailcellar` and `python -m mailcellar` both work.
 | `dedup/rules.py`, `dedup/plan.py` | Keep / remove / review decisions; the plan CSV |
 | `dedup/apply.py` | Live checks against Gmail, then label or trash; the audit log. Shared with offload. `apply_plan()` reads Gmail's state, `check_row()`/`checked()` decide, and `act()` carries out one account's rows; each returns new frozen `Result`s (the plan rows are never changed) |
 | `dedup/report.py`, `dedup/paths.py` | Text reports; default output locations |
-| `offload/` | `rules.py` (TOML rules), `plan.py` (selection, plan CSV, summary; the messages each protection keeps), `review.py` (`plan --review`: a local HTML page per rule from the plan's results; samples, largest messages, busiest threads and the page itself are pure), `apply.py` (backup checks, the offload record, batch manifests on top of dedup's label → trash loop), `forget.py` (what `forget` can forget, the 30-day hold, scrubbing every derived store; retention, `--due` by the rules' `forget_after`), `cli.py` (`offload`), `forget_cli.py` (the `forget` command) |
-| `restore/` | `sources.py` and `mbox.py` (`--from-mbox`, `--from-folder`: candidates from an mbox file or another gyb folder), `apply.py` (which offloaded messages, narrowed by date, label and sender; backup checks; each message's way back: untrash, already in the mailbox, found by Message-ID, or import; indexing a new ID in the backup), `cli.py` (the command, and the selection options `export` shares), `export.py` (`export`: the same selection copied out read-only as an mbox file or a zip of `.eml` files with an index; the mbox entry, label header and index row are pure) |
+| `offload/` | `rules.py` (TOML rules), `plan.py` (selection, plan CSV, summary; the messages each protection keeps), `review.py` (`plan --review`: a local HTML page per rule from the plan's results; samples, largest messages, busiest threads and the page itself are pure), `apply.py` (backup checks, the offload record, batch manifests on top of dedup's label → trash loop), `forget.py` (what `forget` can forget, the 30-day hold, scrubbing every derived store; retention, `--due` by the rules' `forget_after`), `suggest.py` (`offload suggest`: draft rules from the bulk report), `cli.py` (`offload`), `forget_cli.py` (the `forget` command) |
+| `restore/` | `sources.py` and `mbox.py` (`--from-mbox`, `--from-folder`: candidates from an mbox file or another gyb folder), `apply.py` (which offloaded messages, narrowed by date, label and sender; backup checks; each message's way back: untrash, already in the mailbox, found by Message-ID, or import; indexing a new ID in the backup), `cli.py` (the command, and the selection options `export` shares), `export.py` (`export`: the same selection copied out read-only as an mbox file or a zip of `.eml` files with an index; the mbox entry, label header and index row are pure), `attachments.py` (`export --attachments`: the attached files alone, with an index), `takeout_labels.py` (Takeout's system-label names in each language, from gyb) |
 | `hold/` | `holds.py` (legal holds: `Criteria`, `Hold` and `Facts`; `covers()`, `holding()` and `held_now()` decide, pure; `read_facts()` and `held()` read the sidecar; `HoldCheck` is the `local_check` that keeps held mail in Gmail on `offload apply` and `dedup apply`; `add()` and `release()` write the `holds` table and the hash chain), `cli.py` (the command). `forget` (`--deleted` too) and `--empty` ask `held()` before removing anything |
 | `search/` | `index.py` (each message's sender, recipients, subject and readable body into the index, incrementally: `document()` and `changes()` are pure), `query.py` (the query language translated to FTS5 by `fts_query()`; `keep()` for the offload filters and `render()` for a result are pure; `find()` reads), `db.py` (`search.sqlite` schema and migrations), `cli.py` (the command) |
 | `report/` | Reports over all accounts' sidecars, attached read-only (`db.py`): `storage` (with each offload batch's space freed, from `offloaded.gone_ms`), `bulk`, `volume`, `threads`, `labels`, `correspondents`, `health`; `senders.py` for one backup; `output.py` formats tables |
@@ -142,6 +155,10 @@ mailcellar` and `python -m mailcellar` both work.
   <name>/client_secrets.json the account's OAuth client (Desktop app)
   <name>/token-readonly.json  # + authorised_at: when consent was last given
   <name>/token-modify.json    # only with keep_modify_token; otherwise held per run
+  <name>/imap.toml           an IMAP account instead: host, port, username, review mode
+  <name>/imap-password       its password, owner-only
+  service-accounts/<domain>.json  a Workspace domain's service-account key, owner-only
+  anchors/<email>.json       each backup's hash-chain anchor: the last link's number and hash
   settings.toml              data_dir: the data root; token_warn_days, keep_modify_token (optional)
 <data root>/                 everything derived from mail: $MAILCELLAR_DATA, else
                              data_dir in <config>/settings.toml, else ~/mailcellar
@@ -149,7 +166,8 @@ mailcellar` and `python -m mailcellar` both work.
   <email>/
     msg-db.sqlite            gyb index (db_version 6)
     <year>/<month>/<day>/<gmail_id>.eml
-    meta.sqlite              sidecar (schema v11), with legal holds
+    meta.sqlite              sidecar (schema v14), with legal holds
+    chain.jsonl              the hash chain: a link per change to the backup
   _forgotten/<email>/<run>/     messages forget deleted, held 30 days, + forgotten.csv
   logs/
     backup.log               output of the scheduled backup (schedule install); not rotated
@@ -188,12 +206,16 @@ no room for goes in `meta.sqlite`.
 
 - **First run** (or `--full`, `--search`, `--refresh-labels`, or expired
   history): list every message, download what's missing (`format=raw`),
-  and store the mailbox `historyId` taken before the listing.
+  and store the mailbox `historyId` taken before the listing. The first
+  run after an account moves between the Gmail API and IMAP also reads
+  every message's labels again (`labels_stale`), and label IDs held under
+  the other route's names are renamed by name.
 - **Later runs:** read Gmail's history since that ID (kept ~4 weeks), look
   up the current state of each changed message, and download new mail,
   update labels, and skip Spam/Trash/Chat — from current state, so a
   repeated run is harmless. The new `historyId` is stored only after a run
-  with no failures.
+  with no failures. Over IMAP the UID map takes the place of history: see
+  `imap.py` under Modules.
 - **Parse once:** each downloaded message is parsed and written to
   `meta.sqlite` in the same pass; `meta` backfills older mail.
 - **Never deletes**: taking mail out of the backup is `forget`'s, asked for
@@ -284,15 +306,19 @@ that is pure.
 ## Safety model
 
 - Read-only by default: backups, `count`, `meta`, `index`, `match`,
-  `plan` and dry-run `apply` use `gmail.readonly` or no API at all.
-- `gmail.modify` is requested only for the account `apply --label/--trash`
-  or `restore --yes` changes, and held in memory for that run, never
-  stored, unless `keep_modify_token` is set; a stored modify token also
-  serves read-only requests. It isn't revoked at Google afterwards, since
-  that would revoke the read-only token too.
-- Nothing is ever permanently deleted from Gmail (no `batchDelete`), and
-  the backup keeps everything unless `forget` is asked for. Restore only
-  adds, and skips what Gmail already has.
+  `plan` and dry-run `apply` use `gmail.readonly`, read-only IMAP
+  (EXAMINE, BODY.PEEK), or no mailbox at all.
+- On Gmail, `gmail.modify` is requested only for the account
+  `apply --label/--trash` or `restore --yes` changes, and held in memory
+  for that run, never stored, unless `keep_modify_token` is set; a stored
+  modify token also serves read-only requests. It isn't revoked at Google
+  afterwards, since that would revoke the read-only token too.
+- Over IMAP the password allows everything, so `open_mailbox` refuses a
+  change the server can't make safely (`imap.write_refusal`): offload and
+  dedup need MOVE and a folder marked `\Trash`.
+- Nothing is ever permanently deleted from the mailbox (no `batchDelete`,
+  no EXPUNGE), and the backup keeps everything unless `forget` is asked
+  for. Restore only adds, and skips what the mailbox already has.
 - Every account call checks it reached the expected mailbox.
 
 ## Testing
@@ -300,5 +326,8 @@ that is pure.
 `uv run pytest` — no network. Gmail is replaced by fakes:
 `FakeMailbox` (`tests/fake_mailbox.py`: one account, providing `Mailbox`,
 with history computed from mailbox snapshots) and `FakeService` (the googleapiclient surface, for batching and retries);
-`FakeBackup` builds gyb folders. Changes are also checked against real
+`FakeImap` (`tests/fake_imap.py`) stands in for an IMAP server, Gmail's
+extensions included; `FakeBackup` builds gyb folders. The `imap_server`
+tests (`uv run pytest -m imap_server`, opt-in) run against Dovecot in a
+container. Changes are also checked against real
 backups, read-only, before they are relied on.
