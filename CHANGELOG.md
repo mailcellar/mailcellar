@@ -8,6 +8,8 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 
 ## Unreleased
 
+## 0.25.0 (2026-11-02)
+
 ### Added
 - `setup ACCOUNT --check`, or `setup ADDRESS --imap HOST --check` before
   setting one up, signs in to an IMAP server and says what it offers,
