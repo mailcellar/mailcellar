@@ -32,6 +32,15 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 
 ## 0.25.0 (2026-11-02)
 
+**Upgrading from 0.24.0:** no database's schema changes. A backup of
+Gmail over IMAP made with 0.24.0 or earlier holds IDs made from each
+message's headers, and Gmail over IMAP now gives Gmail's own, so
+`backup` refuses it: move its folder and the account's anchor
+(`<config>/anchors/<email>.json`) aside, keeping both, and back up
+again, which downloads everything. A backup put back from an older copy
+on purpose is refused too, until its anchor is moved aside
+([Recovering](docs/guide/recovery.md#a-damaged-or-lost-data-root)).
+
 ### Added
 - `setup ACCOUNT --check`, or `setup ADDRESS --imap HOST --check` before
   setting one up, signs in to an IMAP server and says what it offers,
@@ -99,6 +108,10 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 
 ## 0.24.0 (2026-10-31)
 
+**Upgrading from 0.23.0:** no database's schema changes.
+An `export --to NAME.mbox` or `NAME.zip` that finds a `NAME.part` left
+by an interrupted export now stops; remove it and run the export again.
+
 ### Added
 - `restore --into FOLDER`, for an IMAP account: everything restored goes
   into that one folder, whatever its labels, and mail an earlier restore
@@ -116,6 +129,10 @@ keep stable is in [What stays stable](docs/reference/stability.md).
   refused a `NAME.part` folder.
 
 ## 0.23.0 (2026-10-31)
+
+**Upgrading from 0.22.0:** no database's schema changes.
+A script that passes `restore` or `export` a `--limit` below 1 now stops
+with a usage error; leave `--limit` out for no limit.
 
 ### Added
 - `export --to NAME/` writes a maildir, for mutt, aerc, mu, notmuch or
