@@ -55,6 +55,11 @@ class FakeImap:
         self.modseq = 1  # the highest mod-sequence given (CONDSTORE)
         self.nomodseq: set[str] = set()  # folders that keep no mod-sequences ([NOMODSEQ])
         self.account_modseq = False  # every folder's HIGHESTMODSEQ is the account's (Gmail)
+        # Gmail's search (X-GM-RAW): query → the X-GM-MSGIDs it finds, None to answer NO;
+        # the queries searched, as the server read them; imaplib's literal for the next command.
+        self.gmail_finds: dict[str, set[int] | None] = {}
+        self.searched: list[str] = []
+        self.literal: bytes | None = None
         self.untagged: dict[str, list] = {}  # LIST-STATUS's answers, until response() takes them
         self.capabilities = ("IMAP4REV1", "LITERAL+", "AUTH=PLAIN")  # the greeting's, as imaplib
         self.signed_in = ("IMAP4rev1", "LITERAL+", "SPECIAL-USE", "MOVE", "UIDPLUS")  # CAPABILITY
@@ -233,10 +238,35 @@ class FakeImap:
         assert code == "UIDVALIDITY", code
         return code, [str(self.folders[self.selected]["uidvalidity"]).encode()]
 
+    def _gmail_search(self, uids, args):
+        """UID SEARCH [CHARSET UTF-8] X-GM-RAW: the selected folder's UIDs of what Gmail finds."""
+        if "X-GM-EXT-1" not in self.signed_in:
+            return "BAD", [b"Could not parse command"]
+        literal, self.literal = self.literal, None
+        if args[-1] == "X-GM-RAW":  # the query follows as a literal, as imaplib sends one
+            if literal is None or args[:3] != ("CHARSET", "UTF-8", "X-GM-RAW"):
+                raise AssertionError(f"X-GM-RAW without its query: {args}")
+            query = literal.decode()
+        else:
+            quoted = args[args.index("X-GM-RAW") + 1]
+            if not (quoted.startswith('"') and quoted.endswith('"')) or not quoted.isascii():
+                raise AssertionError(f"X-GM-RAW's query not a quoted string: {quoted!r}")
+            query = re.sub(r"\\(.)", r"\1", quoted[1:-1])
+        self.searched.append(query)
+        if query not in self.gmail_finds:
+            raise AssertionError(f"no answer set for Gmail's search {query!r}")
+        found = self.gmail_finds[query]
+        if found is None:
+            return "NO", [b"[CANNOT] Unsupported search"]
+        hits = sorted(u for u, m in uids.items() if m["gm"] in found)
+        return "OK", [b" ".join(str(u).encode() for u in hits)]
+
     def uid(self, command, *args):
         self._command("UID", command, *args)
         command = command.upper()
         uids = self.folders[self.selected]["uids"]
+        if command == "SEARCH" and "X-GM-RAW" in args:
+            return self._gmail_search(uids, args)
         if command == "SEARCH":
             wanted = sorted(uids)
             if args[1:2] == ("UID",):  # UID SEARCH UID lo:hi

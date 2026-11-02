@@ -82,7 +82,7 @@ with none named, every account in `accounts.toml`.
 | `--full` | List every message instead of reading Gmail's history since the last run (an IMAP account reads every folder in full, not only what changed since the last backup) |
 | `--unattended` | For scheduled runs: never open a browser. A token that needs signing in fails that account's run, with the command to fix it |
 | `--refresh-labels` | Also re-sync the labels of messages already backed up. Gmail lists them label by label, 500 messages per call, so about a minute for 50,000 messages. An IMAP account's labels are refreshed on every run; with this option it reads every folder, as with `--full` |
-| `--search QUERY` | Only consider messages matching this Gmail search (Gmail accounts only) |
+| `--search QUERY` | Only consider messages matching this Gmail search (Gmail accounts only, through the API or over IMAP) |
 | `--verify N` | Then check the files of the next N messages, from where the last backup's check stopped (default: an eighth of the backup, at least 1,000; `0`: none) |
 | `--folder FOLDER` | Backup folder (default `<data root>/<email>`) |
 | `--config CONFIG` | Config folder (default `~/.config/mailcellar`, or `$MAILCELLAR_CONFIG`) |

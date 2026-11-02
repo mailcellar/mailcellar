@@ -160,9 +160,10 @@ def test_messages_without_a_message_id_are_told_apart_by_content(server):
     assert len([c for c in server.commands if "(BODY.PEEK[])" in c]) == fetched_before  # kept
 
 
-def test_gmail_search_is_refused(server):
-    with pytest.raises(gmailapi.GmailError, match="Gmail's search"):
+def test_a_search_is_refused_without_gmails(server):
+    with pytest.raises(gmailapi.GmailError, match="no Gmail search"):
         account(server).list_message_ids("older_than:1y")
+    assert not [c for c in server.commands if c[:2] == ("UID", "SEARCH") and "X-GM-RAW" in c]
 
 
 # ── the map ──────────────────────────────────────────────────────────────────
@@ -758,3 +759,76 @@ def test_x_gm_msgid_is_asked_only_of_gmail(server):
     server.add("INBOX", msgid="<plain@x>")
     assert len(account(server).list_message_ids()) == 1  # FakeImap fails it otherwise
     assert not [c for c in server.commands if any("X-GM-MSGID" in str(a) for a in c)]
+
+
+# ── Gmail over IMAP: Gmail's search (X-GM-RAW) ───────────────────────────────
+
+
+def test_gmails_search_is_a_quoted_string_or_a_utf8_literal():
+    assert imap.gmail_search('subject:"a \\ b"') == (("X-GM-RAW", '"subject:\\"a \\\\ b\\""'), None)
+    assert imap.gmail_search("café") == (("CHARSET", "UTF-8", "X-GM-RAW"), "café".encode())
+    assert imap.gmail_search("a\nb") == (("CHARSET", "UTF-8", "X-GM-RAW"), b"a\nb")
+
+
+@pytest.fixture
+def searchable(gmail):
+    """Gmail with mail in INBOX, Projects, only All Mail, and Trash."""
+    add_gmail(gmail, ["INBOX"], "<in@x>", 1)
+    add_gmail(gmail, ["Projects"], "<p@x>", 2)
+    add_gmail(gmail, [], "<archived@x>", 3)
+    gmail.add("[Gmail]/Trash", msgid="<t@x>", gm=4)
+    return gmail
+
+
+def test_a_search_finds_what_gmail_finds_in_all_mail(searchable):
+    searchable.gmail_finds["older_than:1y"] = {1, 3, 4}  # 4 is in Trash: not in All Mail
+    box = account(searchable)
+    assert sorted(box.list_message_ids("older_than:1y")) == [imap.gmail_id(1), imap.gmail_id(3)]
+    assert box.list_message_ids("older_than:1y", label_id="INBOX") == [imap.gmail_id(1)]
+    searches = [c for c in searchable.commands if c[:2] == ("UID", "SEARCH") and "X-GM-RAW" in c]
+    assert searches[0] == ("UID", "SEARCH", "X-GM-RAW", '"older_than:1y"')
+    examined = [c for c in searchable.commands if c[0] == "EXAMINE"]
+    assert examined[-1][1] == '"[Gmail]/All Mail"'
+
+
+def test_a_search_reaches_gmail_as_written(searchable):
+    for query in ('subject:"say \\"hi\\""', "Grüße", "from:a\nto:b"):
+        searchable.gmail_finds[query] = {2}
+        assert account(searchable).list_message_ids(query) == [imap.gmail_id(2)]
+    assert searchable.searched == ['subject:"say \\"hi\\""', "Grüße", "from:a\nto:b"]
+
+
+def test_mail_newer_than_the_scan_is_left_out(searchable):
+    box = account(searchable)
+    box.list_message_ids()  # the scan
+    add_gmail(searchable, ["INBOX"], "<new@x>", 5)
+    searchable.gmail_finds["is:unread"] = {1, 5}
+    assert box.list_message_ids("is:unread") == [imap.gmail_id(1)]
+
+
+def test_a_refused_search_is_an_error_with_the_servers_reason(searchable):
+    searchable.gmail_finds["bad"] = None
+    with pytest.raises(gmailapi.GmailError, match="Unsupported search"):
+        account(searchable).list_message_ids("bad")
+
+
+def test_a_search_with_spam_and_trash_is_refused(searchable):
+    with pytest.raises(gmailapi.GmailError, match="Spam and Trash"):
+        account(searchable).list_message_ids("x", include_spam_trash=True)
+
+
+def test_a_search_survives_a_dropped_connection(searchable):
+    searchable.gmail_finds["x"] = {3}
+    box = account(searchable)
+    box.list_message_ids()
+    searchable.drops = 1
+    assert box.list_message_ids("x") == [imap.gmail_id(3)]
+
+
+def test_a_search_after_all_mail_was_renumbered_is_refused(searchable):
+    searchable.gmail_finds["x"] = {3}
+    box = account(searchable)
+    box.list_message_ids()
+    searchable.reset_uidvalidity("[Gmail]/All Mail")
+    with pytest.raises(gmailapi.GmailError, match="UIDs changed since the scan"):
+        box.list_message_ids("x")

@@ -148,7 +148,7 @@ lacks:
   about ten minutes' setup ([Setting up Google Cloud](google-cloud.md)),
   and its tokens expire weekly unless you publish it. In return a backup
   signs in read-only and asks once what changed in the whole mailbox,
-  the categories are kept, and offload rules can use Gmail searches.
+  and the categories are kept.
 
 A Gmail backup holds the same thing either way: the same messages, byte
 for byte, under Gmail's own IDs and threads, with the same labels, but
@@ -279,7 +279,8 @@ folders when restoring a Takeout mbox.
 
 ## What it doesn't do
 
-- Gmail searches (`query` in offload rules): an IMAP account has none.
+- Gmail searches (`query` in offload rules, `backup --search`) on servers
+  other than Gmail: they have none.
 - Keep IMAP keywords other than read, flagged and mailcellar's own
   (`$Forwarded` and the like).
 
