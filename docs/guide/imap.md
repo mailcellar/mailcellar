@@ -93,9 +93,18 @@ mailcellar backup alex
 ```
 
 The first backup reads every folder and downloads every message; later
-ones read each folder's list of messages and their flags, and download
-only what is new. A scheduled backup (`mailcellar schedule install`)
-includes the account like any other, with no token to renew.
+ones download only what is new. Where the server keeps count of changes
+(CONDSTORE, which Gmail, iCloud, Fastmail and Dovecot offer), they fetch
+only the messages that changed since the last backup, so a backup with
+little new mail is quick however large the mailbox. Most of these
+servers count changes folder by folder, and a folder with none is
+skipped; Gmail counts them for the whole mailbox, so any change has
+every folder asked what changed, in one short request each. On other
+servers they read each folder's list of messages and their flags;
+Yahoo's counts say which folders changed, and only those are read.
+`backup --full` reads every folder. A scheduled backup
+(`mailcellar schedule install`) includes the account like any other,
+with no token to renew.
 
 What the backup keeps, in gyb's layout, as for Gmail:
 

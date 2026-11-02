@@ -162,6 +162,7 @@ def open_mailbox(
     scope: str,
     interactive: bool = True,
     folder: Path | None = None,
+    incremental: bool = False,
 ) -> Mailbox:
     """
     The account's mailbox with `scope` ("readonly", "modify", or "append" for
@@ -171,7 +172,9 @@ def open_mailbox(
     safely (imap.write_refusal): offload and dedup ask for "modify", so they
     never open a server without MOVE. `folder`, the
     account's backup folder, keeps an IMAP account's UID map; without it the
-    map lasts as long as the mailbox object.
+    map lasts as long as the mailbox object. `incremental` (backup and count,
+    which change nothing) has an IMAP account read folders unchanged since
+    the last backup from that map.
     """
     from mailcellar import gmailapi
 
@@ -180,7 +183,11 @@ def open_mailbox(
 
         settings = gmailapi.imap_settings(config_folder, account)
         box = imap.ImapAccount(
-            account, settings, gmailapi.imap_password(config_folder), folder=folder
+            account,
+            settings,
+            gmailapi.imap_password(config_folder),
+            folder=folder,
+            incremental=incremental,
         )
         box.sign_in()  # as GmailAccount checks its identity: a refusal shows here
         if scope != "readonly":  # changes only where the server can make them safely

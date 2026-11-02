@@ -32,7 +32,15 @@ flags, the headers of mail the map doesn't know, content hashes where
 needed) and decides with pure functions over frozen values (IDs, labels,
 where to fetch each message, what is gone). The new map is written only
 by save_state, through the backup's own meta.sqlite connection
-(meta.sqlite's imap_map, backup/sidecar.py).
+(meta.sqlite's imap_map and imap_folder, backup/sidecar.py).
+
+An incremental scan (backup and count: incremental=True) starts from what
+the last backup saved. Where the server keeps each folder's counters
+(CONDSTORE, RFC 7162, or Yahoo's HIGHESTMODSEQ without it), a folder whose
+UIDVALIDITY, UIDNEXT, MESSAGES and HIGHESTMODSEQ are as saved is read from
+the map, with nothing sent; a changed one lists its UIDs and fetches only
+what changed (CHANGEDSINCE), or, without CONDSTORE, is read in full.
+Commands that write read every folder in full: their checks rest on it.
 """
 
 import ast
@@ -40,12 +48,13 @@ import base64
 import binascii
 import hashlib
 import imaplib
+import json
 import logging
 import re
 import ssl
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import astuple, dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from types import MappingProxyType
@@ -82,6 +91,9 @@ KEYWORD_PREFIX = "$mailcellar-"
 REVIEW_ROOT = "mailcellar/review/"
 KEYWORD_SAFE = re.compile(r"^[a-z0-9-]+(/[a-z0-9-]+)*$")  # labels a keyword can carry
 
+# A folder's counters, as STATUS and LIST-STATUS (RFC 5819) are asked for them.
+STATUS_ITEMS = "(MESSAGES UIDNEXT UIDVALIDITY HIGHESTMODSEQ)"
+STATUS_RE = re.compile(rb'^\s*(?P<name>"(?:[^"\\]|\\.)*"|[^\s(]+)\s*\((?P<items>[^)]*)\)\s*$')
 LIST_RE = re.compile(rb'^\((?P<flags>[^)]*)\) (?P<delim>"(?:[^"\\]|\\.)*"|NIL) (?P<name>.+)$')
 
 Location = tuple[str, int]  # (folder, uid)
@@ -114,6 +126,21 @@ class Fetched:
 
 
 @dataclass(frozen=True)
+class FolderState:
+    """
+    A folder's counters, from STATUS or EXAMINE. All four as saved: nothing
+    arrived, left or changed flags there since (RFC 7162). MESSAGES and
+    UIDNEXT as well as HIGHESTMODSEQ, so mail leaving shows even on a server
+    that raises no mod-sequence for an expunge.
+    """
+
+    uidvalidity: int
+    uidnext: int
+    messages: int
+    highestmodseq: int
+
+
+@dataclass(frozen=True)
 class FolderRead:
     """What one folder showed: its UIDs' flags, and headers of the UIDs the map doesn't know."""
 
@@ -125,6 +152,26 @@ class FolderRead:
     gmail: Mapping[int, tuple[str, str]] = MappingProxyType({})  # UID → (ID, thread) on Gmail
     # UID → its X-GM-LABELS as labels, on Gmail: every label but this folder's own.
     labels: Mapping[int, frozenset[str]] = MappingProxyType({})
+    state: FolderState | None = None  # its counters when examined; None: the server gave none
+
+
+@dataclass(frozen=True)
+class Saved:
+    """One UID as the last backup saved it."""
+
+    id: str
+    flags: frozenset[str] | None = None  # None: saved before flags were (schema 13)
+    thread: str | None = None  # Gmail's X-GM-THRID; None elsewhere
+    labels: frozenset[str] | None = None  # Gmail's X-GM-LABELS as labels; None elsewhere
+
+
+@dataclass(frozen=True)
+class SavedFolder:
+    """One folder as a backup saves it (meta.sqlite's imap_map and imap_folder)."""
+
+    uidvalidity: int
+    rows: Mapping[int, Saved]
+    state: FolderState | None = None  # its counters, its rows complete; None: read it in full
 
 
 @dataclass(frozen=True)
@@ -173,7 +220,7 @@ class ServerInfo:
 class Scan:
     messages: Mapping[str, Message]
     labels: frozenset[str]
-    maps: Mapping[str, tuple[int, Mapping[int, str]]]  # folder → (UIDVALIDITY, UID → ID)
+    maps: Mapping[str, SavedFolder]  # folder → what to save of it
     skipped: frozenset[str] = field(default_factory=frozenset)  # folders that couldn't be read
     folders: tuple[Folder, ...] = ()  # the folders read
     read_at: int = 0  # ms since epoch: when the read began
@@ -329,6 +376,63 @@ def next_search(before: frozenset[int], got: frozenset[int], exists: int | None)
 def capabilities_from(data) -> frozenset[str]:
     """CAPABILITY's answer as upper-case names. Pure."""
     return frozenset(b" ".join(d for d in data if d).decode("ascii", "replace").upper().split())
+
+
+def folder_states(data) -> dict[str, FolderState]:
+    """
+    STATUS answers (one STATUS, or LIST-STATUS's) as each folder's counters.
+    A folder whose answer lacks one, or gives HIGHESTMODSEQ 0 (it keeps no
+    mod-sequences), is left out: it is read in full. Pure.
+    """
+    out = {}
+    for text, literal in fetch_messages(data):  # a name sent as a literal: (prefix, name)
+        m = STATUS_RE.match(text)
+        if m is None:
+            continue
+        name = literal.decode("utf-8", "replace") if literal is not None else unquote(m["name"])
+        words = m["items"].upper().split()
+        values = dict(zip(words[::2], words[1::2], strict=False))
+        try:
+            state = FolderState(
+                *(
+                    int(values[k])
+                    for k in (b"UIDVALIDITY", b"UIDNEXT", b"MESSAGES", b"HIGHESTMODSEQ")
+                )
+            )
+        except KeyError, ValueError:
+            continue
+        if state.highestmodseq:
+            out[name] = state
+    return out
+
+
+def examined_state(
+    uidvalidity: int, exists: int | None, uidnext: bytes | None, highestmodseq: bytes | None
+) -> FolderState | None:
+    """
+    EXAMINE's counters, from its EXISTS and response codes; None without all
+    of them, as after [NOMODSEQ], or with HIGHESTMODSEQ 0. Pure.
+    """
+    try:
+        state = FolderState(uidvalidity, int(uidnext), exists, int(highestmodseq))
+    except TypeError, ValueError:
+        return None
+    return state if exists is not None and state.highestmodseq else None
+
+
+def changed_sets(uids, capabilities) -> list[str]:
+    """
+    The UID sets a CHANGEDSINCE fetch asks for: all of them (1:*) in one
+    command, unless the server sets a MESSAGELIMIT (RFC 9738), when as many
+    UIDs a command as it allows; none for an empty folder. Pure.
+    """
+    if not uids:
+        return []
+    limits = [c.partition("=")[2] for c in capabilities if c.startswith("MESSAGELIMIT=")]
+    limit = next((int(n) for n in limits if n.isdigit() and int(n) > 0), None)
+    if limit is None:
+        return ["1:*"]
+    return [",".join(map(str, chunk)) for chunk in chunks(sorted(uids), limit)]
 
 
 def folder_label(
@@ -523,7 +627,8 @@ def parse_fetched(text: bytes, literal: bytes | None) -> Fetched | None:
     gm_thrid = re.search(rb"X-GM-THRID (\d+)", text)
     return Fetched(
         uid=int(uid[1]),
-        flags=frozenset(flags[1].decode().split()) if flags else None,
+        # \Recent is the session's, and never moves a mod-sequence: not the message's.
+        flags=frozenset(flags[1].decode().split()) - {"\\Recent"} if flags else None,
         internal=internal_ms(date[1].decode()) if date else None,
         size=int(size[1]) if size else None,
         literal=literal,
@@ -650,23 +755,148 @@ def merge(reads, ids: Mapping[Location, str], origins: Mapping | None = None) ->
             keywords,
             read.gmail[uid][1] if uid in read.gmail else None,
         )
-    maps = {
-        read.folder.name: (
-            read.uidvalidity,
-            {
-                uid: ids[(read.folder.name, uid)]
-                for uid in read.flags
-                if (read.folder.name, uid) in ids
-            },
-        )
-        for read in reads
-    }
+    maps = {read.folder.name: saved_folder(read, ids) for read in reads}
     labels = frozenset(
         {read.folder.label for read in reads} - stores | {"UNREAD", "STARRED"}
     ).union(
         *(m.labels for m in messages.values())  # mailcellar's keywords among them
     )
     return Scan(messages, labels, maps, folders=tuple(read.folder for read in reads))
+
+
+def complete(saved: SavedFolder, gmail: bool) -> frozenset[int]:
+    """The UIDs saved whole: with flags, and on Gmail a thread. Pure."""
+    return frozenset(
+        uid
+        for uid, row in saved.rows.items()
+        if row.flags is not None and (row.thread is not None or not gmail)
+    )
+
+
+def read_kind(saved: SavedFolder | None, now: FolderState | None, gmail: bool, condstore: bool):
+    """
+    How an incremental scan reads a folder, from what the last backup saved
+    and its counters now: "saved" (unchanged, its rows whole: nothing is
+    sent), "changed" (CHANGEDSINCE the saved HIGHESTMODSEQ: CONDSTORE only),
+    or "full". Pure.
+    """
+    if saved is None or saved.state is None or now is None:
+        return "full"
+    if now.uidvalidity != saved.state.uidvalidity:
+        return "full"
+    # Still empty, nothing arrived: no flags to change, whatever HIGHESTMODSEQ did
+    # (on Gmail it moves in every folder with any change in the account).
+    empty = now.messages == saved.state.messages == 0 and now.uidnext == saved.state.uidnext
+    if (now == saved.state or empty) and complete(saved, gmail) == frozenset(saved.rows):
+        return "saved"
+    return "changed" if condstore else "full"
+
+
+def saved_parts(saved: SavedFolder, uids, gmail: bool):
+    """
+    (flags, Gmail IDs, labels) of these UIDs as saved, for those saved whole:
+    what a changed folder's read starts from. Pure.
+    """
+    whole = complete(saved, gmail)
+    rows = {uid: saved.rows[uid] for uid in uids if uid in whole}
+    flags = {uid: row.flags for uid, row in rows.items()}
+    ids = {uid: (row.id, row.thread) for uid, row in rows.items()} if gmail else {}
+    labels = {uid: row.labels for uid, row in rows.items() if row.labels is not None}
+    return flags, ids, labels
+
+
+def same_uids(saved: SavedFolder | None, state: FolderState | None) -> list[int] | None:
+    """
+    The saved UIDs, when they are still the folder's: nothing arrived since
+    (UIDNEXT as saved) and nothing left (MESSAGES as saved), and every one
+    of them saved; else None, and the folder's UIDs are listed. Pure.
+    """
+    if saved is None or saved.state is None or state is None:
+        return None
+    before = saved.state
+    same = state.uidvalidity == before.uidvalidity and state.uidnext == before.uidnext
+    if not same or not state.messages == before.messages == len(saved.rows):
+        return None
+    return sorted(saved.rows)
+
+
+def saved_read(folder: Folder, saved: SavedFolder, now: FolderState, gmail: bool) -> FolderRead:
+    """
+    An unchanged folder's read from what the last backup saved, with its
+    counters now (an empty folder's HIGHESTMODSEQ may have moved): as a full
+    read gives it. Pure.
+    """
+    flags, ids, labels = saved_parts(saved, saved.rows, gmail)
+    known = {uid: row.id for uid, row in saved.rows.items()}
+    return FolderRead(folder, saved.uidvalidity, flags, known, {}, ids, labels, now)
+
+
+def saved_folder(read: FolderRead, ids: Mapping[Location, str]) -> SavedFolder:
+    """
+    What to save of a folder's read: each named UID's ID, flags, and on
+    Gmail its thread and X-GM-LABELS; its counters only if every message
+    there was named, so a folder with mail left for the next run is read
+    again. Pure.
+    """
+    rows = {
+        uid: Saved(
+            ids[(read.folder.name, uid)],
+            flags,
+            read.gmail[uid][1] if uid in read.gmail else None,
+            read.labels.get(uid),
+        )
+        for uid, flags in read.flags.items()
+        if (read.folder.name, uid) in ids
+    }
+    whole = read.state is not None and len(rows) == read.state.messages
+    return SavedFolder(read.uidvalidity, MappingProxyType(rows), read.state if whole else None)
+
+
+def saved_folders(stored) -> dict[str, SavedFolder]:
+    """meta.sqlite's map, as sidecar.read_imap_map gives it, as SavedFolders. Pure."""
+    return {
+        name: SavedFolder(
+            uidvalidity,
+            MappingProxyType(
+                {
+                    uid: Saved(
+                        msg_id,
+                        frozenset(flags.split()) if flags is not None else None,
+                        thread,
+                        frozenset(json.loads(labels)) if labels is not None else None,
+                    )
+                    for uid, (msg_id, flags, thread, labels) in rows.items()
+                }
+            ),
+            FolderState(*state) if state is not None else None,
+        )
+        for name, (uidvalidity, rows, state) in stored.items()
+    }
+
+
+def row_changes(before: SavedFolder | None, after: SavedFolder):
+    """
+    What saving `after` over `before` changes: (the UIDs gone, the rows new
+    or changed); None when the folder's map is replaced whole (new to the
+    map, or a new UIDVALIDITY). Pure.
+    """
+    if before is None or before.uidvalidity != after.uidvalidity:
+        return None
+    gone = frozenset(before.rows) - frozenset(after.rows)
+    return gone, {uid: row for uid, row in after.rows.items() if before.rows.get(uid) != row}
+
+
+def stored_rows(rows: Mapping[int, Saved]) -> dict[int, tuple]:
+    """Saved rows as imap_map holds them (sidecar.replace_imap_folder). Pure."""
+    return {
+        uid: (
+            row.id,
+            " ".join(sorted(row.flags)) if row.flags is not None else None,
+            row.thread,
+            json.dumps(sorted(row.labels)) if row.labels is not None else None,
+        )
+        for uid, row in rows.items()
+    }
 
 
 def changes(before: Mapping[str, frozenset[str]], scan: Scan) -> tuple[set[str], set[str]]:
@@ -1448,6 +1678,7 @@ class ImapAccount:
         folder: Path | None = None,
         connect=None,
         sleep=time.sleep,
+        incremental: bool = False,
     ):
         self.account = account
         self.settings = settings
@@ -1455,8 +1686,10 @@ class ImapAccount:
         self.folder = folder  # the backup folder, for the UID map; None: kept in memory
         self._connect = connect or self._connect_ssl
         self._sleep = sleep
+        # Folders unchanged since the last backup are read from its map: backup and count.
+        self.incremental = incremental
         self._conn = None
-        self._prior_map: dict[str, tuple[int, dict[int, str]]] | None = None
+        self._prior_map: dict[str, SavedFolder] | None = None
         self._cache: tuple[Mapping[str, frozenset[str]], Scan] | None = None
         self._entries = None  # LIST's answer, once read
 
@@ -1599,7 +1832,7 @@ class ImapAccount:
         return self._retrying(f"{what} in {folder}", run)
 
     # ── the UID map ──────────────────────────────────────────────────────────
-    def _prior(self) -> dict[str, tuple[int, dict[int, str]]]:
+    def _prior(self) -> dict[str, SavedFolder]:
         """The map as the backup last saved it, read once, read-only."""
         if self._prior_map is None:
             if self.folder is None:
@@ -1607,7 +1840,7 @@ class ImapAccount:
             else:
                 from mailcellar.backup import sidecar
 
-                self._prior_map = sidecar.read_imap_map(self.folder)
+                self._prior_map = saved_folders(sidecar.read_imap_map(self.folder))
         return self._prior_map
 
     def _reviews(self) -> dict[str, tuple[tuple[str, str], ...]]:
@@ -1619,19 +1852,42 @@ class ImapAccount:
         return sidecar.read_imap_reviews(self.folder)
 
     def _known(self, name: str, uidvalidity: int) -> dict[int, str]:
-        v, uids = self._prior().get(name, (None, {}))
-        return dict(uids) if v == uidvalidity else {}
+        saved = self._prior().get(name)
+        if saved is None or saved.uidvalidity != uidvalidity:
+            return {}
+        return {uid: row.id for uid, row in saved.rows.items()}
 
     def save_state(self, con) -> None:
-        """The scan's UID map into the backup's meta.sqlite (con). No commit."""
+        """
+        The scan's UID map, with each folder's flags and counters, into the
+        backup's meta.sqlite (con): of a folder the map already has, only
+        the rows that changed and its counters, which on Gmail move in every
+        folder with any change in the account. A skipped folder keeps its
+        map but not its counters: it is read in full next time. No commit.
+        """
         if self._cache is None:
             return
         from mailcellar.backup import sidecar
 
         _before, scan = self._cache
-        for name, (uidvalidity, uids) in scan.maps.items():
-            sidecar.replace_imap_folder(con, name, uidvalidity, uids)
+        prior = self._prior()
+        for name, saved in scan.maps.items():
+            if prior.get(name) == saved:
+                continue
+            state = astuple(saved.state) if saved.state is not None else None
+            diff = row_changes(prior.get(name), saved)
+            if diff is None:
+                rows = stored_rows(saved.rows)
+                sidecar.replace_imap_folder(con, name, saved.uidvalidity, rows, state)
+            else:
+                gone, changed = diff
+                rows = stored_rows(changed)
+                sidecar.update_imap_folder(con, name, saved.uidvalidity, gone, rows, state)
         sidecar.drop_imap_folders(con, set(scan.maps) | set(scan.skipped))
+        sidecar.forget_imap_state(con, scan.skipped)
+        # What a later save diffs against: the map as written, not yet committed.
+        kept = {n: replace(prior[n], state=None) for n in scan.skipped if n in prior}
+        self._prior_map = kept | dict(scan.maps)
         # The marks it saw, by label: restore leaves them off what it puts back, since a
         # backup records a keyword or a review folder as a label like any folder's.
         sidecar.add_mark_labels(con, frozenset().union(*(m.marks for m in scan.messages.values())))
@@ -1682,39 +1938,73 @@ class ImapAccount:
             )
         return sorted(found)
 
-    def _read_folder(self, folder: Folder, gmail: bool = False) -> FolderRead | None:
+    def _read_folder(
+        self, folder: Folder, capabilities: frozenset[str], saved: SavedFolder | None = None
+    ) -> FolderRead | None:
         """
-        One folder's UIDs, flags and new headers; on Gmail, each UID's
-        X-GM-MSGID, X-GM-THRID and X-GM-LABELS with its flags instead of
-        headers. None if it can't be examined.
+        One folder's UIDs, flags, counters and new headers; on Gmail, each
+        UID's X-GM-MSGID, X-GM-THRID and X-GM-LABELS with its flags instead
+        of headers. With `saved` (CONDSTORE, and the folder changed since the
+        last backup), only what changed since is fetched (CHANGEDSINCE), the
+        rest taken as saved. None if it can't be examined.
         """
         items = "(INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])"
+        gmail = GMAIL_EXT in capabilities
         flag_items = "(FLAGS X-GM-MSGID X-GM-THRID X-GM-LABELS)" if gmail else "(FLAGS)"
+        # (CONDSTORE) has EXAMINE give HIGHESTMODSEQ, which Gmail gives anyway.
+        examine = quote(folder.name) + (" (CONDSTORE)" if "CONDSTORE" in capabilities else "")
 
         def run(conn):
-            typ, data = conn.select(quote(folder.name), readonly=True)
+            typ, data = conn.select(examine, readonly=True)
             exists = exists_from(self._ok(typ, data, f"EXAMINE {folder.name}"))
             _code, (uidvalidity, *_rest) = conn.response("UIDVALIDITY")
             uidvalidity = int(uidvalidity)
-            uids = self._list_uids(conn, exists)
+            _code, (uidnext, *_rest) = conn.response("UIDNEXT")
+            _code, (highestmodseq, *_rest) = conn.response("HIGHESTMODSEQ")
+            state = examined_state(uidvalidity, exists, uidnext, highestmodseq)
+            # On Gmail every folder's HIGHESTMODSEQ moves with any change in the account,
+            # so most changed folders had nothing arrive or leave: no UID listing.
+            uids = same_uids(saved, state)
+            uids = self._list_uids(conn, exists) if uids is None else uids
             known = self._known(folder.name, uidvalidity)
             flags: dict[int, frozenset[str]] = {}
             ids: dict[int, tuple[str, str]] = {}
             labels: dict[int, frozenset[str]] = {}
-            for chunk in chunks(uids):
+
+            def add(fetched: Mapping[int, Fetched]) -> None:
+                flags.update({uid: f.flags or frozenset() for uid, f in fetched.items()})
+                ids.update(
+                    {
+                        uid: (gmail_id(f.gm_msgid), gmail_id(f.gm_thrid or f.gm_msgid))
+                        for uid, f in fetched.items()
+                        if f.gm_msgid is not None
+                    }
+                )
+                labels.update(
+                    {
+                        uid: gmail_labels(f.gm_labels)
+                        for uid, f in fetched.items()
+                        if f.gm_labels is not None
+                    }
+                )
+
+            listed = set(uids)
+            unfetched = uids
+            since = saved if saved is not None and saved.uidvalidity == uidvalidity else None
+            if since is not None and since.state is not None:
+                kept_flags, kept_ids, kept_labels = saved_parts(since, uids, gmail)
+                flags |= kept_flags
+                ids |= kept_ids
+                labels |= kept_labels
+                changed = f"{flag_items} (CHANGEDSINCE {since.state.highestmodseq})"
+                for uid_set in changed_sets(uids, capabilities):
+                    typ, data = conn.uid("FETCH", uid_set, changed)
+                    got = parse_fetch(self._ok(typ, data, "FETCH CHANGEDSINCE"))
+                    add({uid: f for uid, f in got.items() if uid in listed})
+                unfetched = [u for u in uids if u not in flags]  # saved short, or a race
+            for chunk in chunks(unfetched):
                 typ, data = conn.uid("FETCH", ",".join(map(str, chunk)), flag_items)
-                fetched = parse_fetch(self._ok(typ, data, "FETCH FLAGS"))
-                flags |= {uid: f.flags or frozenset() for uid, f in fetched.items()}
-                ids |= {
-                    uid: (gmail_id(f.gm_msgid), gmail_id(f.gm_thrid or f.gm_msgid))
-                    for uid, f in fetched.items()
-                    if f.gm_msgid is not None
-                }
-                labels |= {
-                    uid: gmail_labels(f.gm_labels)
-                    for uid, f in fetched.items()
-                    if f.gm_labels is not None
-                }
+                add(parse_fetch(self._ok(typ, data, "FETCH FLAGS")))
             headers: dict[int, Fetched] = {}
             new = [u for u in uids if u not in known and u in flags]
             if gmail:
@@ -1736,7 +2026,7 @@ class ImapAccount:
                 headers |= parse_fetch(self._ok(typ, data, "FETCH headers"))
             # A UID expunged between SEARCH and FETCH has no flags or headers: left out.
             seen = {u: f for u, f in flags.items() if u in known or u in headers or u in ids}
-            return FolderRead(folder, uidvalidity, seen, known, headers, ids, labels)
+            return FolderRead(folder, uidvalidity, seen, known, headers, ids, labels, state)
 
         try:
             return self._retrying(f"reading {folder.name}", run)
@@ -1762,25 +2052,79 @@ class ImapAccount:
         """(the map before this run, every message now): read, then decide."""
         if self._cache is not None:
             return self._cache
-        before = {name: frozenset(uids.values()) for name, (_v, uids) in self._prior().items()}
+        before = {
+            name: frozenset(row.id for row in saved.rows.values())
+            for name, saved in self._prior().items()
+        }
         self._cache = (before, self._read_scan())  # the map is written by save_state
         return self._cache
 
+    def _read_states(self, names, capabilities: frozenset[str]) -> dict[str, FolderState]:
+        """
+        These folders' counters now: one LIST-STATUS (RFC 5819) where the
+        server has it, else a STATUS each. A folder whose counters can't be
+        read is left out, and so read in full; so is every folder if the
+        command fails.
+        """
+
+        def run(conn):
+            if "LIST-STATUS" in capabilities:
+                conn.response("STATUS")  # what an earlier command left
+                typ, data = conn.xatom("LIST", '""', '"*"', "RETURN", f"(STATUS {STATUS_ITEMS})")
+                self._ok(typ, data, "LIST-STATUS")
+                conn.response("LIST")
+                return folder_states(conn.response("STATUS")[1])
+            states: dict[str, FolderState] = {}
+            for name in names:
+                typ, data = conn.status(quote(name), STATUS_ITEMS)
+                if typ == "OK":
+                    states |= folder_states(data)
+            return states
+
+        try:
+            states = self._retrying("reading folder counters", run)
+        except gmailapi.GmailError as exc:
+            if isinstance(exc, gmailapi.AccessRefused):
+                raise
+            logger.warning(f"{self.account}: reading every folder in full: {exc}")
+            return {}
+        return {name: state for name, state in states.items() if name in names}
+
     def _read_scan(self) -> Scan:
-        """Every folder read, and the messages decided."""
+        """
+        Every folder read, and the messages decided; incremental, folders
+        unchanged since the last backup taken from its map.
+        """
         read_at = int(time.time() * 1000)
-        gmail = GMAIL_EXT in self._capabilities()
+        capabilities = self._capabilities()
+        gmail = GMAIL_EXT in capabilities
         folders = self._read_folders(gmail)
-        reads, skipped = [], []
+        condstore = "CONDSTORE" in capabilities
+        prior = self._prior() if self.incremental else {}
+        counted = {f.name for f in folders if f.name in prior and prior[f.name].state is not None}
+        now = self._read_states(counted, capabilities) if counted else {}
+        reads, skipped, unchanged = [], [], 0
         # Inside restore's uploads, their line stays instead: see progress.part.
         with progress.part(f"{self.account}: reading folders", len(folders)) as p:
             for folder in folders:
-                read = self._read_folder(folder, gmail)
+                saved = prior.get(folder.name)
+                kind = read_kind(saved, now.get(folder.name), gmail, condstore)
+                if kind == "saved":
+                    read = saved_read(folder, saved, now[folder.name], gmail)
+                    unchanged += 1
+                else:
+                    since = saved if kind == "changed" else None
+                    read = self._read_folder(folder, capabilities, since)
                 if read is None:
                     skipped.append(folder.name)
                 else:
                     reads.append(read)
                 p.advance()
+        if self.incremental:
+            logger.info(
+                f"{self.account}: {unchanged:,} of {len(folders):,} folders unchanged "
+                "since the last backup"
+            )
         digests = self._read_digests(needs_content(reads))
         decided = merge(reads, assign_ids(reads, digests), self._reviews())
         return replace(decided, skipped=frozenset(skipped), read_at=read_at)
@@ -2087,9 +2431,13 @@ class ImapAccount:
         return trash_result(plan, refused, after)
 
     def _changed(self) -> None:
-        """After a write: the scan, and the folder list, are read again when next needed."""
+        """
+        After a write: the scan, and the folder list, are read again when
+        next needed, every folder in full.
+        """
         self._cache = None
         self._entries = None
+        self.incremental = False
 
     def _mover(self, trash: str | None):
         def move(conn, chunk):

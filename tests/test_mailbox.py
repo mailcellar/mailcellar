@@ -83,8 +83,8 @@ def test_backup_signs_in_interactively_unless_unattended(monkeypatch, unattended
     monkeypatch.setattr(
         mailbox,
         "open_mailbox",
-        lambda account, config_folder, scope, interactive=True, folder=None: opened.append(
-            (interactive, folder)
+        lambda account, config_folder, scope, interactive=True, folder=None, incremental=False: (
+            opened.append((interactive, folder))
         ),
     )
     args = Namespace(config="cfg", account=ACCOUNT, folder="data", unattended=unattended)

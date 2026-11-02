@@ -8,6 +8,13 @@ that passes shows ImapAccount never writes; unless `writable` is set, when
 it also answers SELECT, CREATE, APPEND, keyword UID STORE, UID MOVE and UID COPY
 (step 3's writes),
 and still fails anything that expunges, sets \\Deleted or deletes.
+
+With CONDSTORE (or Yahoo's XYMHIGHESTMODSEQ) in `signed_in` it keeps
+mod-sequences as RFC 7162 has them: any change to a message's flags or
+labels, however a test makes it, raises the message's and its folder's;
+mail leaving raises the folder's. It then answers HIGHESTMODSEQ in EXAMINE
+and STATUS, LIST-STATUS when listed, and, with CONDSTORE only, UID FETCH
+... (CHANGEDSINCE n).
 """
 
 import imaplib
@@ -45,6 +52,10 @@ class FakeImap:
         self.drop_after_append = 0  # how many APPENDs store the message, then lose the connection
         self.bodiless: set[int] = set()  # UIDs whose BODY.PEEK[] comes back without a body
         self.appended_gm = 9_000  # the last X-GM-MSGID Gmail gave an appended message
+        self.modseq = 1  # the highest mod-sequence given (CONDSTORE)
+        self.nomodseq: set[str] = set()  # folders that keep no mod-sequences ([NOMODSEQ])
+        self.account_modseq = False  # every folder's HIGHESTMODSEQ is the account's (Gmail)
+        self.untagged: dict[str, list] = {}  # LIST-STATUS's answers, until response() takes them
         self.capabilities = ("IMAP4REV1", "LITERAL+", "AUTH=PLAIN")  # the greeting's, as imaplib
         self.signed_in = ("IMAP4rev1", "LITERAL+", "SPECIAL-USE", "MOVE", "UIDPLUS")  # CAPABILITY
         self.add_folder("INBOX")
@@ -53,6 +64,7 @@ class FakeImap:
     def add_folder(self, name, special=(), uidvalidity=1, selectable=True):
         flags = ["\\HasNoChildren", *special] + ([] if selectable else ["\\Noselect"])
         self.folders[name] = {"flags": flags, "uidvalidity": uidvalidity, "next": 1, "uids": {}}
+        self.folders[name] |= {"seen": {}, "floor": 1}  # what _sync last saw; mail-left modseq
 
     def add(
         self,
@@ -103,9 +115,44 @@ class FakeImap:
         f["uids"] = {i + 1: m for i, m in enumerate(messages)}
         f["next"] = len(messages) + 1
 
+    # ── mod-sequences ────────────────────────────────────────────────────────
+    @property
+    def counters(self) -> bool:
+        return bool({"CONDSTORE", "XYMHIGHESTMODSEQ"} & set(self.signed_in))
+
+    def _sync(self):
+        """Raise the mod-sequences of whatever changed since the last command."""
+        for f in self.folders.values():
+            for uid, m in f["uids"].items():
+                state = (frozenset(m["flags"]), m["labels"], id(m))
+                if f["seen"].get(uid) != state:
+                    self.modseq += 1
+                    m["modseq"] = self.modseq
+                    f["seen"][uid] = state
+            gone = set(f["seen"]) - set(f["uids"])
+            if gone:
+                self.modseq += 1
+                f["floor"] = self.modseq
+                for uid in gone:
+                    del f["seen"][uid]
+
+    def highestmodseq(self, name):
+        if self.account_modseq:  # any change anywhere moves it, empty folders' too
+            return self.modseq
+        f = self.folders[name]
+        return max([f["floor"], *(m["modseq"] for m in f["uids"].values())])
+
+    def _status(self, name) -> bytes:
+        f = self.folders[name]
+        counts = f"MESSAGES {len(f['uids'])} UIDNEXT {f['next']} UIDVALIDITY {f['uidvalidity']}"
+        if self.counters:
+            counts += f" HIGHESTMODSEQ {0 if name in self.nomodseq else self.highestmodseq(name)}"
+        return quoted(name) + f" ({counts})".encode()
+
     # ── imaplib.IMAP4's surface ──────────────────────────────────────────────
     def _command(self, *command):
         self.commands.append(command)
+        self._sync()
         if self.drops:
             self.drops -= 1
             raise imaplib.IMAP4.abort("socket error: EOF")
@@ -124,20 +171,45 @@ class FakeImap:
 
     def list(self):
         self._command("LIST")
-        lines = [
+        return "OK", self._list_lines()
+
+    def _list_lines(self):
+        return [
             b"(" + " ".join(f["flags"]).encode() + b') "/" ' + quoted(name)
             for name, f in self.folders.items()
         ]
-        return "OK", lines
 
     def capability(self):
         self._command("CAPABILITY")
         return "OK", [" ".join(self.signed_in).encode()]
 
+    def status(self, mailbox, names):
+        self._command("STATUS", mailbox, names)
+        name = mailbox[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+        if name not in self.folders or name in self.refused:
+            return "NO", [b"Mailbox doesn't exist"]
+        return "OK", [self._status(name)]
+
+    def xatom(self, name, *args):
+        self._command(name, *args)
+        if name != "LIST" or "RETURN" not in args or "LIST-STATUS" not in self.signed_in:
+            raise AssertionError(f"{name} {args}: not an extension this server answers")
+        self.untagged["LIST"] = self._list_lines()
+        self.untagged["STATUS"] = [
+            self._status(n)
+            for n, f in self.folders.items()
+            if "\\Noselect" not in f["flags"] and n not in self.refused
+        ]
+        return "OK", [b"LIST completed"]
+
     def select(self, mailbox="INBOX", readonly=False):
         self._command("SELECT" if not readonly else "EXAMINE", mailbox)
         if not readonly and not self.writable:
             raise AssertionError(f"SELECT {mailbox}: opens the folder for writing")
+        if mailbox.endswith(" (CONDSTORE)"):
+            if "CONDSTORE" not in self.signed_in:
+                return "BAD", [b"Unknown EXAMINE parameter"]
+            mailbox = mailbox.removesuffix(" (CONDSTORE)")
         self.read_write = not readonly
         name = mailbox[1:-1].replace('\\"', '"').replace("\\\\", "\\")
         if name not in self.folders or name in self.refused:
@@ -146,6 +218,12 @@ class FakeImap:
         return "OK", [None if self.no_exists else str(len(self.folders[name]["uids"])).encode()]
 
     def response(self, code):
+        if code in ("LIST", "STATUS"):
+            return code, self.untagged.pop(code, [None])
+        if code == "HIGHESTMODSEQ":
+            if not self.counters or self.selected in self.nomodseq:
+                return code, [None]
+            return code, [str(self.highestmodseq(self.selected)).encode()]
         if code == "UIDNEXT":
             return code, [str(self.folders[self.selected]["next"]).encode()]
         if code == "PERMANENTFLAGS":
@@ -172,6 +250,11 @@ class FakeImap:
         if command != "FETCH":
             raise AssertionError(f"UID {command}: changes the server")
         wanted, items = args
+        since = re.search(r" \(CHANGEDSINCE (\d+)\)$", items)
+        if since:
+            if "CONDSTORE" not in self.signed_in:  # as Yahoo answers it
+                return "NO", [b"[CANNOT] UID FETCH Command is not supported on this IMAP server"]
+            items = items[: since.start()]
         if wanted.endswith(":*"):  # n:* is n and up, and the highest UID if all are lower
             low = int(wanted[:-2])
             wanted = ",".join(str(u) for u in sorted(uids) if u >= low or u == max(uids, default=0))
@@ -184,7 +267,11 @@ class FakeImap:
             if str(uid) not in wanted.split(","):
                 continue
             m = uids[uid]
+            if since and m["modseq"] <= int(since[1]):
+                continue
             prefix = f"{seq} (UID {uid}"
+            if since:
+                prefix += f" MODSEQ ({m['modseq']})"
             if "FLAGS" in items:
                 prefix += f" FLAGS ({' '.join(sorted(m['flags']))})"
             if "INTERNALDATE" in items:

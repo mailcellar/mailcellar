@@ -38,7 +38,7 @@ from mailcellar.message import PARSER_VERSION
 logger = logging.getLogger(__name__)
 
 META_NAME = "meta.sqlite"
-SCHEMA_VERSION = "13"
+SCHEMA_VERSION = "14"
 
 
 def _add_run_column(name: str):
@@ -104,6 +104,14 @@ def _add_columns(*names: str):
     return step
 
 
+def _add_imap_map_details(con: sqlite3.Connection) -> None:
+    """v14: imap_map.flags, .thread and .labels (imap_folder is created by _SCHEMA)."""
+    have = {row[1] for row in con.execute("PRAGMA table_info(imap_map)")}
+    for name in ("flags", "thread", "labels"):
+        if name not in have:
+            con.execute(f"ALTER TABLE imap_map ADD COLUMN {name} TEXT")
+
+
 # Steps that upgrade schema version N to N+1, applied in order by open_meta.
 # New columns start empty; their rows are stale by parser_version, so
 # `mailcellar meta` re-parses them.
@@ -123,6 +131,7 @@ MIGRATIONS = {
     "10": [],  # v11 adds the holds table (created by _SCHEMA)
     "11": [],  # v12 adds the imap_map table (created by _SCHEMA)
     "12": [],  # v13 adds the imap_review table (created by _SCHEMA)
+    "13": [_add_imap_map_details],
 }
 
 FIELDS = (
@@ -286,9 +295,23 @@ CREATE TABLE IF NOT EXISTS imap_map (
     uidvalidity INTEGER NOT NULL,
     uid         INTEGER NOT NULL,
     msg_id      TEXT NOT NULL,            -- the message's ID in this backup
+    flags       TEXT,                     -- its flags, space-separated; NULL: not saved (v13)
+    thread      TEXT,                     -- Gmail's thread ID (X-GM-THRID); NULL elsewhere
+    labels      TEXT,                     -- JSON [label, ...] from X-GM-LABELS; NULL elsewhere
     PRIMARY KEY (folder, uidvalidity, uid)
 );
 CREATE INDEX IF NOT EXISTS imap_map_msg_id ON imap_map (msg_id);
+
+-- An IMAP account's backup only: each folder's counters as the last backup
+-- read them, so a later backup that finds them the same reads nothing
+-- there (CONDSTORE, RFC 7162). No row: read it in full next time.
+CREATE TABLE IF NOT EXISTS imap_folder (
+    folder        TEXT PRIMARY KEY,       -- the server's folder name, as LIST gives it
+    uidvalidity   INTEGER NOT NULL,
+    uidnext       INTEGER NOT NULL,
+    messages      INTEGER NOT NULL,
+    highestmodseq INTEGER NOT NULL
+);
 
 -- An IMAP account reviewed by folder only: the folders a message was in
 -- when offload or dedup moved it into a review folder (mailcellar/review/
@@ -633,22 +656,60 @@ def imap_ids_by_folder(con: sqlite3.Connection) -> dict[str, frozenset[str]]:
 
 
 def replace_imap_folder(
-    con: sqlite3.Connection, folder: str, uidvalidity: int, uids: dict[int, str]
+    con: sqlite3.Connection,
+    folder: str,
+    uidvalidity: int,
+    uids: Mapping[int, tuple],
+    state: tuple[int, int, int, int] | None = None,
 ) -> None:
-    """Make `uids` (UID → message ID) the folder's whole map. No commit."""
+    """
+    Make `uids` the folder's whole map, UID → (message ID, flags, thread,
+    labels) as imap_map holds them; and `state` (UIDVALIDITY, UIDNEXT,
+    MESSAGES, HIGHESTMODSEQ) its counters, None for none. No commit.
+    """
     con.execute("DELETE FROM imap_map WHERE folder = ?", (folder,))
+    update_imap_folder(con, folder, uidvalidity, (), uids, state)
+
+
+def update_imap_folder(
+    con: sqlite3.Connection,
+    folder: str,
+    uidvalidity: int,
+    gone,
+    uids: Mapping[int, tuple],
+    state: tuple[int, int, int, int] | None = None,
+) -> None:
+    """
+    Change the folder's map in place, for the UIDVALIDITY it has: forget
+    the UIDs `gone`, write `uids` (new or changed rows, as
+    replace_imap_folder takes them), and make `state` its counters, None
+    for none. No commit.
+    """
     con.executemany(
-        "INSERT INTO imap_map VALUES (?, ?, ?, ?)",
-        ((folder, uidvalidity, uid, msg_id) for uid, msg_id in uids.items()),
+        "DELETE FROM imap_map WHERE folder = ? AND uidvalidity = ? AND uid = ?",
+        ((folder, uidvalidity, uid) for uid in gone),
     )
+    con.executemany(
+        "INSERT OR REPLACE INTO imap_map VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ((folder, uidvalidity, uid, *row) for uid, row in uids.items()),
+    )
+    con.execute("DELETE FROM imap_folder WHERE folder = ?", (folder,))
+    if state is not None:
+        con.execute("INSERT INTO imap_folder VALUES (?, ?, ?, ?, ?)", (folder, *state))
+
+
+def forget_imap_state(con: sqlite3.Connection, folders) -> None:
+    """Forget these folders' counters, keeping their map: read in full next time. No commit."""
+    con.executemany("DELETE FROM imap_folder WHERE folder = ?", ((f,) for f in folders))
 
 
 def drop_imap_folders(con: sqlite3.Connection, keep) -> None:
-    """Forget the map of every folder not in `keep` (gone from the server). No commit."""
+    """Forget the map and counters of folders not in `keep` (gone from the server). No commit."""
     keep = set(keep)
-    for (folder,) in con.execute("SELECT DISTINCT folder FROM imap_map").fetchall():
-        if folder not in keep:
-            con.execute("DELETE FROM imap_map WHERE folder = ?", (folder,))
+    for table in ("imap_map", "imap_folder"):
+        for (folder,) in con.execute(f"SELECT DISTINCT folder FROM {table}").fetchall():
+            if folder not in keep:
+                con.execute(f"DELETE FROM {table} WHERE folder = ?", (folder,))
 
 
 def record_imap_review(con: sqlite3.Connection, label: str, origins: Mapping, now_ms: int) -> None:
@@ -764,8 +825,12 @@ def _read_state(folder: Path, read):
         raise MetaError(f"{path} can't be read: {exc}") from None
 
 
-def read_imap_map(folder: Path) -> dict[str, tuple[int, dict[int, str]]]:
-    """An IMAP backup's whole UID map, {folder: (UIDVALIDITY, UID → ID)}, read-only."""
+def read_imap_map(folder: Path) -> dict[str, tuple[int, dict[int, tuple], tuple | None]]:
+    """
+    An IMAP backup's whole UID map, read-only: {folder: (UIDVALIDITY, UID →
+    (ID, flags, thread, labels), counters or None)}, as replace_imap_folder
+    takes them. A sidecar from before v14 has no flags or counters.
+    """
     path = meta_path(folder)
     if not path.is_file():
         return {}
@@ -774,9 +839,17 @@ def read_imap_map(folder: Path) -> dict[str, tuple[int, dict[int, str]]]:
         tables = {n for (n,) in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if "imap_map" not in tables:  # an older sidecar: nothing mapped yet
             return {}
-        out: dict[str, tuple[int, dict[int, str]]] = {}
-        for name, uidvalidity, uid, msg_id in con.execute("SELECT * FROM imap_map"):
-            out.setdefault(name, (uidvalidity, {}))[1][uid] = msg_id
+        have = {row[1] for row in con.execute("PRAGMA table_info(imap_map)")}
+        details = "flags, thread, labels" if "flags" in have else "NULL, NULL, NULL"
+        out: dict[str, tuple[int, dict[int, tuple], tuple | None]] = {}
+        rows = con.execute(f"SELECT folder, uidvalidity, uid, msg_id, {details} FROM imap_map")
+        for name, uidvalidity, uid, *row in rows:
+            out.setdefault(name, (uidvalidity, {}, None))[1][uid] = tuple(row)
+        if "imap_folder" in tables:  # an empty folder has counters but no rows
+            for name, *state in con.execute("SELECT * FROM imap_folder"):
+                uidvalidity, uids, _none = out.get(name, (state[0], {}, None))
+                if uidvalidity == state[0]:
+                    out[name] = (uidvalidity, uids, tuple(state))
         return out
     finally:
         con.close()
