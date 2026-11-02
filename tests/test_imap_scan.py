@@ -786,7 +786,7 @@ def test_a_search_finds_what_gmail_finds_in_all_mail(searchable):
     assert sorted(box.list_message_ids("older_than:1y")) == [imap.gmail_id(1), imap.gmail_id(3)]
     assert box.list_message_ids("older_than:1y", label_id="INBOX") == [imap.gmail_id(1)]
     searches = [c for c in searchable.commands if c[:2] == ("UID", "SEARCH") and "X-GM-RAW" in c]
-    assert searches[0] == ("UID", "SEARCH", "X-GM-RAW", '"older_than:1y"')
+    assert searches[-1] == ("UID", "SEARCH", "X-GM-RAW", '"older_than:1y"')
     examined = [c for c in searchable.commands if c[0] == "EXAMINE"]
     assert examined[-1][1] == '"[Gmail]/All Mail"'
 
@@ -795,7 +795,8 @@ def test_a_search_reaches_gmail_as_written(searchable):
     for query in ('subject:"say \\"hi\\""', "Grüße", "from:a\nto:b"):
         searchable.gmail_finds[query] = {2}
         assert account(searchable).list_message_ids(query) == [imap.gmail_id(2)]
-    assert searchable.searched == ['subject:"say \\"hi\\""', "Grüße", "from:a\nto:b"]
+    asked = [q for q in searchable.searched if not q.startswith("category:")]
+    assert asked == ['subject:"say \\"hi\\""', "Grüße", "from:a\nto:b"]
 
 
 def test_mail_newer_than_the_scan_is_left_out(searchable):
@@ -832,3 +833,74 @@ def test_a_search_after_all_mail_was_renumbered_is_refused(searchable):
     searchable.reset_uidvalidity("[Gmail]/All Mail")
     with pytest.raises(gmailapi.GmailError, match="UIDs changed since the scan"):
         box.list_message_ids("x")
+
+
+# ── Gmail over IMAP: categories, from Gmail's search ─────────────────────────
+
+
+def test_each_message_has_the_category_gmails_search_finds_it_in(searchable):
+    searchable.categories = {1: "updates", 2: "promotions", 4: "social"}  # 4 is in Trash
+    box = account(searchable)
+    got = box.message_labels([imap.gmail_id(n) for n in (1, 2, 3, 4)])
+    assert got[imap.gmail_id(1)] == {"INBOX", "CATEGORY_UPDATES"}
+    assert got[imap.gmail_id(2)] == {"Projects", "CATEGORY_PROMOTIONS"}
+    assert got[imap.gmail_id(3)] == set()  # in no category, as some mail isn't
+    assert got[imap.gmail_id(4)] == {"TRASH", "UNREAD", "CATEGORY_SOCIAL"}
+    assert box.has_categories()
+    assert box.list_message_ids(label_id="CATEGORY_UPDATES") == [imap.gmail_id(1)]
+    catalogue = {label["id"]: label["type"] for label in box.label_catalogue()}
+    assert catalogue["CATEGORY_FORUMS"] == "system"  # all five, as the API lists them
+    assert sorted(set(searchable.searched)) == sorted(f"category:{c}" for c in imap.CATEGORIES)
+
+
+def test_categories_are_unknown_when_a_search_fails(searchable):
+    searchable.categories = {1: "updates"}
+    searchable.gmail_finds["category:forums"] = None
+    box = account(searchable)
+    assert box.message_labels([imap.gmail_id(1)])[imap.gmail_id(1)] == {"INBOX"}
+    assert not box.has_categories()
+
+
+def test_categories_survive_a_dropped_connection(searchable):
+    searchable.categories = {1: "updates"}
+    box = account(searchable)
+    real = box._categorise
+
+    def dropping(scan):
+        searchable.drops = 1
+        return real(scan)
+
+    box._categorise = dropping
+    assert box.message_labels([imap.gmail_id(1)])[imap.gmail_id(1)] == {"INBOX", "CATEGORY_UPDATES"}
+    assert box.has_categories()
+
+
+def test_categories_are_read_only_from_gmail(server):
+    server.add("INBOX", msgid="<plain@x>")
+    box = account(server)
+    assert len(box.list_message_ids()) == 1
+    assert not box.has_categories()
+    assert not [c for c in server.commands if "X-GM-RAW" in c]
+
+
+def test_categories_need_all_mail():
+    folders = (
+        imap.Folder("INBOX", "INBOX"),
+        imap.Folder("[Gmail]/Trash", "TRASH"),
+        imap.Folder("[Gmail]/Spam", "SPAM"),
+    )
+    assert imap.category_folders(imap.Scan({}, frozenset(), {}, folders=folders)) is None
+    store = imap.Folder("[Gmail]/All Mail", "[Gmail]/All Mail", store=True)
+    got = imap.category_folders(imap.Scan({}, frozenset(), {}, folders=(store, *folders)))
+    assert got == ("[Gmail]/All Mail", "[Gmail]/Trash", "[Gmail]/Spam")
+
+
+def test_a_message_found_in_two_categories_leaves_them_unknown(searchable):
+    scan = account(searchable)._scan()[1]
+    store = "[Gmail]/All Mail"
+    uid = next(u for u, row in scan.maps[store].rows.items() if row.id == imap.gmail_id(1))
+    found = {(store, "updates"): frozenset({uid}), (store, "social"): frozenset({uid})}
+    assert imap.categorised(scan, found) is None
+    newer = {(store, "updates"): frozenset({uid, 99})}  # 99: arrived after the scan
+    got = imap.categorised(scan, newer)
+    assert got.messages[imap.gmail_id(1)].labels == {"INBOX", "CATEGORY_UPDATES"}

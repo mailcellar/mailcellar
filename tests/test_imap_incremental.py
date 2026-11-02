@@ -52,10 +52,22 @@ def incremental_matches_full(server, folder):
     assert scan.labels == full.labels
     assert scan.maps == full.maps  # what is saved: rows, flags and counters
     assert scan.skipped == full.skipped
+    assert scan.categories == full.categories
     kept = {name: m for name, m in scan.maps.items() if m.rows or m.state}  # not empty, uncounted
     saved = imap.saved_folders(sidecar.read_imap_map(folder))
     assert {name: saved.get(name) for name in kept} == kept  # and what was saved
     return sent
+
+
+def scanned(commands) -> list:
+    """The scan's commands: those before the category searches that follow it on Gmail."""
+    search = next((i for i, c in enumerate(commands) if "X-GM-RAW" in c), len(commands))
+    return commands[
+        : max((i for i in range(search) if commands[i][0] == "EXAMINE"), default=search)
+    ]
+
+
+CATEGORY_FOLDERS = ["[Gmail]/All Mail", "[Gmail]/Trash", "[Gmail]/Spam"]
 
 
 def examined(commands) -> list[str]:
@@ -314,6 +326,8 @@ def test_gmail_reads_every_folder_that_has_mail_after_any_change_and_saves_only_
     monkeypatch.setattr(sidecar, "replace_imap_folder", None)  # no folder replaced whole
     sent = incremental_matches_full(gmail, tmp_path)
 
+    assert examined(sent)[-3:] == CATEGORY_FOLDERS  # the category searches, after the scan
+    sent = scanned(sent)
     assert sorted(examined(sent)) == ["INBOX", "Projects", "[Gmail]/All Mail", "[Gmail]/Trash"]
     assert not fetched_flags_in_full(sent)
     assert not [c for c in sent if c[:2] == ("UID", "SEARCH")]  # nothing arrived or left
@@ -334,7 +348,7 @@ def test_gmail_labels_with_no_folder_survive_an_unchanged_scan(gmail, tmp_path):
         "1": {"INBOX", "Receipts"},
         "4": {"TRASH", "Projects", "UNREAD"},
     }
-    assert examined(gmail.commands) == []
+    assert examined(gmail.commands) == CATEGORY_FOLDERS  # the category searches only
 
 
 def test_a_second_save_diffs_against_the_first(server, tmp_path):

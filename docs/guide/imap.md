@@ -142,17 +142,17 @@ lacks:
   until the account's password changes: the quickest start, with no
   Google Cloud project. Google's page says when the option is missing
   (security keys only, a work or school account, Advanced Protection).
-  But the password opens the whole mailbox, each backup asks every
-  folder what changed, and the categories don't come at all.
+  But the password opens the whole mailbox, and each backup asks every
+  folder what changed.
 - **Through the Gmail API** needs a Google Cloud project of your own,
   about ten minutes' setup ([Setting up Google Cloud](google-cloud.md)),
   and its tokens expire weekly unless you publish it. In return a backup
-  signs in read-only and asks once what changed in the whole mailbox,
-  and the categories are kept.
+  signs in read-only and asks once what changed in the whole mailbox.
 
 A Gmail backup holds the same thing either way: the same messages, byte
 for byte, under Gmail's own IDs and threads, with the same labels, but
-for the categories (`CATEGORY_…`), which only the API gives. So an
+for the star colours (Yellow star and the rest), which only the API
+gives; the categories (`CATEGORY_…`) come from Gmail's own search. So an
 account set up one way can be set up the other later, and its backup
 carries on: nothing is downloaded again, and offloaded batches, legal
 holds and the hash chain still apply. Moving to IMAP:
@@ -163,10 +163,7 @@ mailcellar setup alex@example.com --imap imap.gmail.com
 
 setup signs in first and goes ahead only if the server is Gmail's. The
 first backup over IMAP reads every folder and downloads only mail that
-is new since the last backup through the API. Mail already backed up
-keeps its categories, but they no longer change, and mail backed up
-over IMAP has none, so an offload rule's `category` and `report bulk`
-see only mail backed up through the API. Moving back to the API is
+is new since the last backup through the API. Moving back to the API is
 `setup` without `--imap`:
 
 ```bash

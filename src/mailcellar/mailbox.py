@@ -146,6 +146,15 @@ class Mailbox(Protocol):
         """
         raise NotImplementedError
 
+    def has_categories(self) -> bool:
+        """
+        Whether this run's labels include Gmail's categories (CATEGORY_…),
+        so a message without one has none: the Gmail API's always do, a Gmail
+        account's over IMAP when its search gave them. False: keep those the
+        backup holds.
+        """
+        raise NotImplementedError
+
     # ── the connection ───────────────────────────────────────────────────────
     def close(self) -> None:
         """
