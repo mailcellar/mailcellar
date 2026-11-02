@@ -6,41 +6,46 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). mailcellar is
 in beta, so commands and options may still change before 1.0; what 1.0 will
 keep stable is in [What stays stable](docs/reference/stability.md).
 
-## Unreleased
+## 0.26.0 (2026-11-02)
+
+**Upgrading from 0.25.0:** each `meta.sqlite` moves from schema 13 to 14
+on first use, with a copy kept beside it as `meta.sqlite.pre-v14`; no
+message is parsed again. An IMAP account's first backup reads every
+folder in full once, as nothing is saved yet to compare against; a Gmail
+account backed up over IMAP gets its categories then too, so expect many
+label updates. A backup moved from IMAP to the Gmail API before is
+mended by its next backup (see Fixed).
 
 ### Added
 - Gmail searches over IMAP: an offload rule's `query` and
-  `backup --search` work for a Gmail account set up over IMAP, using
-  Gmail's own search, as they do through the API. They find the same
-  mail, except for chats, which are never backed up. Other IMAP servers
-  still refuse a query.
-- Gmail's categories over IMAP: a backup of a Gmail account set up over
-  IMAP holds each message's category (Primary, Social, Promotions,
-  Updates, Forums), read with Gmail's own search, and keeps it current,
-  so an offload rule's `category` and `report bulk` work for it as
-  through the API. Before, only mail backed up through the API had one.
+  `backup --search` work for a Gmail account set up over IMAP, with
+  Gmail's own search, and find the same mail as through the API, chats
+  aside, which are never backed up. Other IMAP servers still refuse a
+  query.
+- Gmail's categories over IMAP: a Gmail account backed up over IMAP gets
+  each message's category (Primary, Social, Promotions, Updates, Forums)
+  from Gmail's own search, kept current, so an offload rule's `category`
+  and `report bulk` work for it. Before, only mail backed up through the
+  API had one.
 
 ### Changed
 - An IMAP backup reads only what changed since the last one, where the
-  server keeps count of changes (CONDSTORE: Gmail, iCloud, Fastmail and
-  Dovecot): only the changed messages are fetched, where before every
-  folder's flags were, and a folder with no changes is skipped (on Gmail,
-  which counts changes for the whole mailbox, each folder is still asked,
-  in one short request). A backup with little new mail is much quicker
-  on a large mailbox. `count` does the same; `backup --full` reads every
+  server counts changes (CONDSTORE: Gmail, iCloud, Fastmail and
+  Dovecot): folders with no changes are skipped and only changed
+  messages fetched. Gmail counts for the whole mailbox, so each folder is
+  still asked, briefly. A backup with little new mail is much quicker on
+  a large mailbox. `count` does the same; `backup --full` reads every
   folder.
 
 ### Fixed
-- After a Gmail account moved between the Gmail API and IMAP, user labels
-  the backup already held weren't counted as labels: offload's
+- After a Gmail account moved between the Gmail API and IMAP, the user
+  labels its backup already held stopped counting as labels: offload's
   `labelled` keep didn't protect that mail, a rule's `label` and
-  `hold add --label` missed it, and `report labels` undercounted. A
-  label's ID is `Label_N` through the API and its name over IMAP, and the
-  backup kept the old route's. Each backup now gives them the current
-  route's IDs, mail no longer in the mailbox included, which also mends
-  a backup moved to the API before. The first backup after a move to the
-  API also reads every message's labels again, so a label changed since
-  the last backup over IMAP isn't missed.
+  `hold add --label` missed it, and `report labels` undercounted. Each
+  backup now gives held labels the current route's IDs (`Label_N`
+  through the API, the label's name over IMAP), mail no longer in the
+  mailbox included, and the first backup after a move to the API reads
+  every message's labels again.
 
 ## 0.25.0 (2026-11-02)
 
