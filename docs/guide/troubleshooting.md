@@ -30,7 +30,7 @@ If the retries are exhausted, the run reports the messages it could not
 handle and exits with status 1; running it again carries on. Nothing is
 lost, and the next run does not repeat what is already done. For work that
 takes more than a few minutes (trashing is about 2,000 messages a minute,
-uploading about six messages a second), run it in the background.
+uploading at most four messages a second through the Gmail API), run it in the background.
 
 ## `count` reports mail missing from the backup
 

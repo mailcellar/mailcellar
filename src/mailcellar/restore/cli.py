@@ -575,11 +575,14 @@ def report(
         print(f"  … and {len(problems) - 20:,} more in the log")
     uploads = [r.decision for r in results if r.outcome == DRY_RUN[IMPORT]]
     if uploads:
+        size = human_size(sum(d.size for d in uploads))
+        # How fast a server takes APPENDs is its own; only the Gmail API publishes a rate
         minutes = len(uploads) / IMPORTS_PER_SECOND / 60
         print(
-            f"Would upload {len(uploads):,} messages, {human_size(sum(d.size for d in uploads))}: "
-            f"about {max(1, round(minutes)):,} min at {IMPORTS_PER_SECOND} a second "
-            "(more for large messages)."
+            f"Would upload {len(uploads):,} messages, {size}: about {max(1, round(minutes)):,} "
+            f"min at {IMPORTS_PER_SECOND} a second, Google's limit (more for large messages)."
+            if provider == "gmail"
+            else f"Would upload {len(uploads):,} messages, {size}."
         )
     if mode == "dry-run":
         if note:

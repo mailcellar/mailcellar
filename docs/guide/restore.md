@@ -54,8 +54,9 @@ the next run carries on where the last one stopped: mail already back, or
 that can't be restored, doesn't count toward it.
 
 Messages still in Trash come back quickly, a thousand per Gmail call.
-Uploads are slower, about six a second, so 4,500 messages take about 13
-minutes and 50,000 over two hours. Run large restores in the background; progress
+Uploads are slower, at most four a second (Google's limit for one account),
+so 4,500 messages take about 19 minutes and 50,000 about 3½ hours; an IMAP
+server sets its own pace. Run large restores in the background; progress
 lines go to stderr (`-q` turns them off).
 
 ## Undo an offload

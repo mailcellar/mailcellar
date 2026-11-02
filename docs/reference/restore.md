@@ -121,9 +121,12 @@ without it, `--into` only uploads. Into a Gmail account,
 **How long it takes:** the dry run checks every `.eml` file and looks each
 message up in the mailbox, so on a large backup it takes minutes. On Gmail,
 messages still in Trash come out a thousand per call, then each is read back to
-confirm it left Trash, so thousands take about a minute. Uploads run at
-about 6 a second, so the dry run's estimate for 4,500 messages is about 13
-minutes and for 50,000 over two hours. Progress lines go to stderr (`-q` turns them off); run
+confirm it left Trash, so thousands take about a minute. Uploads through
+the Gmail API go at most 4 a second, Google's limit for one account (6,000
+quota units a minute, 25 an upload), so the dry run's estimate for 4,500
+messages is about 19 minutes and for 50,000 about 3½ hours; large messages
+take longer. An IMAP server sets its own pace, so there the dry run gives
+only the count and size. Progress lines go to stderr (`-q` turns them off); run
 large restores in the background.
 
 Runs are logged in `<data root>/restore/restore-log.csv`, a row per message
