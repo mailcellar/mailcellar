@@ -59,10 +59,11 @@ mailcellar count alex           # what the mailbox has against what the backup h
 - **Deduplicate, export and report**: remove duplicate copies within and
   across accounts, copy mail out (an mbox, a zip, a maildir, or just the
   attachments), and see what takes up the space.
-- **Keep mail as it is**: a hash chain shows the backup hasn't changed
-  since each message was saved (`verify --chain`), and a legal hold keeps
-  the mail a dispute or an audit needs out of reach of offloading,
-  forgetting and dedup, in the mailbox and in the backup.
+- **Keep mail as it is**: a hash chain is tamper evidence, showing the
+  backup hasn't changed since each message was saved (`verify --chain`),
+  and a legal hold keeps the mail a dispute or an audit needs out of
+  reach of offloading, forgetting and dedup, in the mailbox and in the
+  backup.
 
 Only `offload apply`, `dedup apply` and `restore --yes` change a mailbox,
 each a dry run until you add a flag; on an IMAP server, only where the

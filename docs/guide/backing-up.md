@@ -66,7 +66,7 @@ the config folder; the check fails on anything changed, missing or added
 outside those commands, even if `meta.sqlite` was changed to agree. Note
 the head hash `report health` shows somewhere else now and then: that is
 what shows the chain itself wasn't rewritten. See the
-[reference](../reference/backup.md#verify).
+[reference](../reference/backup.md#the-hash-chain).
 
 ## The second copy
 
