@@ -8,6 +8,13 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 
 ## Unreleased
 
+### Added
+- `setup ACCOUNT --check`, or `setup ADDRESS --imap HOST --check` before
+  setting one up: signs in to an IMAP server and says what it offers,
+  including the flags each folder keeps, without writing anything. It names
+  none of your folders and not your address, so it can be pasted into an
+  issue about a server mailcellar hasn't been tried on.
+
 ### Fixed
 - A backup of Gmail over IMAP (`setup --imap imap.gmail.com`) left out
   archived mail with no label, which Gmail keeps only in All Mail. It now

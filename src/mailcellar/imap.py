@@ -133,6 +133,7 @@ class ServerInfo:
     capabilities: frozenset[str]  # as CAPABILITY answers once signed in
     folders: tuple[Folder, ...]
     marked: frozenset[str]  # the roles the server marks a folder for (TRASH…)
+    greeting: frozenset[str] = frozenset()  # as it offered before signing in (AUTH=…)
 
     @property
     def can_offload(self) -> bool:
@@ -1445,12 +1446,16 @@ class ImapAccount:
         """
         The server's capabilities and the folders a backup would read. Asks
         CAPABILITY after signing in: imaplib's conn.capabilities is the
-        greeting's list, and servers name MOVE only once signed in.
+        greeting's list, and servers name MOVE only once signed in; that list
+        is kept as `greeting`.
         """
         entries = self._read_entries()
         capabilities = self._capabilities()
+        greeting = self._retrying(
+            "reading capabilities", lambda conn: frozenset(c.upper() for c in conn.capabilities)
+        )
         folders = folders_from(entries, GMAIL_EXT in capabilities)
-        return ServerInfo(capabilities, folders, marked_roles(entries))
+        return ServerInfo(capabilities, folders, marked_roles(entries), greeting)
 
     def _capabilities(self) -> frozenset[str]:
         return self._retrying(
@@ -1793,7 +1798,7 @@ class ImapAccount:
         fn(conn, chunk) for each chunk of `uids`, with `folder` SELECTed for
         writing (the only place mailcellar SELECTs rather than EXAMINEs);
         selected(conn, folder), if given, first, to check what SELECT answered.
-        With no `uids` it only SELECTs: keywords_kept_in reads PERMANENTFLAGS
+        With no `uids` it only SELECTs: permanent_flags reads PERMANENTFLAGS
         so, as EXAMINE reports none, changing nothing.
         """
 
@@ -1878,22 +1883,33 @@ class ImapAccount:
 
     def keywords_kept_in(self, folder: str) -> bool | None:
         """
-        Whether `folder` keeps keywords, by a SELECT that changes nothing; None
-        when the check itself fails (the folder refused, the connection gave
-        out): not known, so nothing is concluded from it.
+        Whether `folder` keeps keywords, from permanent_flags; None when the
+        check itself fails: not known, so nothing is concluded from it.
         """
+        permanent = self.permanent_flags(folder)
+        return None if permanent is None else "\\*" in permanent
+
+    def permanent_flags(self, folder: str) -> str | None:
+        """
+        PERMANENTFLAGS as a SELECT of `folder` answers it, changing nothing
+        ("" if it gives none): EXAMINE may answer () whatever the folder keeps,
+        as Gmail does. None when the SELECT fails (the folder refused, the
+        connection gave out).
+        """
+        answered: list[str] = []
+
+        def read(conn, _folder):
+            _code, (permanent, *_rest) = conn.response("PERMANENTFLAGS")
+            answered.append((permanent or b"").decode("ascii", "replace"))
+
         try:
-            self._write(
-                folder, [], "checking keywords", lambda conn, uids: None, self._require_keywords
-            )
-        except KeywordsRefused:
-            return False
+            self._write(folder, [], "checking which flags are kept", lambda conn, uids: None, read)
         except gmailapi.AccessRefused:
             raise
         except gmailapi.GmailError as exc:
-            logger.debug("%s: couldn't check %s for keywords: %s", self.account, folder, exc)
+            logger.debug("%s: couldn't SELECT %s: %s", self.account, folder, exc)
             return None
-        return True
+        return answered[-1]
 
     def _carry_out(self, marking: Marking, what: str, fn, selected=None) -> list[str]:
         """fn on every folder's copies, a refused folder failing its own; then re-read."""

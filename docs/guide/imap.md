@@ -60,6 +60,21 @@ mailcellar doesn't do yet, so they aren't supported: `setup` refuses an
 Outlook.com, Hotmail, Live or MSN address, and Microsoft's servers, before
 asking for a password.
 
+For a server not in the table, or one that doesn't behave as it says,
+`--check` signs in and says what the server offers, folder by folder,
+and writes nothing:
+
+```bash
+mailcellar setup alex@example.org --imap imap.example.org --check
+mailcellar setup alex --check
+```
+
+The second checks an account already set up, with its saved password.
+The report gives the server's capabilities and the flags each folder
+keeps. Folders of your own are counted, not named, and the report doesn't
+give your address, so it can go into an
+[issue](https://github.com/mailcellar/mailcellar/issues) as it is.
+
 To change the review mode later, without the password:
 
 ```bash

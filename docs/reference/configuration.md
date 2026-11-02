@@ -94,7 +94,7 @@ Setting an account up again (for a new password, say) keeps the port, username, 
 file and review mode its `imap.toml` holds, unless an option changes them.
 Where the server would allow offloading, setup also says how mail will be
 marked for review, and whether the server keeps keywords in INBOX (a
-SELECT that changes nothing); where it keeps none, it says to review by
+SELECT that changes no mail); where it keeps none, it says to review by
 folder, without choosing that for you. Microsoft's servers (Outlook.com,
 Hotmail, Live, Microsoft 365) take only OAuth over IMAP, so setup refuses
 them before asking for a password.
@@ -104,6 +104,20 @@ review mode alone: it changes the review line in `imap.toml`, keeping the
 rest, asks for no password and doesn't connect. `ACCOUNT` is its config name or address. Mail already
 marked the other way stays marked: offload and dedup read keywords and
 review folders whatever the mode.
+
+`setup ACCOUNT --check` signs in to an IMAP account's server, with the
+password it keeps, and says what the server offers; `setup ADDRESS
+--imap HOST --check` does the same for a server not set up yet, asking
+for the password. Neither writes anything. The report lists the server's
+capabilities before and after signing in, what mailcellar uses of them
+(MOVE, UIDPLUS, SPECIAL-USE, Gmail's `X-GM-EXT-1`, MESSAGELIMIT), and
+each folder's PERMANENTFLAGS, then what setup says about the server.
+PERMANENTFLAGS is read by a SELECT, as EXAMINE may answer none whatever
+the folder keeps; the SELECT changes no mail, though a server still
+tracking IMAP4rev1's `\Recent` stops showing it to later sessions.
+Folders of your own are counted, not named, and
+the address isn't given (it goes to the log, on stderr), so the report
+can be posted as it is.
 
 | Option | What it does |
 | --- | --- |
@@ -115,6 +129,7 @@ review folders whatever the mode.
 | `--username NAME` | With `--imap`: the login name (default: the address) |
 | `--cafile FILE` | With `--imap`: a CA certificate to trust besides the system's, for a private server |
 | `--review MODE` | How an IMAP account's offload and dedup mark mail for review, `keyword` (default) or `folder` (a `mailcellar/review/` folder); without `--imap`, changes an existing account's mode alone |
+| `--check` | Sign in to an IMAP account's server, or with `--imap` one not set up yet, and say what it offers, folder by folder; writes nothing |
 | `--name NAME` | Config name for the account (default: from the address) |
 | `--no-auth` | Don't sign in now |
 | `--force` | Replace the account's client, the domain's service-account key, or an IMAP account's `imap.toml`, if it holds another |

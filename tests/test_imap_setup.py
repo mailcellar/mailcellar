@@ -337,3 +337,113 @@ def test_a_review_line_it_cant_edit_is_left_alone(server, tmp_path):
     with pytest.raises(SystemExit, match="couldn't change its review line; edit it by hand"):
         review(tmp_path, "home", "folder")
     assert '"review" = "keyword"' in toml.read_text()
+
+
+def files_in(folder):
+    return {p: p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+
+
+def check(tmp_path, *args):
+    return setup.main([*args, "--check", "--config", str(tmp_path / "config")])
+
+
+def test_check_reports_each_folder_naming_none_of_the_users(server, tmp_path, capsys):
+    server.add_folder("Projects")
+    server.add_folder("Family")
+    server.keywordless.add("Family")
+    assert run(tmp_path, "--name", "home") == 0
+    before = files_in(tmp_path / "config")
+    capsys.readouterr()
+    server.commands.clear()
+    assert check(tmp_path, "home") == 0
+    assert files_in(tmp_path / "config") == before  # writes nothing
+    out = capsys.readouterr().out
+    assert "imap.example.org, port 993\n" in out
+    assert "  before signing in: AUTH=PLAIN IMAP4REV1 LITERAL+\n" in out
+    assert "  signed in: IMAP4REV1 LITERAL+ MOVE SPECIAL-USE UIDPLUS\n" in out
+    assert "MOVE yes, UIDPLUS yes, SPECIAL-USE yes, X-GM-EXT-1 no, MESSAGELIMIT none\n" in out
+    assert "    INBOX: (\\Answered \\Flagged \\Deleted \\Seen \\Draft \\*)\n" in out
+    assert "    TRASH (Trash): (\\Answered" in out
+    assert "    1 folder of your own: (\\Answered" in out
+    assert "    1 folder of your own: (\\Seen \\Flagged)\n" in out
+    assert "  folders backed up: 3\n" in out
+    assert "review marks: a keyword (the server keeps them)" in out
+    assert "Projects" not in out and "Family" not in out and ADDRESS not in out
+    selected = {c[1] for c in server.commands if c[0] == "SELECT"}
+    assert selected == {'"INBOX"', '"Trash"', '"Projects"', '"Family"'}
+    assert "secret" not in out and server.commands[-1] == ("LOGOUT",)
+
+
+def test_check_of_a_server_not_set_up_yet_writes_nothing(server, tmp_path, capsys):
+    server.refused.add("Trash")
+    assert check(tmp_path, ADDRESS, "--imap", "imap.example.org", "--port", "9993") == 0
+    assert not (tmp_path / "config").exists()
+    out = capsys.readouterr().out
+    assert "imap.example.org, port 9993\n" in out
+    assert "    TRASH (Trash): couldn't be selected\n" in out
+
+
+def test_check_with_a_refused_login_says_so(server, tmp_path, capsys):
+    server.password = "other"
+    with pytest.raises(SystemExit, match=r"refused the login: \[AUTHENTICATIONFAILED\]"):
+        check(tmp_path, ADDRESS, "--imap", "imap.example.org")
+    assert not (tmp_path / "config").exists() and capsys.readouterr().out == ""
+
+
+def test_check_reads_a_gmail_servers_all_mail_and_limits():
+    folders = (
+        imap.Folder("INBOX", "INBOX"),
+        imap.Folder("[Gmail]/All Mail", "[Gmail]/All Mail", archive=True, store=True),
+        imap.Folder("[Gmail]/Important", "IMPORTANT"),
+        imap.Folder("Archive", "Archive", archive=True),
+        imap.Folder("Work", "Work"),
+    )
+    caps = frozenset({"IMAP4REV1", "X-GM-EXT-1", "MESSAGELIMIT=1000"})
+    info = imap.ServerInfo(caps, folders, frozenset(), frozenset({"IMAP4REV1"}))
+    permanent = {"INBOX": "()", "[Gmail]/All Mail": "", "Archive": "(\\*)", "Work": None}
+    settings = gmailapi.ImapSettings("imap.example.com", 993, ADDRESS)
+    report = "\n".join(setup.check_report(settings, info, permanent))
+    assert "X-GM-EXT-1 yes, MESSAGELIMIT 1000" in report
+    assert "    INBOX: ()\n" in report
+    assert "    All Mail ([Gmail]/All Mail): none given\n" in report
+    assert "    IMPORTANT ([Gmail]/Important): couldn't be selected\n" in report
+    assert "    archive (Archive): (\\*)\n" in report
+    assert "    1 folder of your own: couldn't be selected\n" in report
+    assert "Work" not in report
+    # INBOX keeps no keywords, so offloading would mark by folder, but offloading needs MOVE.
+    assert "offload and dedup: refused on this server" in report
+
+
+def test_check_says_once_what_every_folder_keeps():
+    folders = (imap.Folder("INBOX", "INBOX"), imap.Folder("Work", "Work"))
+    info = imap.ServerInfo(frozenset(), folders, frozenset())
+    settings = gmailapi.ImapSettings("imap.example.org", 993, ADDRESS)
+    report = setup.check_report(settings, info, {"INBOX": "(\\*)", "Work": "(\\*)"})
+    i = report.index("  PERMANENTFLAGS, as a SELECT of all 2 folders answers:")
+    assert report[i + 1] == "    (\\*)" and report[i + 2].startswith("  folders backed up")
+    alone = imap.ServerInfo(frozenset(), folders[:1], frozenset())
+    assert "  PERMANENTFLAGS, as a SELECT of its only folder answers:" in setup.check_report(
+        settings, alone, {"INBOX": "(\\*)"}
+    )
+
+
+@pytest.mark.parametrize(
+    "args, problem",
+    [
+        (["home", "--name", "x"], "--check writes nothing; it takes no --name"),
+        (["home", "--force", "--no-auth"], "it takes no --no-auth, --force"),
+        (["home", "--review", "folder"], "it takes no --review"),
+        (["home", "--port", "9993"], "--port: only with --imap"),
+        ([], "--check needs the account"),
+        (["nobody"], "'nobody' is not a configured account"),
+        (["gmail"], "is read through the Gmail API; --check reads an IMAP server"),
+    ],
+)
+def test_check_refusals(server, tmp_path, monkeypatch, args, problem):
+    assert run(tmp_path, "--no-auth", "--name", "home") == 0
+    accounts = tmp_path / "config" / "accounts.toml"
+    accounts.write_text(accounts.read_text() + 'gmail = "sam@example.com"\n')
+    monkeypatch.setattr(setup.getpass, "getpass", lambda prompt: pytest.fail("asked"))
+    with pytest.raises(SystemExit, match=problem):
+        check(tmp_path, *args)
+    assert server.commands == []

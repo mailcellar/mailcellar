@@ -21,12 +21,15 @@ imap.toml in its config folder, the password owner-only beside it. It is
 backed up only; nothing on the server changes. Microsoft's servers are
 refused before the password is asked: they take only OAuth over IMAP.
 `setup ACCOUNT --review MODE` changes how offload and dedup mark its mail
-for review, in imap.toml alone, asking no password.
+for review, in imap.toml alone, asking no password. `setup ACCOUNT --check`
+(or `setup ADDRESS --imap HOST --check`, before setting one up) signs in
+and says what the server offers, folder by folder, writing nothing: what
+someone on a server not tried yet can report, naming no folder of theirs.
 
 The decisions (check_client, accounts_entries, pick_name, add_account,
 latest_download, imap_toml, with_review, microsoft_refusal,
-configured_name, review_report, server_report) are pure; reading, writing
-and asking are a thin layer around them. Prompts are skipped for what the
+configured_name, review_report, server_report, check_report) are pure;
+reading, writing and asking are a thin layer around them. Prompts are skipped for what the
 command line already gives, so a fully specified call (ADDRESS and
 --client) asks nothing.
 """
@@ -40,6 +43,7 @@ import re
 import shlex
 import sys
 import tomllib
+from collections import Counter
 from contextlib import closing
 from pathlib import Path
 
@@ -317,11 +321,16 @@ def review_report(review: str, keywords: bool | None, account: str) -> str:
 
 
 def server_report(
-    info, review: str = gmailapi.DEFAULT_REVIEW, keywords: bool | None = None, account: str = ""
+    info,
+    review: str = gmailapi.DEFAULT_REVIEW,
+    keywords: bool | None = None,
+    account: str = "",
+    names: bool = True,
 ) -> list[str]:
     """
-    What setup says about an IMAP server: its folders, and what it allows;
-    how review marks are made where offloading is possible. Pure.
+    What setup says about an IMAP server: its folders (by label, unless not
+    `names`), and what it allows; how review marks are made where
+    offloading is possible. Pure.
     """
     from mailcellar.imap import BY_NAME, HIDDEN
 
@@ -340,7 +349,7 @@ def server_report(
     shown = ", ".join(labels[:8]) + (", …" if len(labels) > 8 else "")
     left_out = sorted({f.label for f in info.folders} & HIDDEN)
     return [
-        f"  folders backed up: {len(kept)} ({shown})",
+        f"  folders backed up: {len(kept)}" + (f" ({shown})" if names else ""),
         *(
             [f"  read, not backed up: {', '.join(left_out)} (mail moved there stays backed up)"]
             if left_out
@@ -364,6 +373,72 @@ def server_report(
         *([review_report(review, keywords, account)] if info.can_offload else []),
         "  restore: possible"
         + ("" if info.can_move else " (uploads only: without MOVE, mail in its Trash stays there)"),
+    ]
+
+
+# What check_report says the server has or lacks: what mailcellar's commands use where offered
+USED = ("MOVE", "UIDPLUS", "SPECIAL-USE", "X-GM-EXT-1")
+ROLES = ("INBOX", "SENT", "DRAFT", "SPAM", "TRASH", "IMPORTANT")  # labels a server's folder gives
+
+
+def check_report(settings, info, permanent: dict[str, str | None]) -> list[str]:
+    """
+    What setup --check says about a server: what it offers before and after
+    signing in, and each folder's PERMANENTFLAGS (`permanent`, by folder name;
+    None where the SELECT failed), then what setup says. Folders of the
+    user's own are only counted, so the report names none of them. Pure.
+    """
+    caps = info.capabilities
+    limit = next((c.split("=", 1)[1] for c in caps if c.startswith("MESSAGELIMIT=")), "none")
+
+    def role(folder) -> str:
+        if folder.store:
+            return "All Mail"
+        if folder.label in ROLES:
+            return folder.label
+        return "archive" if folder.archive else ""
+
+    def shown(answer: str | None) -> str:
+        return "couldn't be selected" if answer is None else answer or "none given"
+
+    roles = [f for f in info.folders if role(f)]
+    own = Counter(permanent.get(f.name) for f in info.folders if not role(f))
+    inbox = next((permanent.get(f.name) for f in info.folders if f.label == "INBOX"), None)
+    answers = {permanent.get(f.name) for f in info.folders}
+    if len(answers) == 1:  # the usual case: said once
+        n = len(info.folders)
+        where = "its only folder" if n == 1 else f"all {n} folders"
+        flags = [f"  PERMANENTFLAGS, as a SELECT of {where} answers:"]
+        flags.append(f"    {shown(answers.pop())}")
+    else:
+        flags = [
+            "  PERMANENTFLAGS, as a SELECT of each folder answers:",
+            *(
+                f"    {role(f)}"
+                + ("" if f.label == "INBOX" else f" ({f.name})")
+                + f": {shown(permanent.get(f.name))}"
+                for f in roles
+            ),
+            *(
+                f"    {n} folder{'' if n == 1 else 's'} of your own: {shown(answer)}"
+                for answer, n in own.most_common()
+            ),
+        ]
+    return [
+        f"{settings.host}, port {settings.port}",
+        f"  before signing in: {' '.join(sorted(info.greeting))}",
+        f"  signed in: {' '.join(sorted(caps))}",
+        "  used here: "
+        + ", ".join(f"{c} {'yes' if c in caps else 'no'}" for c in USED)
+        + f", MESSAGELIMIT {limit}",
+        *flags,
+        *server_report(
+            info,
+            settings.review,
+            None if inbox is None else "\\*" in inbox,
+            "ACCOUNT",
+            names=False,
+        ),
     ]
 
 
@@ -431,6 +506,8 @@ def run(args) -> int:
     text = accounts_file.read_text() if accounts_file.is_file() else ""
     entries = accounts_entries(text)
 
+    if args.check:
+        return run_check(args, config, entries)
     if args.imap is not None:
         return run_imap(args, config, text, entries)
     stray = [o for o in IMAP_KEPT if o != "review" and getattr(args, o) is not None]
@@ -613,12 +690,7 @@ def run_imap(args, config: Path, text: str, entries) -> int:
     toml = imap_toml(settings, address).encode()
     dest = folder / gmailapi.IMAP_SETTINGS
     toml_status = private_status(toml, dest, args.force, "imap.toml", IMAP_WHY)
-    try:
-        password = getpass.getpass(f"Password for {settings.username} at {settings.host}: ")
-    except EOFError:
-        raise SetupError("the password: nothing to read; run setup in a terminal") from None
-    if not password:
-        raise SetupError("no password given")
+    password = ask_password(settings)
     # Everything is checked before anything is written: signing in, unless --no-auth.
     info = keywords = None
     if not args.no_auth:
@@ -648,6 +720,79 @@ def run_imap(args, config: Path, text: str, entries) -> int:
         return 0
     print("\n".join(server_report(info, settings.review, keywords, address)))
     print(f"\nNext: mailcellar backup {name}")
+    return 0
+
+
+def ask_password(settings: gmailapi.ImapSettings) -> str:
+    try:
+        password = getpass.getpass(f"Password for {settings.username} at {settings.host}: ")
+    except EOFError:
+        raise SetupError("the password: nothing to read; run setup in a terminal") from None
+    if not password:
+        raise SetupError("no password given")
+    return password
+
+
+def run_check(args, config: Path, entries) -> int:
+    """
+    setup ACCOUNT --check, an IMAP account's server, with its settings and
+    password; or setup ADDRESS --imap HOST --check, a server before setting
+    it up, asking the password. Signs in, reads every folder's PERMANENTFLAGS
+    by a SELECT that changes nothing, and writes nothing.
+    """
+    given = [o for o in ("client", "service_account", "review", "name") if getattr(args, o)]
+    given += [o for o in ("no_auth", "force") if getattr(args, o)]
+    if given:
+        raise SetupError(
+            "--check writes nothing; it takes no "
+            + ", ".join("--" + o.replace("_", "-") for o in given)
+        )
+    if not args.address:
+        raise SetupError("--check needs the account: its config name or address")
+    if args.imap is None:
+        stray = [o for o in ("port", "username", "cafile") if getattr(args, o) is not None]
+        if stray:
+            raise SetupError(f"{', '.join('--' + o for o in stray)}: only with --imap")
+        name = configured_name(entries, args.address.strip())
+        folder, address = config / name, entries[name]
+        if not gmailapi.is_imap(folder):
+            raise SetupError(
+                f"{address} is read through the Gmail API; --check reads an IMAP server "
+                "(with --imap HOST, one not set up yet)"
+            )
+        try:
+            settings = gmailapi.imap_settings(folder, address)
+            password = gmailapi.imap_password(folder)
+        except gmailapi.GmailError as exc:
+            raise SetupError(str(exc)) from None
+    else:
+        address = checked_address(args.address)
+        if refusal := microsoft_refusal(address, args.imap):
+            raise SetupError(refusal)
+        cafile = str(Path(args.cafile).expanduser().resolve()) if args.cafile else None
+        options = {"port": args.port, "username": args.username, "cafile": cafile}
+        try:
+            settings = gmailapi.settings_from(
+                {k: v for k, v in options.items() if v is not None} | {"host": args.imap},
+                address,
+                "--imap",
+            )
+        except gmailapi.GmailError as exc:
+            raise SetupError(str(exc)) from None
+        password = ask_password(settings)
+
+    from mailcellar import imap
+
+    # Logged, not printed: what goes to stdout is the report, which names no address.
+    logger.info("Signing in to %s as %s (read-only)...", settings.host, settings.username)
+    try:
+        with closing(imap.ImapAccount(address, settings, password)) as box:
+            info = box.server_info()
+            logger.info("%s: selecting %d folders", address, len(info.folders))
+            permanent = {f.name: box.permanent_flags(f.name) for f in info.folders}
+    except gmailapi.GmailError as exc:
+        raise SetupError(f"{exc}; nothing was written") from None
+    print("\n".join(check_report(settings, info, permanent)))
     return 0
 
 
@@ -689,6 +834,12 @@ def main(argv=None, prog: str | None = None) -> int:
         help="How an IMAP account's offload and dedup mark mail for review, a keyword (the "
         "default) or a mailcellar/review/ folder; without --imap, changes an account's "
         "mode alone, asking no password",
+    )
+    p.add_argument(
+        "--check",
+        action="store_true",
+        help="Sign in to an IMAP account's server (or with --imap, one not set up yet) and "
+        "say what it offers, folder by folder; writes nothing",
     )
     p.add_argument("--name", help="Config name for the account (default: from the address)")
     p.add_argument("--no-auth", action="store_true", help="Don't sign in now")
