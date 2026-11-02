@@ -113,30 +113,70 @@ Takes `--folder` and `--config`, as `backup` does.
 
 `verify` takes account names and finds the backups in the data root.
 
-**The hash chain.** Each backup folder has a `chain.jsonl`, which gyb
-ignores: one line, or link, per `backup`, `restore`, `forget` (and its
-`--undo` and `--empty`), and `--prune` before 0.19.0, listing the messages it
-added to or removed from the backup with the SHA-256 of each `.eml`, and
-the hash of the link before. The latest link's number and hash are also
-kept in the config folder (`anchors/<email>.json`), and `report health`
-shows them. The first `backup` after upgrading starts the chain by hashing
-every file once.
+See [The hash chain](#the-hash-chain) for what `--chain` adds.
 
-`verify --chain` replays the chain and reads every file. It fails on a
-file changed since it was recorded, a recorded message missing from the
-backup, a message in the backup no link added, a chain that was edited,
-or an anchor that names another link, so a change shows even if
-`meta.sqlite` was rewritten to match. It warns, without failing, when
-there is no anchor (a copy of the backup on another machine) or the
-anchor is behind the chain. Something running as you could rewrite the
-chain and the anchor together; keep the head hash `report health` shows
-somewhere else as well.
+## The hash chain
 
-A command that would add a link (`backup`, `restore`, `forget`, `hold`)
-refuses a chain that doesn't end at the link its anchor names, and
-changes nothing: the chain was rewritten, cut short or added to, or the
-backup was put back from an older copy. Anchoring it would make it check
-clean from then on. `verify --chain` shows what differs. If you put the
-backup back from an older copy on purpose, move
-`<config>/anchors/<email>.json` aside; the next link anchors the chain as
-it is.
+`verify` alone compares each `.eml` with the content hash in
+`meta.sqlite`, which sits beside it in the data root: whatever can change
+one file can change the other to agree. The hash chain is tamper
+evidence: a record of what the backup should hold that a change in the
+data root can't rewrite unnoticed.
+
+**What it records.** Each backup folder has a `chain.jsonl`, with a line,
+or link, for each change: the messages `backup`, `restore` or `forget`
+(with its `--undo` and `--empty`) added to or removed from the backup,
+with the SHA-256 of each `.eml`. `hold` and `hold release` add a link
+with the hold's details. Each link names the one before it by its hash,
+so none can be edited, removed or reordered without breaking the rest.
+The first `backup` starts the chain from the files the backup already
+holds, taking them as they are. Labels aren't recorded: they change all
+the time and aren't the mail.
+
+**The anchor.** The latest link's number and hash are also kept outside
+the data root, in the config folder (`anchors/<email>.json`). A chain
+rewritten to match a changed file is whole in itself, but it no longer
+ends at the link the anchor names.
+
+**What protects what.** The chain shows changes made by anything that
+can reach the data root but not the config folder: a sync tool, a disk
+fault, an edit by hand, or a program with access to that disk only.
+Something running as you can rewrite the chain and the anchor together;
+against that, note the head hash `report health` shows somewhere else
+now and then, and compare.
+
+**What each check sees:**
+
+| Check | Runs | Compares | Catches |
+| --- | --- | --- | --- |
+| After each `backup` | Every run, a slice of the backup (`--verify N`) | Files with `meta.sqlite` | Damage; not a change made to agree |
+| `verify` | When you run it | Every file with `meta.sqlite`, and the two databases | Damage, and databases out of step |
+| `verify --chain` | When you run it | Every file with the chain, and the chain with the anchor | Any file changed, missing or added outside those commands, and a rewritten chain |
+| `report health` | When you run it | The chain with the anchor, reading no file | A rewritten or edited chain |
+| `restore` | Each message it uploads | The copy with the chain | A changed copy, which it doesn't upload |
+| A command that adds a link | Every time | The chain's end with the anchor | A rewritten chain, which it refuses |
+| `schedule status` | When you run it | The chain's end with the anchor | A backup the next run will refuse |
+
+`verify --chain` fails on a file changed since it was recorded, a
+recorded message missing from the backup, a message in the backup no
+link added, a chain that was edited, or an anchor that names another
+link. It warns, without failing, when there is no anchor (a copy of the
+backup on another machine) or the anchor is behind the chain.
+
+**When a command refuses the chain.** A command that would add a link
+(`backup`, `restore`, `forget`, `hold`) refuses a chain that doesn't end
+at the link its anchor names, and changes nothing: the chain was
+rewritten, cut short or added to, or the backup was put back from an
+older copy. Anchoring it would make it check clean from then on, so
+there is no option to override this. Run `verify --chain` to see what
+differs:
+
+- **Only the anchor differs, and you put the backup back from an older
+  copy** (Time Machine, restic, a second disk): move
+  `<config>/anchors/<email>.json` aside and keep it, as the record of
+  how far the chain had got. The next link a command adds anchors the
+  copy's chain. [Recovering](../guide/recovery.md#a-damaged-or-lost-data-root)
+  has the steps.
+- **Files differ too, or you didn't put anything back:** something
+  changed the backup. Leave the anchor where it is, and compare the
+  backup with a copy you trust before running anything that changes it.

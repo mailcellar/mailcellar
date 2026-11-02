@@ -47,7 +47,7 @@ and `forget --empty` keeps that run. A hold errs on keeping.
 
 **Where holds are kept.** Each covered backup's `meta.sqlite` records its
 holds, released ones included (schema 11). Placing and releasing a hold
-are also recorded in the backup's [hash chain](backup.md#verify), with its
+are also recorded in the backup's [hash chain](backup.md#the-hash-chain), with its
 criteria, so when a hold began and what it covered can't be rewritten
 later.
 

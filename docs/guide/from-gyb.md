@@ -16,7 +16,8 @@ client (see [Setting up Google Cloud](google-cloud.md)).
 
 - **The folder is used in place.** gyb's `msg-db.sqlite` and the
   `<year>/<month>/<day>/<id>.eml` files stay as they are. mailcellar adds
-  `meta.sqlite` beside them, which gyb ignores.
+  `meta.sqlite` and the hash chain's `chain.jsonl` beside them, which gyb
+  ignores.
 - **Same format, so gyb still reads it.** You can go back to gyb at any
   time. Do not run both on the same folder at once.
 - **Only gyb's current format (`db_version` 6) is accepted.** A folder
