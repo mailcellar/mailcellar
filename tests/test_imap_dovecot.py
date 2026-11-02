@@ -252,6 +252,24 @@ def test_setup_then_backups_follow_the_mailbox(dovecot, monkeypatch, capsys):
         assert cli.main(["verify", "home", "--chain"]) == 0
 
 
+def test_check_reports_what_a_real_server_keeps(dovecot, monkeypatch, tmp_path, capsys):
+    user = "check@example.org"
+    with dovecot.session(user) as c:
+        c.create("Projects")
+        trash_folder(c)
+        c.create("Archive")
+    monkeypatch.setattr(setup.getpass, "getpass", lambda prompt: PASSWORD)
+    args = ["--imap", "localhost", "--port", str(dovecot.port), "--cafile", str(dovecot.cafile)]
+    assert setup.main([user, *args, "--check"]) == 0
+    out = capsys.readouterr().out
+    assert "  before signing in: " in out and "MOVE yes, UIDPLUS yes" in out
+    # Dovecot keeps the same flags in every folder, so they're said once.
+    assert "  PERMANENTFLAGS, as a SELECT of all " in out and " \\*)\n" in out
+    assert "Projects" not in out and "Archive" not in out
+    assert "couldn't be selected" not in out
+    assert not (tmp_path / "config").exists()
+
+
 class CutShort:
     """A real connection whose SEARCH ALL keeps only the highest UIDs, as MESSAGELIMIT does."""
 
