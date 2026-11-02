@@ -9,8 +9,12 @@ mailcellar writes [Got Your Back](https://github.com/GAM-team/got-your-back)
 started again: mailcellar adds to the folder you have. Nothing is converted
 and nothing is downloaded twice.
 
-This page assumes mailcellar is installed and the account has an OAuth
-client (see [Setting up Google Cloud](google-cloud.md)).
+This page assumes mailcellar is installed. mailcellar can carry the
+backup on through the Gmail API, with an OAuth client as gyb uses (see
+[Setting up Google Cloud](google-cloud.md)), or over IMAP with an app
+password and no Cloud project: either way it keeps Gmail's own message
+IDs, so the folder is continued, not downloaded again
+([Gmail over IMAP, or through the API](imap.md#gmail-over-imap-or-through-the-api)).
 
 ## What you need to know first
 
@@ -44,26 +48,23 @@ If you would rather leave the folder where it is, `backup --folder PATH`
 uses it for one run, but only folders inside the data root are seen by
 `dedup`, `offload`, `restore` and the reports.
 
-## 2. Configure the account
+## 2. Set up the account
 
-gyb's `<email>.cfg` and credential files are **not read**. mailcellar signs
-in with an OAuth client of the same kind gyb uses, but stores its own
-tokens in its own config folder. List the account in
-`~/.config/mailcellar/accounts.toml` and put the client where
-[the README](../reference/configuration.md) says:
+gyb's `<email>.cfg` and credential files are **not read**; mailcellar keeps
+its own in its own config folder. `setup` adds the account, one of two
+ways:
 
-```toml
-personal = "alex@example.com"
+```bash
+# through the Gmail API, with an OAuth client (gyb's own, if you still have its JSON)
+mailcellar setup alex@example.com --client ~/Downloads/client_secret_*.json --name personal
+
+# or over IMAP, with an app password
+mailcellar setup alex@example.com --imap imap.gmail.com --name personal
 ```
 
-```
-~/.config/mailcellar/personal/client_secrets.json
-```
-
-You can reuse the client you made for gyb, if you still have its JSON, or
-make a new one. The first run opens a browser for consent; see step 6 of
-the Google Cloud guide. Your gyb files can stay where they are, or be
-deleted once you have stopped using gyb.
+Either signs in read-only and lists the account in `accounts.toml`, under
+`personal` here. Your gyb files can stay where they are, or be deleted once
+you have stopped using gyb.
 
 ## 3. The first run
 
@@ -77,7 +78,8 @@ mailcellar meta personal
 in Gmail and downloads those the folder does not already have, judged by
 Gmail ID and the file being present. The listing is the slow part on a large
 mailbox; the downloads are only the mail since gyb's last run. From then on
-it reads Gmail's history instead, as it does for any other account.
+it reads only what changed, as it does for any other account: Gmail's
+history through the API, or what each folder says changed over IMAP.
 
 **`meta`** fills `meta.sqlite` for the mail gyb backed up: it parses each
 `.eml` once, then asks Gmail for thread IDs, label IDs and sizes. `dedup`,

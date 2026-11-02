@@ -146,20 +146,21 @@ describes itself, in its README or on its site, in October 2026:
 
 ## Is anything ever deleted?
 
-- **From Gmail:** never permanently. The commands that change Gmail
+- **From the mailbox:** never permanently. The commands that change it
   (`dedup apply`, `offload apply`, `restore --yes`) are dry runs unless you
   add a flag, and the strongest thing any of them does is move mail to
-  Trash, which Gmail empties after 30 days. `restore` only adds.
+  Trash, which Gmail empties after 30 days (an IMAP server when it or a
+  mail client chooses). Nothing is expunged. `restore` only adds.
 - **From the backup:** nothing, unless you ask. `forget` deletes mail that
-  Gmail no longer has, offloaded mail or (`--deleted`) mail you deleted
-  there, after you type the count. It holds it, and `--undo` can put it
+  the mailbox no longer has, offloaded mail or (`--deleted`) mail you
+  deleted there, after you type the count. It holds it, and `--undo` can put it
   back until `--empty`, which waits 30 days, deletes it for good;
   `--deleted` refuses to take more than a tenth of the backup unless
   forced.
   Offloaded mail is never taken as deleted.
 
-Because of that, once mail has been offloaded and Gmail has emptied its
-Trash, the backup holds the only copy. Keep a second copy of the data
+Because of that, once mail has been offloaded and the mailbox has emptied
+its Trash, the backup holds the only copy. Keep a second copy of the data
 root.
 
 ## Is this the Mac app called Mailcellar?

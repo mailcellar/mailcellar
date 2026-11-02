@@ -5,7 +5,7 @@ description: "Every mailcellar command and option, by page: backups, configurati
 # Command reference
 
 Every command and option. For a task from start to finish, see the
-[guides](../guide/google-cloud.md); for the design, [How it works](../architecture.md).
+[guides](../guide/imap.md); for the design, [How it works](../architecture.md).
 
 | Page | Commands |
 | --- | --- |

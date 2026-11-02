@@ -4,15 +4,16 @@ description: "Free Gmail storage, or declutter the mailbox, by taking old mail o
 
 # Offloading old mail safely: a worked example
 
-Offloading takes old mail out of Gmail while the local backup keeps it:
-to free storage, to declutter the mailbox, or to leave less in it for
+Offloading takes old mail out of the mailbox while the local backup keeps
+it: to free storage, to declutter the mailbox, or to leave less in it for
 anyone who gets into the account. It is staged so that you look at the
-result before anything leaves Gmail, and nothing is ever deleted
-permanently: the last step moves messages to Gmail's Trash, which Gmail
-empties after 30 days.
+result before anything leaves the mailbox, and nothing is ever deleted
+permanently: the last step moves messages to the mailbox's Trash, which
+Gmail empties after 30 days (an IMAP server when it or a mail client
+chooses).
 
-This page walks through one offload from start to finish. The mail in it is
-invented. The README has the reference for each command
+This page walks through one offload on Gmail from start to finish. The
+mail in it is invented. Every option is in the reference
 ([Offloading old mail](../reference/offload.md)).
 
 On an IMAP account the stages are the same, with a keyword or a review

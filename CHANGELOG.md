@@ -6,6 +6,15 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). mailcellar is
 in beta, so commands and options may still change before 1.0; what 1.0 will
 keep stable is in [What stays stable](docs/reference/stability.md).
 
+## Unreleased
+
+### Changed
+
+- The guides start with Gmail over IMAP, the quickest way in, and say
+  "the mailbox" where offloading, dedup and restore work on any account.
+  Migrating from gyb shows `setup` for both routes: a gyb backup carries
+  on over IMAP with an app password, without downloading anything again.
+
 ## 0.26.0 (2026-11-02)
 
 **Upgrading from 0.25.0:** each `meta.sqlite` moves from schema 13 to 14

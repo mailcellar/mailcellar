@@ -4,28 +4,29 @@ description: "Run, check and keep a local backup of Gmail or IMAP mail: incremen
 
 # Backing up, and keeping the backup safe
 
-mailcellar's backup is a copy of Gmail on your disk. It is what lets you
-take old mail out of Gmail, so it matters more than any other part of the
-setup. This page covers how to run it, how to check it, and how to keep a
-second copy of it. The README has the reference for each command
+mailcellar's backup is a copy of your mailbox on your disk. It is what
+lets you take old mail out of the mailbox, so it matters more than any
+other part of the setup. This page covers how to run it, how to check it,
+and how to keep a second copy of it. Every option is in the reference
 ([Backups](../reference/backup.md)).
 
 ## What the backup does, and what it never does
 
 - **It only adds.** `backup`, `count` and `meta` never delete anything from
-  the backup. Mail you delete from Gmail stays in the backup, and
+  the backup. Mail you delete from the mailbox stays in the backup, and
   `backup` says how many such messages there are.
 - **One command deletes, on purpose.** `forget` deletes mail from the
-  backup once Gmail has deleted it too: offloaded mail you shouldn't keep
-  at all ([Offloading](offloading.md#deleting-offloaded-mail-for-good)),
-  or, with `--deleted`, mail you deleted in Gmail yourself (below). It
+  backup once the mailbox has deleted it too: offloaded mail you shouldn't
+  keep at all ([Offloading](offloading.md#deleting-offloaded-mail-for-good)),
+  or, with `--deleted`, mail you deleted there yourself (below). It
   asks you to type the count, and holds the files: `--undo` can put them
   back until `--empty` deletes them, which it does only once they have
   been held 30 days.
-- **It reads Gmail, never changes it.** A backup needs read-only access.
+- **It reads the mailbox, never changes it.** A backup needs read-only
+  access, and over IMAP opens folders read-only.
 
-Once you offload mail and Gmail empties its Trash (30 days later), the
-backup holds the only copy of it. Everything below is about not losing that.
+Once you offload mail and the mailbox empties its Trash (Gmail does it
+30 days later), the backup holds the only copy of it. Everything below is about not losing that.
 
 ## The routine
 
@@ -110,7 +111,8 @@ Things to watch:
 - **Keep the copy somewhere a single failure cannot take with the original**:
   another disk at least, another place if you can.
 - **Do not copy the config folder to a shared place.** It holds OAuth
-  tokens. The data root does not.
+  tokens, IMAP passwords and any service-account key, each of which opens
+  a mailbox. The data root holds none of them.
 
 ### With restic
 
@@ -135,8 +137,9 @@ restic check --read-data-subset=10%  # now and then: read back a tenth of the sn
   while no mailcellar command is running. mailcellar doesn't run restic:
   run it by hand after the scheduled backup, or from a cron or launchd
   entry of your own that runs later.
-- **The config folder** holds OAuth tokens. Leave it out, or snapshot it
-  into a repository of its own that is as private as the folder.
+- **The config folder** holds OAuth tokens and IMAP passwords. Leave it
+  out, or snapshot it into a repository of its own that is as private as
+  the folder.
 - **Snapshots keep what `forget` deletes.** Mail forgotten in the backup
   stays in every snapshot taken before; `restic forget --prune` with a
   retention policy (for example `--keep-weekly 8`) removes old snapshots.
@@ -235,8 +238,10 @@ it alone, at the cost of disk space.
 
 ## Adding an account, or moving the backup
 
-- **Another account:** `mailcellar setup` ([Setting up Google Cloud](google-cloud.md)),
-  then `mailcellar backup ACCOUNT`. The first backup downloads everything;
+- **Another account:** `mailcellar setup`, over IMAP
+  ([Backing up an IMAP account](imap.md), Gmail included) or through the
+  Gmail API ([Setting up Google Cloud](google-cloud.md)), then
+  `mailcellar backup ACCOUNT`. The first backup downloads everything;
   if it stops, run it again and it carries on.
 - **Another disk:** quit anything running, copy the data root, set `data_dir`
   in `settings.toml` to the new place, run `mailcellar config` to check that

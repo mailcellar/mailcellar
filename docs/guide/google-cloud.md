@@ -4,9 +4,9 @@ description: "Create the free Google Cloud OAuth client mailcellar needs to read
 
 # Setting up Google Cloud for mailcellar
 
-mailcellar reads your mail through the Gmail API, so it needs an *OAuth
-client*: a credential, made in a Google Cloud project that you own, that lets
-the program ask you for permission. It is free, takes about ten minutes, and
+To read Gmail through the Gmail API, mailcellar needs an *OAuth client*: a
+credential, made in a Google Cloud project that you own, that lets the
+program ask you for permission. It is free, takes about ten minutes, and
 is the hardest step of setup. You do it once; one client can serve every
 account. For Gmail there is a quicker way in, with no Cloud project: an
 app password over IMAP. What the API adds, and how to move between the
@@ -128,8 +128,8 @@ To do it by hand instead, `<name>` is the short name you give the account in
 personal = "alex@example.com"
 ```
 
-so the example above goes in `~/.config/mailcellar/personal/`. The
-[README](../reference/configuration.md) describes the config folder, and
+so the example above goes in `~/.config/mailcellar/personal/`.
+[Configuration](../reference/configuration.md) describes the config folder, and
 `mailcellar config` shows where it is on your machine and whether each
 account's client is found.
 

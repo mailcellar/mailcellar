@@ -2,13 +2,15 @@
 description: "Put mail back into Gmail or an IMAP mailbox from the backup: undo an offload, recover lost mail, move a backup to another account, or import a Takeout mbox."
 ---
 
-# Restoring mail: putting it back into Gmail
+# Restoring mail: putting it back into the mailbox
 
-`restore` puts mail from the backup back into Gmail: mail you offloaded,
-mail that was lost, a whole backup into another account, or mail from a
-Google Takeout file or an older backup folder. It only adds. It deletes
-nothing in Gmail or in the backup, and it skips what Gmail already has, so
-running it twice is safe.
+`restore` puts mail from the backup back into the mailbox: mail you
+offloaded, mail that was lost, a whole backup into another account, or mail
+from a Google Takeout file or an older backup folder. It only adds. It
+deletes nothing in the mailbox or in the backup, and it skips what the
+mailbox already has, so running it twice is safe. The examples below are on
+Gmail; an IMAP account works the same way
+([Backing up an IMAP account](imap.md#4-restore)).
 
 This page covers the cases people actually have. Every option is in the
 [reference](../reference/restore.md); the mail and addresses below are
@@ -23,9 +25,10 @@ invented.
 | Copy an account's mail into another | `--all --to ACCOUNT` |
 | Load a Takeout export or an old gyb folder | `--from-mbox`, `--from-folder` |
 
-Restoring needs modify access to the account the mail goes into. A
-restore with `--yes` asks you to sign in in the browser when it starts,
-and keeps that access only until it ends.
+Through the Gmail API, restoring needs modify access to the account the
+mail goes into: a restore with `--yes` asks you to sign in in the browser
+when it starts, and keeps that access only until it ends. An IMAP account
+uses its saved password, and needs no sign-in.
 
 ## The pattern: dry run, small, then the rest
 
