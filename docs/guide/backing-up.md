@@ -38,9 +38,12 @@ A backup you set up once and check now and then:
 | Every month or so | `mailcellar report health` | the last run of each account, gaps, tokens that need signing in |
 | Before and after an offload | `mailcellar verify --offloaded` | the copies with no other source are intact |
 
-`backup` catches up from Gmail's change history, which Gmail keeps for about
-four weeks. A longer gap still works but lists the whole mailbox again, so
-schedule it: see [Scheduled backups](scheduling.md).
+Through the Gmail API, `backup` catches up from Gmail's change history, which
+Gmail keeps for about four weeks. A longer gap still works but lists the whole
+mailbox again, so schedule it: see [Scheduled backups](scheduling.md). Over
+IMAP it starts from what the last backup saved of each folder, however long
+ago, and where the server keeps count of changes it reads only what changed
+([Back it up](imap.md#2-back-it-up)).
 
 `count` compares what Gmail has with what the backup has. Mail missing from
 the backup makes it exit 1; run `backup` again and it fetches what failed.
