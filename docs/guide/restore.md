@@ -145,10 +145,9 @@ mailcellar restore personal --from-folder /Volumes/old/GYB-GMail-Backup-old@exam
 
 None of these has Gmail IDs that mean anything in the account the mail goes
 into, so each message is looked up there by Message-ID and content: recorded
-if Gmail has it, uploaded if not. Nothing is added to a backup's index by
-these three. Run `backup` afterwards and it downloads the restored mail as
-new messages. Running the same restore again finds what it restored by
-Message-ID and skips it.
+if Gmail has it, uploaded if not. What is uploaded is added to the backup
+of the account it goes into, so the next `backup` doesn't download it
+again, and running the same restore again finds it there and skips it.
 
 ## What to expect
 

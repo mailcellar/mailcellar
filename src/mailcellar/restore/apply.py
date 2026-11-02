@@ -810,8 +810,10 @@ def apply(
     failed on (a note added), so its last call is the one that counts.
 
     folder None: the candidates come from a source other than a backup's
-    index (sources.py). Nothing is recorded or indexed; a run again finds
-    what was restored by its Message-ID, and the next backup downloads it.
+    index (sources.py). Nothing is recorded, as there is no source backup to
+    record in; what is uploaded is indexed in `target_folder`, as for
+    another account, so a run again finds it there by its Message-ID and
+    content hash and the next backup doesn't download it.
 
     With `into` (an IMAP account's folder), what is taken out of Trash or
     uploaded goes there, and mail restored before is moved there (INTO).
@@ -989,9 +991,9 @@ def _import(
 ) -> None:
     """
     Upload the gone messages, IMPORT_CHUNK at a time, and index each new ID
-    in the backup of the account restored into: `target_folder`, or the
-    backup's own `folder`; neither, for another source. Each result goes
-    to emit() as soon as it is known.
+    in the backup of the account restored into: `target_folder` (another
+    account, or any account restored from another source), else the
+    backup's own `folder`. Each result goes to emit() as soon as it is known.
     """
     system = {label["id"] for label in gmail.label_catalogue() if label["type"] == "system"}
     index_folder = target_folder or folder
@@ -1082,8 +1084,9 @@ def _import_chunk(gmail, tcon, folder, chunk, record, emit, system, labels: Labe
 
 def _index_new_ids(gmail, tcon, folder, imported: list[Result], fields: dict) -> None:
     """
-    Index the new IDs in the backup, sharing the old IDs' files where they are
-    on one volume, so the next backup doesn't download them again.
+    Index the new IDs in the backup, sharing the source's files where they are
+    on one volume (writing an mbox entry's bytes), so the next backup doesn't
+    download them again.
     """
     # Its own Progress, innermost, so these lookups don't count as imports.
     with Progress("Reading the imported messages", len(imported)):
@@ -1097,7 +1100,9 @@ def _index_new_ids(gmail, tcon, folder, imported: list[Result], fields: dict) ->
                 continue
             ms = int(d["internalDate"])
             names = gmail.label_names(d.get("labelIds", []))
-            rel = gyb.add_copy(con, folder, r.new_id, ms, names, r.decision.candidate.path)
+            c = r.decision.candidate
+            source = c.path if c.span is None else read_raw(c)  # an mbox entry: its bytes
+            rel = gyb.add_copy(con, folder, r.new_id, ms, names, source)
             added.append((r.new_id, chain.file_hash(folder / rel) or ""))
             sidecar.upsert_message(
                 tcon,

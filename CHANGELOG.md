@@ -27,9 +27,12 @@ keep stable is in [What stays stable](docs/reference/stability.md).
   its own pace.
 - A restore that finds a message already in the mailbox under another ID
   compares their content by the hash the mailbox's backup holds, where it
-  has one, rather than downloading the copy. A restore from `--from-mbox`
-  or `--from-folder` run again after a backup no longer reads back what
-  the earlier runs uploaded.
+  has one, rather than downloading the copy.
+- `restore --from-mbox` and `--from-folder` add what they upload to the
+  backup of the account restored into, as `--to` does. The next `backup`
+  no longer downloads the restored mail again, which into Gmail over IMAP
+  counted toward its daily download limit, and a run again needs no
+  backup in between to skip what it uploaded.
 
 ### Fixed
 - `restore --to` into an account whose backup was made with the other

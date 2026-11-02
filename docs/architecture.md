@@ -273,8 +273,10 @@ and `--from-folder` build the same `Candidate`s from an mbox file (a candidate's
 is; `read_raw()` reads it back) or another gyb folder, parsed once for the
 sender, date and content hash. `plan()` and `apply()` are unchanged apart
 from that: every message takes the other-account way back (`found` by
-Message-ID and content, or `import`), and `apply()` with no backup folder
-records and indexes nothing. The mbox reader splits at `From ` lines at the
+Message-ID and content, or `import`), and `apply()` with no source folder
+records nothing; each upload is indexed in the target's backup, as for
+`--to`, an mbox entry by its bytes (`gyb.add_copy`), since it has no file
+to link. The mbox reader splits at `From ` lines at the
 start of the file or after a blank line, undoes mboxrd escaping, drops the
 headers Takeout adds, and maps Takeout's label names to Gmail's IDs; all of
 that is pure.

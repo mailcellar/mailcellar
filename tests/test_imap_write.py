@@ -1162,6 +1162,18 @@ def test_a_takeout_mbox_restores_into_an_imap_account_without_gmails_folders(hom
     assert len(home.folders["INBOX"]["uids"]) == 1 and len(home.folders["Receipts"]["uids"]) == 1
 
 
+def test_an_mbox_restored_over_imap_isnt_downloaded_again(home, tmp_path, capsys):
+    assert cli.main(["backup", "home"]) == 0
+    mbox = tmp_path / "takeout.mbox"
+    raw = make_eml(msgid="<t@x>").replace(b"\n", b"\r\n")
+    mbox.write_bytes(b"From 1234@xxx Thu Jan 01 10:00:00 +0000 2015\r\n" + raw + b"\r\n")
+    assert cli.main(["restore", "home", "--from-mbox", str(mbox), "--yes"]) == 0
+    capsys.readouterr()
+    assert cli.main(["backup", "home"]) == 0
+    assert "Downloaded 0 messages" in capsys.readouterr().out  # indexed by the restore
+    assert cli.main(["verify", "home", "--chain"]) == 0
+
+
 @pytest.mark.parametrize("gmail", [True, False])
 def test_restore_past_gmails_imap_limit_says_to_spread_it(
     home, tmp_path, monkeypatch, capsys, gmail

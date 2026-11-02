@@ -210,16 +210,19 @@ def add_copy(
     gmail_id: str,
     internal_date_ms: int,
     labels: list[str],
-    source: Path,
+    source: Path | bytes,
 ) -> str:
     """
-    Index a message already in the backup under another ID (a restore gave
-    it a new one): its file is hard-linked (copied across volumes) to the
-    new ID's path. Returns the relative path. The caller commits.
+    Index a message a restore put back under a new ID: its file (`source`,
+    in this backup or another) is hard-linked (copied across volumes) to the
+    new ID's path, or its bytes written there (an mbox entry, which has no
+    file of its own). Returns the relative path. The caller commits.
     """
     rel = relative_path(gmail_id, internal_date_ms)
     target = folder / rel
-    if not target.is_file():
+    if not target.is_file() and isinstance(source, bytes):
+        _write_atomic(target, source)
+    elif not target.is_file():
         target.parent.mkdir(parents=True, exist_ok=True)
         try:
             os.link(source, target)

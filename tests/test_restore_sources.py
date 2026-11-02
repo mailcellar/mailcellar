@@ -305,19 +305,52 @@ def test_repeated_runs_from_a_folder_with_a_limit_carry_on(env, tmp_path):
     assert [c[1] for c in env.calls if c[0] == "import"] == ["s1", "s2", "s3"]  # each once
 
 
-def test_a_run_again_after_a_backup_compares_by_the_backups_hashes(env, tmp_path):
+def test_uploads_are_indexed_so_a_run_again_and_the_next_backup_read_none_back(env, tmp_path):
     other = tmp_path / "elsewhere"
     commands.backup(Gmail({g: message(g) for g in ("s1", "s2")}), "old@example.org", other)
     run("--from-folder", str(other), "--yes")
     new = {c[2] for c in env.calls if c[0] == "import"}
+    paths = {bm.gmail_id: bm.path for bm in gyb.iter_backup(env.folder)}
+    sources = {bm.gmail_id: bm.path for bm in gyb.iter_backup(other)}
+    assert all(
+        paths[c[2]].read_bytes() == sources[c[1]].read_bytes() for c in imports(env).values()
+    )
     env.fetched.clear()
-    run("--from-folder", str(other), "--yes")
-    assert new <= set(env.fetched)  # found, then read back to compare their content
-    commands.backup(env, A, env.folder)  # the restored mail is backed up
-    env.fetched.clear()
-    run("--from-folder", str(other), "--yes")
-    assert not new & set(env.fetched)  # compared by the backup's hashes instead
-    assert len([c for c in env.calls if c[0] == "import"]) == 2  # still found, not sent again
+    run("--from-folder", str(other), "--yes")  # no backup since
+    assert not new & set(env.fetched)  # found, compared by the hashes the restore indexed
+    assert len([c for c in env.calls if c[0] == "import"]) == 2  # not sent again
+    commands.backup(env, A, env.folder)
+    assert not new & set(env.fetched)  # the next backup has them already
+
+
+def test_an_mbox_entry_is_indexed_by_its_bytes_and_the_backup_verifies(env, tmp_path):
+    from mailcellar.backup import chain, verify
+    from mailcellar.paths import backup_folder
+
+    body = make_eml(msgid="<t1@example.com>", body="hello")
+    (tmp_path / "takeout.mbox").write_bytes(
+        b"From 1234@xxx Mon Jan 01 00:00:00 +0000 2024\nX-Gmail-Labels: Inbox\n" + body + b"\n"
+    )
+    assert run("--from-mbox", "takeout.mbox", "--yes", account="b") == 0
+    (call,) = imports(env.other).values()
+    folder = backup_folder(B)  # B's first backup starts with what was restored
+    (path,) = [bm.path for bm in gyb.iter_backup(folder) if bm.gmail_id == call[2]]
+    assert path.read_bytes() == body  # the entry, Takeout's header taken off, not the mbox
+    assert verify.verify_backup(folder).ok and chain.check(folder, B).failures == ()
+    last = chain.parse_line(chain.read_lines(folder)[-1])
+    assert last.op == "restore" and [g for g, _h in last.added] == [call[2]]
+
+
+def test_a_backup_of_the_other_providers_ids_is_not_indexed_into(env, tmp_path, capsys):
+    other = tmp_path / "elsewhere"
+    commands.backup(Gmail({"s1": message("s1")}), "old@example.org", other)
+    con = sidecar.open_meta(env.folder)
+    sidecar.set_state(con, "provider", "imap")  # A's backup holds IMAP IDs; A is now Gmail
+    con.commit()
+    con.close()
+    with pytest.raises(SystemExit, match="would mix them"):
+        run("--from-folder", str(other))
+    assert not [c for c in env.calls if c[0] == "import"]
 
 
 @pytest.mark.parametrize(
