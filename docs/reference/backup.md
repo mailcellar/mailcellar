@@ -131,3 +131,12 @@ there is no anchor (a copy of the backup on another machine) or the
 anchor is behind the chain. Something running as you could rewrite the
 chain and the anchor together; keep the head hash `report health` shows
 somewhere else as well.
+
+A command that would add a link (`backup`, `restore`, `forget`, `hold`)
+refuses a chain that doesn't end at the link its anchor names, and
+changes nothing: the chain was rewritten, cut short or added to, or the
+backup was put back from an older copy. Anchoring it would make it check
+clean from then on. `verify --chain` shows what differs. If you put the
+backup back from an older copy on purpose, move
+`<config>/anchors/<email>.json` aside; the next link anchors the chain as
+it is.

@@ -613,6 +613,24 @@ def test_restore_into_another_account_whose_backup_holds_the_other_providers_ids
     assert not [c for c in other.calls if c[0] == "import"]
 
 
+@pytest.mark.parametrize("into", ["same", "other"])
+def test_restore_is_refused_before_uploading_onto_a_chain_its_anchor_doesnt_match(env, into):
+    import json
+
+    from mailcellar.backup import chain
+    from mailcellar.paths import backup_folder
+
+    account, box = A, env
+    if into == "other":
+        account, box = B, env.other
+        box.messages["b1"] = message("b1")
+        commands.backup(box, B, backup_folder(B))
+    chain.anchor_path(account).write_text(json.dumps({"seq": 1, "hash": "0" * 64}))
+    with pytest.raises(SystemExit, match="doesn't match its anchor"):
+        run("--offloaded", *(["--to", "b"] if into == "other" else []), "--yes")
+    assert not [c for c in box.calls if c[0] == "import"]
+
+
 def test_a_message_restored_into_another_account_and_deleted_there_goes_back(env):
     other = env.other
     run("--id", "g2", "--to", "b", "--yes")
@@ -661,7 +679,8 @@ def test_message_without_text_or_attachments_is_restorable(env):
     con.close()
     (path,) = [bm.path for bm in gyb.iter_backup(env.folder) if bm.gmail_id == "g1"]
     path.write_bytes(make_eml(msgid="<g1@x>", body=""))
-    chain.chain_path(env.folder).unlink()  # the file was rewritten: as if from before the chain
+    chain.chain_path(env.folder).unlink()  # the file was rewritten: as if from before the chain,
+    chain.anchor_path(A).unlink()  # which had no anchor either
     run("--id", "g1")
     assert log()["g1"][0] == "would import"
 

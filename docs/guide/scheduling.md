@@ -70,13 +70,20 @@ Log:   <data root>/logs/backup.log
   alex@example.com: last backup 2026-10-25 03:30 UTC, ok; readonly token, 3 days since consent
 ```
 
-`schedule status` exits 1 if anything needs attention: an account whose last
-backup failed, or is more than two intervals old (one missed run is made up
-when the Mac wakes), has no backup run recorded, or has no token; damaged
-files that the checks after the last eight backups found (a damaged file
-is found again each pass until it is repaired); a token
-more than `token_warn_days` past consent; or an agent that is installed but
-not loaded.
+`schedule status` exits 1 if anything needs attention:
+
+- an account whose last backup failed, is more than two intervals old
+  (one missed run is made up when the Mac wakes), or has no backup run
+  recorded;
+- an account whose next backup will be refused: its backup isn't where
+  it was (a volume not mounted), or its hash chain doesn't match its
+  anchor. A refused run isn't recorded, so its last backup can still say
+  `ok`;
+- damaged files that the checks after the last eight backups found (a
+  damaged file is found again each pass until it is repaired);
+- an account with no token, or a token more than `token_warn_days` past
+  consent;
+- an agent that is installed but not loaded.
 
 ## Removing it
 

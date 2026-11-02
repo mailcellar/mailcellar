@@ -13,7 +13,7 @@ from datetime import datetime
 from itertools import accumulate
 from pathlib import Path
 
-from mailcellar.backup import sidecar
+from mailcellar.backup import chain, sidecar
 from mailcellar.dedup.apply import limit_count
 from mailcellar.paths import backup_folder, config_root, data_root
 from mailcellar.report.cli import parse_before
@@ -146,15 +146,17 @@ def index_problem(account: str, folder: Path, provider: str) -> str:
     """
     Why mail restored into `account` can't be indexed in its backup `folder`,
     or "": a backup it had that isn't there (a volume not mounted), as backup
-    refuses it, or one holding the other provider's IDs, which the new ones
-    would mix with. A first backup of the account starts with what is restored.
+    refuses it, a chain that isn't the one its anchor recorded, which the
+    index's link would be refused on after the upload, or one holding the
+    other provider's IDs, which the new ones would mix with. A first backup
+    of the account starts with what is restored.
     """
     import sqlite3
 
     from mailcellar.backup import gyb
     from mailcellar.backup.commands import provider_change, why_missing
 
-    if problem := why_missing(account, folder):
+    if problem := why_missing(account, folder) or chain.why_unanchored(folder, account):
         return problem
     if not (folder / gyb.DB_NAME).is_file():
         return ""
@@ -398,6 +400,8 @@ def main(argv=None, prog: str | None = None) -> int:
     target_folder = backup_folder(target) if other else None
     if other and (problem := index_problem(target, target_folder, provider_of(target_config))):
         sys.exit(f"error: {problem}")
+    if not other and (problem := chain.why_unanchored(folder, account)):
+        sys.exit(f"error: {problem}")  # what is uploaded is indexed here
     try:
         with closing(
             mailbox.open_mailbox(

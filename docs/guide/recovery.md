@@ -126,11 +126,19 @@ with files from the damaged folder. Then:
 
 ```bash
 mailcellar config               # the folder is found; each account's state looks right
+mailcellar verify --chain       # an older copy: "anchor doesn't match the chain"
 mailcellar backup               # catches up with what Gmail gained since the copy
 mailcellar meta                 # fills meta.sqlite for anything it lacks
 mailcellar dedup index          # rebuilds the dedup index
 mailcellar count                # compare Gmail with the backup
 ```
+
+A copy older than the last command that changed a backup has a hash chain
+that stops before the link its anchor in the config folder names, and
+`backup` refuses that backup, since it can't tell the copy from a chain
+someone rewrote. When `verify --chain` reports only that, move each such
+account's anchor (`<config>/anchors/<email>.json`) aside, keeping it, and
+the next link `backup` records anchors the copy's chain.
 
 `backup` after an older copy reads Gmail's history from where the copy
 stopped, or lists everything if that is more than four weeks ago; either

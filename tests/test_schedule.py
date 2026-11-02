@@ -317,6 +317,28 @@ def test_status_flags_an_overdue_backup(home, capsys):
     assert "(overdue)" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("why", ["unanchored", "missing"])
+def test_status_flags_a_backup_the_next_run_would_refuse(home, capsys, why):
+    import json
+    import shutil
+
+    from mailcellar.backup import chain
+
+    run("install")
+    folder = Path.cwd() / "data" / A
+    if why == "unanchored":  # refused before it is recorded, so the last run still says ok
+        chain.anchor_path(A).write_text(json.dumps({"seq": 1, "hash": "0" * 64}))
+        said = f"its hash chain doesn't match the anchor (mailcellar verify {A} --chain)"
+    else:
+        shutil.rmtree(folder)  # a data root on a volume that isn't mounted
+        said = f"no backup in {folder}"
+    assert run("status") == 1
+    lines = capsys.readouterr().out.splitlines()
+    line = next(x for x in lines if x.strip().startswith(A))
+    assert f"the next backup will be refused: {said}" in line
+    assert "refused" not in next(x for x in lines if x.strip().startswith(B))
+
+
 def test_status_flags_an_agent_that_is_not_loaded(home, capsys):
     run("install")
     home.state["print"] = 113

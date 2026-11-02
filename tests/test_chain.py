@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -144,7 +145,8 @@ def test_a_backup_starts_the_chain_and_records_what_it_downloads(backed_up):
 
 def test_a_backup_from_before_the_chain_gets_a_genesis_of_everything(backed_up):
     gmail, folder = backed_up
-    chain.chain_path(folder).unlink()  # as made by gyb, or by mailcellar before the chain
+    chain.chain_path(folder).unlink()  # as made by gyb, or by mailcellar before the chain,
+    chain.anchor_path(ACCOUNT).unlink()  # which had no anchor either
     commands.backup(gmail, ACCOUNT, folder)
     (genesis,) = [chain.parse_line(line) for line in chain.read_lines(folder)]
     assert genesis.op == "genesis" and [g for g, _h in genesis.added] == ["g1", "g2", "g3"]
@@ -178,21 +180,103 @@ def test_a_change_meta_sqlite_was_made_to_agree_with_still_shows(backed_up):
     assert kinds(folder) == [(CHANGED, "g1")]
 
 
-def test_rewriting_the_chain_to_match_shows_at_the_anchor(backed_up):
-    _gmail, folder = backed_up
+def forge(folder):
+    """Change g1's file and rewrite the chain to match, every prev recomputed so it is whole."""
     path = eml(folder, "g1")
     path.write_bytes(path.read_bytes() + b"\n")
     lines = chain.read_lines(folder)
     old = chain.held(folder)["g1"]
     forged = [line.replace(old, chain.file_hash(path)) for line in lines]
-    relinked, last = [], None  # every prev recomputed, so the chain itself is whole
+    relinked, last = [], None
     for line in forged:
         link = chain.parse_line(line)
         link = chain.next_link(last, link.op, link.added, link.removed, link.time)
         relinked.append(chain.line_of(link))
         last = (link.seq, chain.hash_line(relinked[-1]))
     chain.chain_path(folder).write_text("\n".join(relinked) + "\n")
+
+
+def test_rewriting_the_chain_to_match_shows_at_the_anchor(backed_up):
+    _gmail, folder = backed_up
+    forge(folder)
     assert kinds(folder) == [(ANCHOR_MISMATCH, "")]
+
+
+def test_the_next_backup_refuses_a_rewritten_chain_rather_than_anchoring_it(backed_up):
+    gmail, folder = backed_up
+    forge(folder)
+    gmail.messages["g4"] = raw_response("g4")
+    before = chain.read_lines(folder), chain.read_anchor(ACCOUNT)
+    with pytest.raises(chain.AnchorMismatch, match="verify .* --chain"):
+        commands.backup(gmail, ACCOUNT, folder)
+    assert (chain.read_lines(folder), chain.read_anchor(ACCOUNT)) == before
+    assert not list(folder.rglob("g4.eml"))  # refused before downloading anything
+    assert kinds(folder) == [(ANCHOR_MISMATCH, "")]  # so it still shows
+
+
+def test_a_deleted_chain_isnt_started_again_over_its_anchor(backed_up):
+    gmail, folder = backed_up
+    chain.chain_path(folder).unlink()
+    with pytest.raises(chain.AnchorMismatch, match="the chain ends at 0"):
+        commands.backup(gmail, ACCOUNT, folder)
+    assert not chain.chain_path(folder).exists()
+    with pytest.raises(chain.AnchorMismatch):
+        chain.append(folder, ACCOUNT, "genesis", [("g1", "aa")])  # not even a genesis
+
+
+def test_links_added_past_the_anchor_arent_anchored(backed_up):
+    gmail, folder = backed_up
+    lines = chain.read_lines(folder)
+    last = (len(lines), chain.hash_line(lines[-1]))
+    extra = chain.line_of(chain.next_link(last, "backup", [("g9", "aa")], [], "t"))
+    chain.chain_path(folder).write_text("\n".join([*lines, extra]) + "\n")
+    with pytest.raises(chain.AnchorMismatch, match="1 links after the anchor"):
+        commands.backup(gmail, ACCOUNT, folder)
+
+
+def test_a_chain_put_back_from_an_older_copy_needs_its_anchor_moved_aside(backed_up):
+    gmail, folder = backed_up
+    older = chain.chain_path(folder).read_bytes()
+    gmail.messages["g4"] = raw_response("g4")
+    commands.backup(gmail, ACCOUNT, folder)  # the anchor moves on
+    chain.chain_path(folder).write_bytes(older)
+    with pytest.raises(chain.AnchorMismatch, match="move the anchor file aside"):
+        commands.backup(gmail, ACCOUNT, folder)
+    chain.anchor_path(ACCOUNT).unlink()
+    gmail.messages["g5"] = raw_response("g5")
+    commands.backup(gmail, ACCOUNT, folder)  # its link anchors the chain as it is
+    assert chain.read_anchor(ACCOUNT)["seq"] == len(chain.read_lines(folder))
+
+
+def test_anchor_problem_only_for_an_anchor_that_isnt_the_last_link():
+    lines = lines_of(("genesis", [("g1", "a1")], []), ("backup", [("g2", "a2")], []))
+    last = {"seq": 2, "hash": chain.hash_line(lines[1])}
+    file = Path("anchors/a.json")
+    assert chain.anchor_problem("a", lines, None, file) == ""  # the first append writes one
+    assert chain.anchor_problem("a", lines, last, file) == ""
+    problem = chain.anchor_problem("a", lines[:1], last, file)
+    assert "anchors/a.json" in problem and "mailcellar verify a --chain" in problem
+    assert "the chain ends at 1" in problem
+    assert "isn't the one" in chain.anchor_problem("a", lines, {**last, "hash": "x"}, file)
+    assert "the chain ends at 0" in chain.anchor_problem("a", [], {"seq": 0, "hash": ""}, file)
+
+
+def test_anchor_problem_hashes_only_the_last_line_of_a_chain_that_matches(monkeypatch):
+    lines = lines_of(*[("backup", [(f"g{n}", "aa")], []) for n in range(5)])
+    last = {"seq": 5, "hash": chain.hash_line(lines[-1])}
+    hashed = []
+    real = chain.hash_line
+    monkeypatch.setattr(chain, "hash_line", lambda line: hashed.append(line) or real(line))
+    assert chain.anchor_problem("a", lines, last, Path("a.json")) == ""
+    assert hashed == [lines[-1]]
+
+
+def test_a_hold_isnt_placed_on_a_rewritten_chain(backed_up):
+    _gmail, folder = backed_up
+    forge(folder)
+    with pytest.raises(SystemExit, match="doesn't match its anchor"):
+        cli_main(["hold", "add", "audit", ACCOUNT, "--reason", "r", "--id", "g1"])
+    assert not sqlite3.connect(folder / "meta.sqlite").execute("SELECT * FROM holds").fetchall()
 
 
 def test_a_link_whose_messages_never_arrived_is_repaired_by_the_next_backup(backed_up):

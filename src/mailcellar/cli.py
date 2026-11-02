@@ -374,7 +374,12 @@ def main(argv=None) -> int:
             make_data_root()
         except ValueError:
             pass  # a bad settings.toml: the command reports it its own way
-    return COMMANDS[name](rest) or 0
+    from mailcellar.backup.chain import AnchorMismatch
+
+    try:
+        return COMMANDS[name](rest) or 0
+    except AnchorMismatch as exc:  # chain.append refused: nothing was recorded or changed
+        sys.exit(f"error: {exc}")
 
 
 if __name__ == "__main__":

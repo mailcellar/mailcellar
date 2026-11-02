@@ -35,6 +35,16 @@ keep stable is in [What stays stable](docs/reference/stability.md).
   backup in between to skip what it uploaded.
 
 ### Fixed
+- A rewritten hash chain stopped showing once the next command recorded a
+  link: `backup`, `restore`, `forget` and `hold` moved the anchor in the
+  config folder to the end of whatever chain they found, so `verify
+  --chain` then checked a forged chain clean. They now refuse a chain that
+  doesn't end at the link its anchor names, changing nothing. After putting
+  a backup back from an older copy on purpose, move the account's anchor
+  aside first; [Recovering](docs/guide/recovery.md#a-damaged-or-lost-data-root)
+  says how. `schedule status` flags a backup the next run would refuse,
+  since a refused run is never recorded: one whose chain doesn't match its
+  anchor, and one missing from where it was.
 - `restore --to` into an account whose backup was made with the other
   provider (Gmail through the API, or over IMAP) added the restored mail
   to it under the other kind of ID. It is now refused, as `backup` refuses

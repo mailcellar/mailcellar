@@ -323,6 +323,8 @@ def cmd_install(args) -> int:
 
 
 def cmd_status(args) -> int:
+    from mailcellar.backup import chain
+    from mailcellar.backup.commands import why_missing
     from mailcellar.offload import forget
 
     config = Path(args.config)
@@ -372,8 +374,19 @@ def cmd_status(args) -> int:
                 f"(mailcellar verify {account} --chain)"
             )
             bad = True
+        # Refused before it is recorded, so the runs above can't show it.
+        folder = backup_folder(account)
+        if why_missing(account, folder):
+            line += f"; the next backup will be refused: no backup in {folder}"
+            bad = True
+        elif chain.why_unanchored(folder, account):
+            line += (
+                "; the next backup will be refused: its hash chain doesn't match the anchor "
+                f"(mailcellar verify {account} --chain)"
+            )
+            bad = True
         token, token_bad = token_note(config, account, now)
-        due = sum(n[1] for n in forget.retention(backup_folder(account), now_ms).values())
+        due = sum(n[1] for n in forget.retention(folder, now_ms).values())
         if due:
             token += f"; {due:,} messages due under retention (mailcellar forget --due)"
         print(f"  {account}: {line}; {token}")
