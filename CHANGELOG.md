@@ -19,6 +19,13 @@ keep stable is in [What stays stable](docs/reference/stability.md).
   Gmail), says so, with a `--limit` that keeps each run under it. Past the
   limit Gmail may slow down or refuse sign-in for up to a day.
 
+### Changed
+- A restore's dry run estimates upload time from Google's published limit
+  for one account through the Gmail API, at most 4 messages a second,
+  rather than a measured 6, so its estimates are about half as long again.
+  Into an IMAP server it gives only the count and size: each server sets
+  its own pace.
+
 ### Fixed
 - A restore run again with `--limit` didn't always carry on where the last
   stopped. Into another account (`--to`), or from `--from-mbox` or

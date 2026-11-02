@@ -556,7 +556,8 @@ def test_all_leaves_mail_still_in_gmail_alone(env, capsys, monkeypatch):
         got["t1"][0] == "would untrash" and got["o1"][0] == "would record (already in the mailbox)"
     )
     assert got["g1"][0] == "would import"
-    assert "Would upload 2 messages" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Would upload 2 messages" in out and "about 1 min at 4 a second, Google's limit" in out
     monkeypatch.setattr(env, "message_labels", lookups)  # apply() looks up what it found
     run("--all", "--yes")
     assert [c for c in env.calls if c[0] == "import"] and "k1" not in restored_rows(env.folder)

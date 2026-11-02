@@ -77,8 +77,9 @@ IMPORT_CHUNK = 200
 # (500 IDs a call) rather than one lookup per message: a whole backup of
 # 56,000 took over 20 minutes of quota waits looked up one by one.
 LISTING_THRESHOLD = 1000
-# Measured against Gmail: about 6 imports a second in batches of 10.
-IMPORTS_PER_SECOND = 6
+# Uploads through the Gmail API: Google's quota for one account is 6,000 units a minute, and
+# messages.import costs 25 (its usage-limits page, 2026-11-02), so at most 4 a second.
+IMPORTS_PER_SECOND = 6_000 // 25 // 60
 LOG_COLUMNS = [
     "time",
     "mode",

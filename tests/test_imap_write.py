@@ -1177,7 +1177,9 @@ def test_restore_past_gmails_imap_limit_says_to_spread_it(
     restore = ["restore", "home", "--from-mbox", str(mbox)]
     said = "restore this over several days, with --limit 2 a day"
     assert cli.main(restore) == 0
-    assert (said in capsys.readouterr().out) == gmail
+    out = capsys.readouterr().out
+    assert (said in out) == gmail
+    assert "Would upload 3 messages" in out and "a second" not in out  # no rate over IMAP
     assert cli.main([*restore, "--yes"]) == 0
     out, err = capsys.readouterr()
     assert (said in err) == gmail and said not in out  # warned, but restored all the same
