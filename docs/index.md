@@ -70,9 +70,9 @@ each a dry run until you add a flag; on an IMAP server, only where the
 server can move mail safely ([What changes your mailbox](reference/what-changes-gmail.md)).
 
 **Your mail stays yours.** mailcellar runs on your own computer: there is
-no service in between. Gmail is read through your own Google Cloud project;
-an IMAP account needs only its password (an app password, where the
-provider asks for one). mailcellar is in beta; it runs
+no service in between. An IMAP account, Gmail included, needs only its
+password (an app password, where the provider asks for one); Gmail can
+instead be read through the Gmail API with your own Google Cloud project. mailcellar is in beta; it runs
 on macOS and Linux and needs Python 3.14, which
 [uv](https://docs.astral.sh/uv/) installs for you.
 
@@ -85,18 +85,19 @@ backup, not an organization's archive
 ## Where to start
 
 1. **Add an account**, one of two ways:
-    - **Gmail or Google Workspace:** [set up Google Cloud](guide/google-cloud.md),
-      the project and OAuth client mailcellar signs in with (about ten
-      minutes, once), then run `mailcellar setup` with the client's JSON.
-    - **iCloud Mail, Yahoo Mail, Fastmail or your own server:** run
-      `mailcellar setup ADDRESS --imap HOST` with the account's password (an
-      app password, where the provider asks for one)
-      ([Backing up an IMAP account](guide/imap.md) has the servers and
+    - **Any mailbox over IMAP** (Gmail, iCloud Mail, Yahoo Mail, Fastmail
+      or your own server): run `mailcellar setup ADDRESS --imap HOST` with
+      the account's password (an app password, where the provider asks for
+      one) ([Backing up an IMAP account](guide/imap.md) has the servers and
       what each one allows).
+    - **Gmail or Google Workspace through the Gmail API:**
+      [set up Google Cloud](guide/google-cloud.md), the project and OAuth
+      client mailcellar signs in with (about ten minutes, once), then run
+      `mailcellar setup` with the client's JSON.
 2. Follow the [quick start](https://github.com/mailcellar/mailcellar#quick-start)
    to make the first backup and check it.
-3. [Schedule backups](guide/scheduling.md); for Gmail, at least every four
-   weeks. Then [keep the backup safe](guide/backing-up.md): check it, and
+3. [Schedule backups](guide/scheduling.md); for Gmail through the API, at
+   least every four weeks. Then [keep the backup safe](guide/backing-up.md): check it, and
    keep a second copy of it.
 4. When you want old mail out of the mailbox, [offload it](guide/offloading.md),
    one stage at a time.

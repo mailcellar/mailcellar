@@ -7,11 +7,12 @@ description: "Remove duplicate emails from Gmail or IMAP, found in your local ba
 Duplicates come from two places: mail that one account auto-forwards to
 another, so both mailboxes hold a copy, and mail that arrived twice in the
 same account (a re-sent message, an import run twice). `dedup` finds them in
-your backups and removes the extra copies from Gmail, in stages you check.
-Nothing is deleted permanently: the last step moves messages to Gmail's
-Trash, which Gmail empties after 30 days.
+your backups and removes the extra copies from the mailbox, in stages you
+check. Nothing is deleted permanently: the last step moves messages to the
+mailbox's Trash, which Gmail empties after 30 days (an IMAP server when it
+or a mail client chooses).
 
-This page walks through one run. The mail and addresses in it are invented.
+This page walks through one run on Gmail. The mail and addresses in it are invented.
 Every option is in the [reference](../reference/dedup.md).
 
 On an IMAP account the stages are the same, with a keyword or a review

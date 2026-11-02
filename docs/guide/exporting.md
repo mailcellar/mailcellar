@@ -8,7 +8,7 @@ description: "Export mail from the backup to an mbox file, a maildir or a zip of
 file you can open elsewhere. Use it to read old mail in a desktop mail client,
 to hand mail to an accountant or a lawyer, or to keep a second copy of
 offloaded mail. It changes nothing in Gmail or the backup, and needs no Gmail
-sign-in. The README has the reference
+sign-in. Every option is in the reference
 ([Exporting mail](../reference/export.md)).
 
 ## Which format

@@ -7,7 +7,7 @@ description: "Keep mail exactly as it is for a dispute, an audit or a records re
 Sometimes mail has to be kept exactly as it is: you're in a dispute with a
 landlord, an employer or an insurer, an accountant or a tax office has
 questions, or someone has asked for their data. A **hold** makes sure
-nothing mailcellar does removes that mail, from Gmail or from the backup,
+nothing mailcellar does removes that mail, from the mailbox or from the backup,
 until you release it. This guide walks through one, with invented names.
 
 ## 1. Place the hold
@@ -43,8 +43,9 @@ mail alone: `offload apply` and `dedup apply` skip each held message, with
 `held: deposit-2026` as the reason in their log.
 
 `forget` doesn't forget held mail, not even with `--deleted`, so it stays
-in the backup even after Gmail deletes it. Nothing stops Gmail itself deleting
-a message, or you deleting it in Gmail, but the backup keeps its copy.
+in the backup even after the mailbox deletes it. Nothing stops the mailbox
+itself deleting a message, or you deleting it there, but the backup keeps
+its copy.
 
 ## 3. Check what it keeps
 
