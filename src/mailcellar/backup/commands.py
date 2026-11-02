@@ -479,13 +479,16 @@ def _backup(
         con.commit()
         mcon.commit()
 
-    if refresh_labels:
+    # After a move between Gmail's routes, what changed since the last run on the other is in
+    # no history: read every label once (sidecar.record_provider).
+    if refresh_labels or (have and sidecar.get_state(mcon, "labels_stale")):
         existing = sorted(have)
         print(f"Refreshing labels of {len(existing):,} messages …")
         for gid, label_ids in current_labels(gmail, existing, len(have)).items():
             if label_ids is not None:
                 stats["labels_changed"] += apply_labels(con, mcon, gmail, gid, label_ids)
         con.commit()
+    sidecar.set_state(mcon, "labels_stale", "")
 
     if next_history_id and not stats["failed"]:
         sidecar.set_state(mcon, "history_id", next_history_id)
@@ -531,8 +534,8 @@ def cmd_backup(args) -> int:
             + (f", skipped {stats['chats']:,} chats" if stats["chats"] else "")
             + (
                 f", updated labels on {stats['labels_changed']:,}"
-                if args.refresh_labels or stats["mode"] == "history"
-                else ""
+                if args.refresh_labels or stats["mode"] == "history" or stats["labels_changed"]
+                else ""  # a full listing reads labels only to refresh them
             )
         )
         if stats["deleted_backed_up"]:

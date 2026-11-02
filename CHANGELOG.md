@@ -30,6 +30,18 @@ keep stable is in [What stays stable](docs/reference/stability.md).
   on a large mailbox. `count` does the same; `backup --full` reads every
   folder.
 
+### Fixed
+- After a Gmail account moved between the Gmail API and IMAP, user labels
+  the backup already held weren't counted as labels: offload's
+  `labelled` keep didn't protect that mail, a rule's `label` and
+  `hold add --label` missed it, and `report labels` undercounted. A
+  label's ID is `Label_N` through the API and its name over IMAP, and the
+  backup kept the old route's. Each backup now gives them the current
+  route's IDs, mail no longer in the mailbox included, which also mends
+  a backup moved to the API before. The first backup after a move to the
+  API also reads every message's labels again, so a label changed since
+  the last backup over IMAP isn't missed.
+
 ## 0.25.0 (2026-11-02)
 
 ### Added

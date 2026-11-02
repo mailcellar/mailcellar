@@ -164,7 +164,8 @@ mailcellar setup alex@example.com --imap imap.gmail.com
 setup signs in first and goes ahead only if the server is Gmail's. The
 first backup over IMAP reads every folder and downloads only mail that
 is new since the last backup through the API. Moving back to the API is
-`setup` without `--imap`:
+`setup` without `--imap`, and its first backup reads every message's
+labels again, about a minute for 50,000 messages:
 
 ```bash
 mailcellar setup alex@example.com --client ~/Downloads/client_secret_*.json

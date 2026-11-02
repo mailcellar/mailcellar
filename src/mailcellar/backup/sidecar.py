@@ -590,8 +590,51 @@ def set_message_labels(con: sqlite3.Connection, gmail_id: str, label_ids) -> boo
     return True
 
 
+def held_label_ids(con: sqlite3.Connection) -> set[str]:
+    """Every label ID a message holds."""
+    return {label for (label,) in con.execute("SELECT DISTINCT label_id FROM message_labels")}
+
+
+def label_names(con: sqlite3.Connection) -> dict[str, str]:
+    """The stored label catalogue: label ID → name."""
+    return dict(con.execute("SELECT label_id, name FROM labels"))
+
+
+def rename_label_ids(con: sqlite3.Connection, renames: Mapping[str, str]) -> None:
+    """
+    Give every message holding a label ID its new one (old → new); a message
+    holding both keeps one. No commit.
+    """
+    for old, new in renames.items():
+        con.execute(
+            "UPDATE OR IGNORE message_labels SET label_id = ? WHERE label_id = ?", (new, old)
+        )
+        con.execute("DELETE FROM message_labels WHERE label_id = ?", (old,))
+
+
+def label_renames(held, before: Mapping[str, str], now: list[dict]) -> dict[str, str]:
+    """
+    New IDs, by name, for the label IDs messages hold (`held`) that the
+    mailbox's catalogue (`now`, labels.list's dicts) doesn't: a
+    label's ID is its name over IMAP and Label_N through the Gmail API, so
+    a Gmail account moved between them would otherwise hold the other's,
+    which no catalogue names. A held ID's name is the stored catalogue's
+    (`before`), else the ID itself (a name, over IMAP). An ID with no label
+    of that name now stays as it is. Pure.
+    """
+    ids = {label["id"] for label in now}
+    by_name = {label["name"]: label["id"] for label in now}
+    renames = {old: by_name.get(before.get(old, old)) for old in set(held) - ids}
+    return {old: new for old, new in renames.items() if new is not None}
+
+
 def replace_label_catalogue(con: sqlite3.Connection, labels: list[dict]) -> None:
-    """Store labels.list output ({id, name, type} each). No commit."""
+    """
+    Store labels.list output ({id, name, type} each), first giving the IDs
+    messages hold that it doesn't name the IDs it gives (label_renames).
+    No commit.
+    """
+    rename_label_ids(con, label_renames(held_label_ids(con), label_names(con), labels))
     con.execute("DELETE FROM labels")
     con.executemany(
         "INSERT INTO labels VALUES (?, ?, ?)",
@@ -802,10 +845,14 @@ def record_provider(con: sqlite3.Connection, provider: str, id_kind: str) -> Non
     """
     The provider the backup is kept through now, and whose IDs it holds
     (held_id_kind). A change of provider clears the stored history point,
-    which is the other's: the Gmail API answers 400 to IMAP's. No commit.
+    which is the other's: the Gmail API answers 400 to IMAP's; and as what
+    changed since the last run on the other provider is in neither's
+    history, the next backup reads every message's labels (labels_stale).
+    No commit.
     """
     if (get_state(con, "provider") or "gmail") != provider:
         set_state(con, "history_id", "")  # the next backup lists everything once
+        set_state(con, "labels_stale", "1")
     set_state(con, "provider", provider)
     set_state(con, "id_kind", id_kind)
 
