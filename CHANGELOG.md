@@ -10,80 +10,68 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 
 ### Added
 - `setup ACCOUNT --check`, or `setup ADDRESS --imap HOST --check` before
-  setting one up: signs in to an IMAP server and says what it offers,
-  including the flags each folder keeps, without writing anything. It names
-  none of your folders and not your address, so it can be pasted into an
+  setting one up, signs in to an IMAP server and says what it offers,
+  including the flags each folder keeps, without writing anything. It
+  names none of your folders and not your address, so it can go in an
   issue about a server mailcellar hasn't been tried on.
-- A restore into Gmail over IMAP that would upload more than about 500 MB,
-  Google's daily limit for Workspace accounts (it gives none for personal
-  Gmail), says so, with a `--limit` that keeps each run under it. Past the
-  limit Gmail may slow down or refuse sign-in for up to a day.
+- A restore into Gmail over IMAP of more than about 500 MB, Google's
+  daily upload limit for Workspace (it gives none for personal Gmail),
+  says so, with a `--limit` that keeps each run under it. Past the limit
+  Gmail may slow down or refuse sign-in for up to a day.
 
 ### Changed
+- Gmail over IMAP (`setup --imap imap.gmail.com`) is now the quick start
+  for Gmail, with no Google Cloud project. Its backup is the one the API
+  makes, with Gmail's own IDs, threads and labels, but for the
+  categories, which only the API gives; a backup moved to IMAP keeps
+  those it has. `setup` moves an account either way without downloading
+  anything again.
 - The check `backup` runs on a slice of the backup after each run also
   compares each file's bytes with the hash chain, as `verify --chain`
-  does. It now finds a changed header, a change to a message with no text
-  or attachments, a change made to agree with `meta.sqlite`, and a
-  message no command added, none of which the content hash shows; a
-  weekly backup has compared every file within two months.
-- A restore's dry run estimates upload time from Google's published limit
-  for one account through the Gmail API, at most 4 messages a second,
-  rather than a measured 6, so its estimates are about half as long again.
-  Into an IMAP server it gives only the count and size: each server sets
-  its own pace.
+  does, so it finds what the content hash misses: a changed header, a
+  change to a message with no text or attachments, a change made to
+  agree with `meta.sqlite`, and a message no command added.
+- A restore's dry run estimates upload time from Google's published
+  limit for the Gmail API, at most 4 messages a second, rather than a
+  measured 6. Into an IMAP server it gives only the count and size.
 - A restore that finds a message already in the mailbox under another ID
-  compares their content by the hash the mailbox's backup holds, where it
-  has one, rather than downloading the copy.
+  compares their content by the hash the mailbox's backup holds, where
+  it has one, rather than downloading the copy.
 - `restore --from-mbox` and `--from-folder` add what they upload to the
-  backup of the account restored into, as `--to` does. The next `backup`
-  no longer downloads the restored mail again, which into Gmail over IMAP
-  counted toward its daily download limit, and a run again needs no
-  backup in between to skip what it uploaded.
-
-### Changed
-- Gmail over IMAP (`setup --imap imap.gmail.com`) is now a quick start
-  for Gmail, with no Google Cloud project: its backup is the one the Gmail
-  API makes, under Gmail's own message and thread IDs and with its labels
-  (Important as `IMPORTANT`, and those of mail in Trash); only the
-  categories need the API, and a backup moved to IMAP keeps those its
-  mail has. An account can move between the two with `setup`, and its
-  backup carries on without downloading anything again. An IMAP backup
-  of Gmail made with 0.24.0 or earlier can't be carried on: backup says
-  so; move it aside and back up again.
+  backup of the account restored into, as `--to` does, so the next
+  `backup` doesn't download it again and a run again skips what it
+  uploaded.
 
 ### Fixed
 - A rewritten hash chain stopped showing once the next command recorded a
-  link: `backup`, `restore`, `forget` and `hold` moved the anchor in the
-  config folder to the end of whatever chain they found, so `verify
-  --chain` then checked a forged chain clean. They now refuse a chain that
-  doesn't end at the link its anchor names, changing nothing. After putting
-  a backup back from an older copy on purpose, move the account's anchor
-  aside first; [Recovering](docs/guide/recovery.md#a-damaged-or-lost-data-root)
-  says how. `schedule status` flags a backup the next run would refuse,
-  since a refused run is never recorded: one whose chain doesn't match its
-  anchor, and one missing from where it was.
+  link: `backup`, `restore`, `forget` and `hold` moved the anchor to the
+  end of whatever chain they found, so `verify --chain` then checked a
+  forged chain clean. They now refuse a chain that doesn't end at the
+  link its anchor names. After putting a backup back from an older copy
+  on purpose, move its anchor aside first
+  ([Recovering](docs/guide/recovery.md#a-damaged-or-lost-data-root)).
+  `schedule status` flags a backup the next run would refuse: one whose
+  chain doesn't match its anchor, or one missing from where it was.
 - `restore --to` into an account whose backup was made with the other
   provider (Gmail through the API, or over IMAP) added the restored mail
-  to it under the other kind of ID. It is now refused, as `backup` refuses
+  under the other kind of ID. It is now refused, as `backup` refuses
   such a backup.
-- A restore run again with `--limit` didn't always carry on where the last
-  stopped. Into another account (`--to`), or from `--from-mbox` or
-  `--from-folder`, every run took the same oldest messages again and found
-  them already there; into the same account, messages that couldn't be
-  restored, or were already back, kept their place at the front.
-  `--limit` now counts only the messages a run uploads or moves.
-- A backup of Gmail over IMAP (`setup --imap imap.gmail.com`) left out
-  archived mail with no label, which Gmail keeps only in All Mail. It now
-  reads All Mail too, for mail in no other folder, without a label of its
-  own; offload and restore put such mail back there, not in a new Archive
-  folder. Copies of one message in several folders are matched by Gmail's
-  own message ID rather than by downloading each
+- A restore run again with `--limit` didn't always carry on where the
+  last stopped: into another account, or from `--from-mbox` or
+  `--from-folder`, each run took the same oldest messages again, and
+  into the same account, messages that couldn't be restored or were
+  already back stayed at the front. `--limit` now counts only the
+  messages a run uploads or moves.
+- A backup of Gmail over IMAP left out archived mail with no label,
+  which Gmail keeps only in All Mail. It now reads All Mail for mail in
+  no other folder; offload and restore put such mail back there, not in
+  a new Archive folder. Copies in several folders are matched by Gmail's
+  own message ID rather than downloaded
   ([#181](https://github.com/mailcellar/mailcellar/issues/181)).
 - A backup of an IMAP account downloaded each folder whole before saving
-  any of it, so its progress stood still on a large folder, the folder
-  was held in memory, and a run stopped partway through downloaded the
-  folder again. Messages are now saved 200 at a time, as they arrive
-  ([#183](https://github.com/mailcellar/mailcellar/issues/183)).
+  any of it: its progress stood still, the folder was held in memory,
+  and a run stopped partway downloaded it again. Messages are now saved
+  200 at a time ([#183](https://github.com/mailcellar/mailcellar/issues/183)).
 
 ## 0.24.0 (2026-10-31)
 
