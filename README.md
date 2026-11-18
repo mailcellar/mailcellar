@@ -83,7 +83,7 @@ needs Python 3.14, which uv installs for you.
 **Not for everyone.** It's a command-line tool for people who can set up a
 Google Cloud project or an app password. It has no mail reader (export a
 maildir or an mbox for one), doesn't run on Windows, and is one person's
-backup, not an organization's archive
+backup, not an organisation's archive
 ([how it compares](https://mailcellar.github.io/mailcellar/guide/troubleshooting/#how-does-it-compare-with-other-tools)).
 
 **Not the Mac app of the same name.** mailcellar is free and open source,
