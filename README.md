@@ -261,6 +261,10 @@ uv run pytest --cov                        # the same, with a branch-coverage re
 uv run ruff format && uv run ruff check
 ```
 
+The default tests need no network: Gmail and IMAP are replaced by fakes,
+and property tests run with Hypothesis. `uv run pytest -m imap_server`
+runs the IMAP code against Dovecot in a container (podman or docker).
+
 The code is one package, `src/mailcellar/`: `cli.py` dispatches to
 `setup/`, `backup/`, `dedup/`, `offload/`, `restore/`, `hold/`, `search/` and
 `report/`, which share `paths.py`, `mailbox.py`, `gmailapi.py`, `imap.py` and
