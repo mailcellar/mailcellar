@@ -6,7 +6,7 @@ gyb folder moved there is continued as it is.
   backup  Download every message not yet in the backup. After the first
           run it reads only what changed since the last one: new mail is
           downloaded and the labels of changed messages are updated. Gmail
-          gives its history (kept about 4 weeks); an IMAP account reads
+          gives its history (kept at least a week); an IMAP account reads
           every folder and compares it with the last run's. Gmail lists
           everything when there is no history to start from, the history
           has expired, or with --full, --search or --refresh-labels

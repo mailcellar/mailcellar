@@ -183,9 +183,9 @@ You need [uv](https://docs.astral.sh/uv/) (it provides Python 3.14).
    ```bash
    mailcellar schedule install     # macOS: a launchd agent, weekly; elsewhere: a cron line
    ```
-   For Gmail through the API, back up at least every four weeks: Gmail
-   keeps change history about that long, and a longer gap lists the whole
-   mailbox again. If its
+   For Gmail through the API, back up at least weekly, as the schedule does
+   by default: Google keeps change history for at least a week, and after a
+   longer gap a backup may list the whole mailbox again. If its
    consent screen is in *Testing*, tokens expire after 7 days: publish it,
    or renew with `mailcellar auth alex --scope readonly --renew`. An IMAP
    account has no token to renew. See

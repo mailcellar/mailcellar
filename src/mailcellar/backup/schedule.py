@@ -1,9 +1,9 @@
 """
 schedule: run `mailcellar backup` regularly, with nobody there.
 
-Backups read Gmail's change history, which Gmail keeps for about four weeks,
-and `offload apply --trash` wants a recent backup, so both assume backups
-happen on time. This installs one:
+Backups read Gmail's change history, which Google keeps for at least a week,
+often longer, and `offload apply --trash` wants a recent backup, so both
+assume backups happen on time. This installs one:
 
   schedule install [ACCOUNT ...] [--daily | --weekly] [--at HH:MM]
       macOS: a launchd agent in ~/Library/LaunchAgents running

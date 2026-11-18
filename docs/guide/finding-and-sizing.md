@@ -116,8 +116,8 @@ A few uses:
   rule using `label` would never select, and `correspondents` shows the
   people the `correspondents` protection would keep mail from.
 - **Checking in.** `health` after a schedule has been running for a while:
-  the last run of each account, gaps longer than four weeks, tokens that
-  need signing in, and forget runs due to be emptied.
+  the last run of each account, gaps longer than Gmail's history window,
+  tokens that need signing in, and forget runs due to be emptied.
 
 Reports read only the local backups. Add `--csv DIR` to write every section,
 all rows, as CSV files, and `--output FILE` to save the text. Each report

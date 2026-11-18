@@ -210,7 +210,7 @@ no room for goes in `meta.sqlite`.
   run after an account moves between the Gmail API and IMAP also reads
   every message's labels again (`labels_stale`), and label IDs held under
   the other route's names are renamed by name.
-- **Later runs:** read Gmail's history since that ID (kept ~4 weeks), look
+- **Later runs:** read Gmail's history since that ID (kept at least a week), look
   up the current state of each changed message, and download new mail,
   update labels, and skip Spam/Trash/Chat — from current state, so a
   repeated run is harmless. The new `historyId` is stored only after a run
