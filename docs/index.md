@@ -79,7 +79,7 @@ on macOS and Linux and needs Python 3.14, which
 **Not for everyone.** It's a command-line tool for people who can set up a
 Google Cloud project or an app password. It has no mail reader (export a
 maildir or an mbox for one), doesn't run on Windows, and is one person's
-backup, not an organization's archive
+backup, not an organisation's archive
 ([how it compares](guide/troubleshooting.md#how-does-it-compare-with-other-tools)).
 
 ## Where to start
