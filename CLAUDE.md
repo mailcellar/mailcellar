@@ -104,7 +104,11 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
   covers IMAP too: say "mailbox", "mail client" and "marked", not
   "Gmail", "label" or "Gmail's web UI", unless the point is Gmail-only.
   Over IMAP the review uses a keyword or a folder, and a Google Cloud
-  project comes only with the Gmail API.
+  project comes only with the Gmail API. When checking this, grep
+  README.md, docs/index.md, docs/guide/ and docs/reference/ for
+  `Gmail API`, `another provider`, `other provider`, `as for Gmail`,
+  `in Gmail`, `Gmail's Trash` and `from Gmail`, and judge every hit; a
+  read-through misses them.
 - Commits: Conventional Commits, `type(scope): summary` (types and scopes
   in CONTRIBUTING.md); the body says why and what it was checked against,
   real data as counts only; one logical change per commit, passing ruff
