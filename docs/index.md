@@ -97,7 +97,7 @@ backup, not an organization's archive
 2. Follow the [quick start](https://github.com/mailcellar/mailcellar#quick-start)
    to make the first backup and check it.
 3. [Schedule backups](guide/scheduling.md); for Gmail through the API, at
-   least every four weeks. Then [keep the backup safe](guide/backing-up.md): check it, and
+   least weekly. Then [keep the backup safe](guide/backing-up.md): check it, and
    keep a second copy of it.
 4. When you want old mail out of the mailbox, [offload it](guide/offloading.md),
    one stage at a time.

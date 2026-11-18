@@ -4,8 +4,8 @@ description: "Run email backups weekly and unattended: a launchd agent on macOS,
 
 # Scheduled backups
 
-Backups read Gmail's change history, which Gmail keeps for about four weeks,
-and `offload apply --trash` wants a recent backup. Both assume backups
+Backups read Gmail's change history, which Google keeps for at least a week,
+often longer, and `offload apply --trash` wants a recent backup. Both assume backups
 happen on time, so it is worth not depending on remembering.
 
 ```bash

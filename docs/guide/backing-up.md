@@ -40,8 +40,8 @@ A backup you set up once and check now and then:
 | Before and after an offload | `mailcellar verify --offloaded` | the copies with no other source are intact |
 
 Through the Gmail API, `backup` catches up from Gmail's change history, which
-Gmail keeps for about four weeks. A longer gap still works but lists the whole
-mailbox again, so schedule it: see [Scheduled backups](scheduling.md). Over
+Google keeps for at least a week, often longer. A longer gap still works but
+may list the whole mailbox again, so schedule it: see [Scheduled backups](scheduling.md). Over
 IMAP it starts from what the last backup saved of each folder, however long
 ago, and where the server keeps count of changes it reads only what changed
 ([Back it up](imap.md#2-back-it-up)).

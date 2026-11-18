@@ -1,5 +1,5 @@
 ---
-description: "What to do, case by case, when a token expires, backups fall more than four weeks behind, an offload is interrupted, the data root is lost or a token leaks."
+description: "What to do, case by case, when a token expires, backups fall too far behind Gmail's history, an offload is interrupted, the data root is lost or a token leaks."
 ---
 
 # Recovering when something goes wrong
@@ -53,7 +53,7 @@ account's folder in the config folder, and run it again. To stop the weekly
 sign-in, publish the app (*In production*) as the Google Cloud guide
 describes.
 
-## More than four weeks since the last backup
+## A long gap since the last backup
 
 **What you see.**
 
@@ -61,18 +61,18 @@ describes.
 Gmail no longer has history back to the last run; listing every message instead.
 ```
 
-**What it means.** Gmail keeps its change history for about four weeks. A
-backup normally reads only the changes since the last run. After a longer
-gap, that history is gone, so the run lists every message in the account
-instead. It is slower, mostly the listing, but it is safe: it downloads
+**What it means.** Google keeps Gmail's change history for at least a week,
+often longer. A backup normally reads only the changes since the last run.
+After a longer gap that history may be gone, and then the run lists every
+message in the account instead. It is slower, mostly the listing, but it is safe: it downloads
 only the messages the backup does not already hold, and it deletes nothing.
 The same listing happens on the first run in a folder and with `--full`.
 
 **What to do.** Let it finish. If it stops partway, run it again; it
 carries on, since messages already saved are skipped. The history position
 is stored only after a run with no failed downloads, so a failed run is
-repeated in full next time, not skipped. A scheduled backup at least every
-four weeks avoids all of this: `mailcellar schedule install` sets one up (see
+repeated in full next time, not skipped. A scheduled backup at least weekly
+makes this unlikely: `mailcellar schedule install` sets one up (see
 [Scheduled backups](scheduling.md)).
 
 ## An interrupted offload, restore or forget
@@ -141,8 +141,8 @@ account's anchor (`<config>/anchors/<email>.json`) aside, keeping it, and
 the next link `backup` records anchors the copy's chain.
 
 `backup` after an older copy reads Gmail's history from where the copy
-stopped, or lists everything if that is more than four weeks ago; either
-way it catches up. `dedup.sqlite` is only an index, so `dedup index`
+stopped, or lists everything if that history is gone; either way it
+catches up. `dedup.sqlite` is only an index, so `dedup index`
 rebuilds it from the backups.
 
 One thing an older copy cannot know: mail you offloaded **after** the copy

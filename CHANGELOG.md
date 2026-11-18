@@ -17,6 +17,10 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 - `setup --help` no longer says an IMAP account is backed up only, and
   names all three ways to add an account. A server without MOVE is said
   to rule out offload and dedup, not restore.
+- The README and guides give Gmail's change history as kept for at least
+  a week, often longer, as Google documents it, rather than about four
+  weeks, and say to back up through the Gmail API at least weekly. The
+  recovery guide's section is now "A long gap since the last backup".
 
 ## 0.26.0 (2026-11-02)
 
