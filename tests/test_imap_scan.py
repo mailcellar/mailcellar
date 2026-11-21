@@ -327,7 +327,8 @@ def test_a_dropped_connection_is_retried(server):
 def test_a_login_that_times_out_or_drops_closes_its_socket_and_is_retried(server, fault):
     setattr(server, fault, 1)
     account(server).sign_in()
-    assert [c[0] for c in server.commands] == ["LOGIN", "SHUTDOWN", "LOGIN"]
+    # Each connection asks CAPABILITY once signed in: whether to ENABLE CONDSTORE.
+    assert [c[0] for c in server.commands] == ["LOGIN", "SHUTDOWN", "LOGIN", "CAPABILITY"]
 
 
 @pytest.mark.parametrize("fault", ["stalls", "drops"])
@@ -347,7 +348,8 @@ def test_an_interrupted_command_drops_the_connection_rather_than_logging_out(ser
     with pytest.raises(KeyboardInterrupt):
         box.list_message_ids()
     box.close()
-    assert [c[0] for c in server.commands] == ["LOGIN", "CAPABILITY", "SHUTDOWN"]  # no LOGOUT
+    sent = [c[0] for c in server.commands]
+    assert sent == ["LOGIN", "CAPABILITY", "CAPABILITY", "SHUTDOWN"]  # no LOGOUT
 
 
 def test_a_server_no_keeps_the_session(server):

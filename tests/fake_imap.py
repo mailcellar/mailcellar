@@ -14,7 +14,11 @@ mod-sequences as RFC 7162 has them: any change to a message's flags or
 labels, however a test makes it, raises the message's and its folder's;
 mail leaving raises the folder's. It then answers HIGHESTMODSEQ in EXAMINE
 and STATUS, LIST-STATUS when listed, and, with CONDSTORE only, UID FETCH
-... (CHANGEDSINCE n).
+... (CHANGEDSINCE n). A CONDSTORE server's EXAMINE gives HIGHESTMODSEQ only
+once the connection has enabled it, by ENABLE CONDSTORE (with ENABLE in
+`signed_in`) or EXAMINE's (CONDSTORE) parameter; Yahoo's gives it always.
+Without `examine_params` it answers any EXAMINE parameter as iCloud does,
+NO [NONEXISTENT], as if the folder weren't there.
 """
 
 import imaplib
@@ -43,6 +47,8 @@ class FakeImap:
         self.breaks = 0  # how many of the next commands stop halfway (Ctrl-C, say)
         self.message_limit: int | None = None  # MESSAGELIMIT (RFC 9738): highest N only
         self.no_exists = False  # EXAMINE answers without a message count
+        self.examine_params = True  # False: EXAMINE refuses (CONDSTORE) as missing (iCloud)
+        self.enabled = False  # this connection enabled CONDSTORE; each LOGIN starts one
         self.writable = False  # SELECT, STORE of keywords and MOVE allowed (step 3)
         self.permanentflags = b"(\\Answered \\Flagged \\Deleted \\Seen \\Draft \\*)"
         self.read_write = False  # the selected folder was SELECTed, not EXAMINEd
@@ -173,6 +179,7 @@ class FakeImap:
         self._command("LOGIN", user)
         if password != self.password:
             raise imaplib.IMAP4.error(b"[AUTHENTICATIONFAILED] Authentication failed.")
+        self.selected, self.enabled = None, False  # a new connection: nothing open or enabled
         return "OK", [b"Logged in"]
 
     def list(self):
@@ -198,6 +205,11 @@ class FakeImap:
 
     def xatom(self, name, *args):
         self._command(name, *args)
+        if name == "ENABLE" and "ENABLE" in self.signed_in:
+            if self.selected is not None:
+                raise AssertionError("ENABLE after a folder was opened: RFC 5161 refuses it")
+            self.enabled |= "CONDSTORE" in args and "CONDSTORE" in self.signed_in
+            return "OK", [b"ENABLE completed"]
         if name != "LIST" or "RETURN" not in args or "LIST-STATUS" not in self.signed_in:
             raise AssertionError(f"{name} {args}: not an extension this server answers")
         self.untagged["LIST"] = self._list_lines()
@@ -213,9 +225,12 @@ class FakeImap:
         if not readonly and not self.writable:
             raise AssertionError(f"SELECT {mailbox}: opens the folder for writing")
         if mailbox.endswith(" (CONDSTORE)"):
+            if not self.examine_params:
+                return "NO", [b"[NONEXISTENT] Mailbox does not exist"]
             if "CONDSTORE" not in self.signed_in:
                 return "BAD", [b"Unknown EXAMINE parameter"]
             mailbox = mailbox.removesuffix(" (CONDSTORE)")
+            self.enabled = True
         self.read_write = not readonly
         name = mailbox[1:-1].replace('\\"', '"').replace("\\\\", "\\")
         if name not in self.folders or name in self.refused:
@@ -227,7 +242,8 @@ class FakeImap:
         if code in ("LIST", "STATUS"):
             return code, self.untagged.pop(code, [None])
         if code == "HIGHESTMODSEQ":
-            if not self.counters or self.selected in self.nomodseq:
+            enabled = self.enabled or "XYMHIGHESTMODSEQ" in self.signed_in
+            if not (self.counters and enabled) or self.selected in self.nomodseq:
                 return code, [None]
             return code, [str(self.highestmodseq(self.selected)).encode()]
         if code == "UIDNEXT":

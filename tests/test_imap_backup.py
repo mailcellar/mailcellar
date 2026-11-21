@@ -363,6 +363,27 @@ def test_a_folder_listed_short_keeps_its_mail_and_fails_the_run(server, monkeypa
     assert last == ("failures", 0)  # an unattended run says so
 
 
+def test_a_backup_that_can_read_no_folder_keeps_every_message(server, capsys):
+    assert cli.main(["backup", "home"]) == 0
+    server.refused |= set(server.folders)  # every EXAMINE answered NO, as iCloud's once were
+    capsys.readouterr()
+    assert cli.main(["backup", "home"]) == 1
+    out, err = capsys.readouterr()
+    assert "folders couldn't be read and were left as they were in the backup" in err
+    assert "permanently deleted" not in out
+    assert rows("SELECT count(*) FROM uids") == [(3,)]
+    con = sidecar.open_meta(backup_folder(ADDRESS))
+    last = con.execute(
+        "SELECT status, deleted_in_gmail FROM runs WHERE command = 'backup' "
+        "ORDER BY rowid DESC LIMIT 1"
+    ).fetchone()
+    con.close()
+    assert last == ("failures", 0)
+    server.refused.clear()
+    assert cli.main(["backup", "home"]) == 0
+    assert "Downloaded 0 messages" in capsys.readouterr().out  # the map kept: nothing again
+
+
 def test_a_review_keyword_is_backed_up_as_a_label_and_its_clearing_seen(server):
     server.folders["INBOX"]["uids"][1]["flags"].add("$mailcellar-offload-candidate")
     assert cli.main(["backup", "home"]) == 0
