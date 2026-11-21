@@ -2,7 +2,7 @@
 
 import csv
 import sqlite3
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
@@ -563,12 +563,12 @@ def test_deleted_candidates_years_and_note():
 
 
 def dated(gid, rule="notices", date="2010-06-01", gone=True):
-    ms = int(datetime.strptime(date, "%Y-%m-%d").timestamp() * 1000)
+    ms = int(datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp() * 1000)
     return Offloaded(gid, BATCH, rule, 5_000 if gone else None, ms, 100)
 
 
 def test_due_by_age_takes_mail_older_than_its_rules_cut_off():
-    cut = int(datetime(2019, 1, 1).timestamp() * 1000)
+    cut = int(datetime(2019, 1, 1, tzinfo=UTC).timestamp() * 1000)
     found = [
         dated("old"),
         dated("new", date="2024-01-01"),
@@ -599,7 +599,7 @@ def test_retention_counts_and_breakdown():
 def date_messages(folder, dates):
     con = sidecar.open_meta(folder)
     for gid, date in dates.items():
-        ms = int(datetime.strptime(date, "%Y-%m-%d").timestamp() * 1000)
+        ms = int(datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp() * 1000)
         con.execute("UPDATE messages SET internal_date = ? WHERE gmail_id = ?", (ms, gid))
     con.commit()
     con.close()
