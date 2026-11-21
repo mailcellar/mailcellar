@@ -110,7 +110,7 @@ mailcellar export  ACCOUNT …       copy mail out: an mbox, a zip, a maildir, o
 mailcellar search  QUERY …         find mail in the backups, offloaded mail included
 mailcellar hold    add|list|show|release   keep mail for a dispute or an audit
 mailcellar report  …               storage, bulk mail, volume, threads, labels, correspondents,
-                                   backup health, top senders
+                                   protections, backup health, top senders
 mailcellar config                  where the config and data live; each account's state
 ```
 

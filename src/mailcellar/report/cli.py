@@ -12,7 +12,16 @@ from pathlib import Path
 
 from mailcellar.backup.gyb import backup_account
 from mailcellar.paths import config_root, data_root, find_backups
-from mailcellar.report import bulk, correspondents, health, labels, storage, threads, volume
+from mailcellar.report import (
+    bulk,
+    correspondents,
+    health,
+    labels,
+    protections,
+    storage,
+    threads,
+    volume,
+)
 from mailcellar.report.db import AnalyticsError, completeness, open_sidecars
 from mailcellar.report.output import render, write_csv
 
@@ -189,6 +198,12 @@ def cmd_correspondents(args) -> None:
         emit(args, "Correspondents report", "correspondents", accounts, tables)
 
 
+def cmd_protections(args) -> None:
+    with open_report(args) as (con, accounts):
+        tables = protections.build(con, accounts)
+        emit(args, "Protections report", "protections", accounts, tables)
+
+
 def token_rows(accounts: list[str]) -> list[tuple[str, str, object]]:
     """(account, scope, when consent was given or None) for each configured token of `accounts`."""
     from mailcellar import gmailapi
@@ -320,6 +335,11 @@ def main(argv=None, prog: str | None = None) -> None:
         ("threads", cmd_threads, "Thread sizes, longest threads, threads in both accounts"),
         ("labels", cmd_labels, "User labels in use, per account and across accounts"),
         ("correspondents", cmd_correspondents, "Who you write to, who writes to you, replies"),
+        (
+            "protections",
+            cmd_protections,
+            "Per message, which of offload's keep protections apply, for other tools",
+        ),
     ]:
         r = sub.add_parser(name, help=text)
         add_common(r)
