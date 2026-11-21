@@ -6,16 +6,19 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). mailcellar is
 in beta, so commands and options may still change before 1.0; what 1.0 will
 keep stable is in [What stays stable](docs/reference/stability.md).
 
-## Unreleased
+## 0.27.0 (2026-11-21)
+
+**Upgrading from 0.26.0:** no database's schema changes. `report health`
+warns of a Gmail API backup's old start point after a week rather than
+four, and `schedule status` with no schedule installed calls a backup
+overdue after two weeks rather than eight (see Changed).
 
 ### Added
-
 - `report protections` lists, for each message, which of `offload plan`'s
   `keep` names protect it and why `plan` would leave it out, as CSV for
   other tools, with a hash of the Message-ID to join on.
 
 ### Changed
-
 - The guides start with Gmail over IMAP, the quickest way in, and say
   "the mailbox" where offloading, dedup and restore work on any account.
   Migrating from gyb shows `setup` for both routes: a gyb backup carries
