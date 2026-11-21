@@ -350,10 +350,10 @@ def main(argv=None, prog: str | None = None) -> None:
     h.add_argument(
         "--window-days",
         type=int,
-        default=28,
+        default=7,
         metavar="DAYS",
-        help="Gmail's history retention: longer gaps between backups mean a full "
-        "listing (default: 28)",
+        help="Gmail's history retention, which Google gives as at least a week: longer gaps "
+        "between backups may mean a full listing (default: 7)",
     )
     h.set_defaults(func=cmd_health)
 

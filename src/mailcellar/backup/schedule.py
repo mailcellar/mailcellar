@@ -50,7 +50,8 @@ logger = logging.getLogger(__name__)
 
 LABEL = "com.mailcellar.backup"
 WEEKDAYS = ("sun", "mon", "tue", "wed", "thu", "fri", "sat")  # index = launchd and cron number
-GMAIL_HISTORY_DAYS = 28  # a gap longer than this means a full listing
+# Google keeps Gmail's history at least this long; a longer gap may mean a full listing
+GMAIL_HISTORY_DAYS = 7
 DAY_MS = 86_400_000
 
 

@@ -73,8 +73,8 @@ Log:   <data root>/logs/backup.log
 `schedule status` exits 1 if anything needs attention:
 
 - an account whose last backup failed, is more than two intervals old
-  (one missed run is made up when the Mac wakes), or has no backup run
-  recorded;
+  (one missed run is made up when the Mac wakes; with no schedule
+  installed, two weeks), or has no backup run recorded;
 - an account whose next backup will be refused: its backup isn't where
   it was (a volume not mounted), or its hash chain doesn't match its
   anchor. A refused run isn't recorded, so its last backup can still say

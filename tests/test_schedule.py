@@ -56,8 +56,8 @@ def test_schedules_are_described_in_words():
         (3, DAILY, True),
         (13, WEEKLY, False),
         (15, WEEKLY, True),
-        (27, None, False),  # no schedule: Gmail's four-week history window
-        (57, None, True),
+        (13, None, False),  # no schedule: Gmail's history window, a week by Google's figure
+        (15, None, True),
     ],
 )
 def test_overdue(days_ago, schedule_, expected):
