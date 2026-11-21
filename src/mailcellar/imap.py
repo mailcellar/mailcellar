@@ -62,7 +62,7 @@ import ssl
 import time
 from collections.abc import Mapping
 from dataclasses import astuple, dataclass, field, replace
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
 
@@ -570,6 +570,14 @@ def flag_labels(flags) -> frozenset[str]:
 def internal_ms(text: str) -> int:
     """INTERNALDATE ("17-Jul-1996 02:44:25 -0700") as ms since epoch. Pure."""
     return int(datetime.strptime(text.strip(), "%d-%b-%Y %H:%M:%S %z").timestamp() * 1000)
+
+
+def internal_date(ms: int) -> str:
+    """
+    ms since epoch as a quoted INTERNALDATE for APPEND, in UTC, whatever the
+    machine's timezone (imaplib formats a bare timestamp in local time). Pure.
+    """
+    return imaplib.Time2Internaldate(datetime.fromtimestamp(ms // 1000, UTC))
 
 
 def message_id_of(header: bytes) -> str:
@@ -2729,7 +2737,7 @@ class ImapAccount:
         the batch began (`uid_next`): if the dropped attempt stored it, that copy is
         the message (already_stored, `earlier` appends of it having come before).
         """
-        when = imaplib.Time2Internaldate(ms // 1000)
+        when = internal_date(ms)
         tried = []
 
         def run(conn):

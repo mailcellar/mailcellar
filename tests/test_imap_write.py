@@ -3,6 +3,7 @@
 import csv
 import imaplib
 import sqlite3
+import time
 
 import pytest
 
@@ -1012,6 +1013,17 @@ def test_an_appended_message_gets_the_id_the_next_scan_gives_it():
     assert imap.appended_id(no_id, 0) == imap.content_id(no_id)
     dated = b"Date: Thu, 01 Jan 2015 10:00:00 +0000\r\nSubject: s\r\n\r\nbody"
     assert imap.date_of(dated) == 1_420_106_400_000 and imap.date_of(b"Subject: s\r\n\r\n") is None
+
+
+def test_append_dates_are_in_utc_whatever_the_local_timezone(monkeypatch):
+    monkeypatch.setenv("TZ", "America/New_York")
+    time.tzset()
+    try:
+        assert imap.internal_date(1_420_106_400_123) == '"01-Jan-2015 10:00:00 +0000"'
+        assert imap.internal_ms(imap.internal_date(1_420_106_400_123)[1:-1]) == 1_420_106_400_000
+    finally:
+        monkeypatch.undo()
+        time.tzset()
 
 
 def test_mail_dated_apart_from_its_receipt_comes_back_under_the_same_id(home, tmp_path, capsys):
