@@ -6,7 +6,10 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). mailcellar is
 in beta, so commands and options may still change before 1.0; what 1.0 will
 keep stable is in [What stays stable](docs/reference/stability.md).
 
-## Unreleased
+## 0.27.1 (2026-11-21)
+
+**Upgrading from 0.27.0:** no database's schema changes. An iCloud
+account's first backup after upgrading reads every folder in full.
 
 ### Fixed
 - An iCloud account's backup, `count` and `meta` read every folder again.
