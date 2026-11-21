@@ -201,10 +201,42 @@ def test_install_weekday_and_reinstall_replace_the_agent(home):
 def test_install_refuses_an_account_with_no_token(home):
     gmailapi.token_file(home.config / "bb", "readonly").unlink()
     with pytest.raises(
-        SystemExit, match=rf"no token for {B}.*mailcellar auth {B} --scope readonly"
+        SystemExit, match=rf"couldn't sign in to:\n  {B}: no token; run mailcellar auth {B} --scope"
     ):
         run("install")
     assert not plist_file(home).exists() and home.calls == []
+
+
+def as_imap(folder, password=True):
+    """Make the account in `folder` an IMAP account: its server, and its password if asked."""
+    gmailapi.token_file(folder, "readonly").unlink()
+    (folder / gmailapi.IMAP_SETTINGS).write_text('host = "imap.example.org"\n')
+    if password:
+        (folder / gmailapi.IMAP_PASSWORD).write_text("secret\n")
+        (folder / gmailapi.IMAP_PASSWORD).chmod(0o600)
+
+
+def test_install_takes_an_imap_account_by_its_password(home):
+    as_imap(home.config / "bb")
+    assert run("install") == 0
+    assert plist_file(home).exists()
+
+
+def test_install_refuses_an_imap_account_with_no_password(home):
+    as_imap(home.config / "bb", password=False)
+    with pytest.raises(SystemExit, match=rf"{B}: no IMAP password; .* --imap imap\.example\.org"):
+        run("install")
+    assert not plist_file(home).exists()
+
+
+def test_install_takes_a_service_account_by_its_key(home):
+    folder = home.config / "bb"
+    gmailapi.token_file(folder, "readonly").unlink()
+    (folder / gmailapi.SERVICE_ACCOUNT_MARKER).write_text("")
+    key = gmailapi.service_account_path(home.config, B.rpartition("@")[2])
+    key.parent.mkdir(parents=True, exist_ok=True)
+    key.write_text("{}")
+    assert run("install") == 0
 
 
 def test_a_modify_token_is_enough(home):
