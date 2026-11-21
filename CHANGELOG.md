@@ -23,6 +23,14 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 - `setup --help` no longer says an IMAP account is backed up only, and
   names all three ways to add an account. A server without MOVE is said
   to rule out offload and dedup, not restore.
+- `report health` and `schedule status` take Gmail's change history as
+  kept for a week, Google's documented minimum, rather than four weeks.
+  `health` lists gaps between backups of more than a week, and says the
+  next backup "may be a full listing" once its start point is older than
+  that; its Runs section still shows whether one was (`expired`).
+  `--window-days` defaults to 7. Accounts backed up over IMAP, which has
+  no such window, no longer get these warnings. With no schedule installed,
+  `schedule status` calls a backup overdue after two weeks, not eight.
 - The README and guides give Gmail's change history as kept for at least
   a week, often longer, as Google documents it, rather than about four
   weeks, and say to back up through the Gmail API at least weekly. The

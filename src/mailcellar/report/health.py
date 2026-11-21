@@ -8,9 +8,11 @@ parser, whether a history start point is stored, the newest message,
 mail offloaded from Gmail and kept in the backup, and the forget runs
 held in <data root>/_forgotten/, with those due for --empty.
 
-Gmail keeps mailbox history for about 28 days; a backup whose start
-point is older than that lists every message instead (~30 s rather than
-~1 s).
+Google keeps Gmail's history for at least a week, often longer; a backup
+whose start point Gmail no longer keeps lists every message instead
+(~30 s rather than ~1 s). The report warns once a start point is a week
+old (the window), and a run that had to list everything records why
+('expired'). Over IMAP there is no such window.
 """
 
 import sqlite3
@@ -31,7 +33,7 @@ FAILED = ("failures", "error", "aborted")
 
 @dataclass(frozen=True)
 class Options:
-    window_days: int = 28  # Gmail's history retention, as measured
+    window_days: int = 7  # Gmail's history retention: Google's documented minimum
     now_ms: int | None = None  # for tests; default: now
 
 
@@ -41,9 +43,23 @@ FULL_LISTING = "command = 'backup' AND mode = 'full' AND reason != 'search'"
 HISTORY_POINT = "command = 'backup' AND status = 'ok' AND reason != 'search'"
 
 
+def over_imap(con) -> frozenset[str]:
+    """
+    The accounts backed up over IMAP, which has no history window: a backup
+    there reads what changed however long ago the last one was.
+    """
+    return frozenset(
+        a
+        for (a,) in con.execute(
+            "SELECT account FROM all_state WHERE name = 'provider' AND value = 'imap'"
+        )
+    )
+
+
 def state(con, folders: list[Path], opts: Options, now: int) -> Table:
     rows = []
     stale_missing = completeness_counts(con, [backup_account(f) for f in folders])
+    imap = over_imap(con)
     for folder in folders:
         account = backup_account(folder)
         p = {"a": account}
@@ -72,10 +88,12 @@ def state(con, folders: list[Path], opts: Options, now: int) -> Table:
         age = (now - point) / DAY_MS if point is not None else None
         if not history:
             next_run = "full listing: no start point"
+        elif account in imap:
+            next_run = "what changed (IMAP: no window)"
         elif age is None:
             next_run = "history, unless expired (no runs yet)"
         elif age > opts.window_days:
-            next_run = "full listing: start point too old"
+            next_run = "may be a full listing: old start point"
         else:
             next_run = "history"
         rows.append(
@@ -120,7 +138,10 @@ def state(con, folders: list[Path], opts: Options, now: int) -> Table:
             "its mailbox on purpose and kept in the backup; in Trash until the mailbox "
             "empties it (Gmail after 30 days), as last seen by count or a backup. "
             "Start point: a stored history ID; its age is the time since the last backup "
-            "that stored one. Times are UTC."
+            "that stored one. Next backup: 'may be a full listing' once the start point is "
+            "older than the window (--window-days); Gmail often keeps its history longer. "
+            "Over IMAP there is no window. "
+            "Times are UTC."
         ],
         limit=False,
     )
@@ -176,8 +197,9 @@ def runs(con) -> Table:
 
 def gaps(con, accounts: list[str], opts: Options, now: int) -> Table:
     window = opts.window_days * DAY_MS
+    imap = over_imap(con)
     rows = []
-    for account in accounts:
+    for account in (a for a in accounts if a not in imap):
         points = [
             ms
             for (ms,) in con.execute(
@@ -197,8 +219,10 @@ def gaps(con, accounts: list[str], opts: Options, now: int) -> Table:
         [("Account", "text"), ("From", "text"), ("To", "text"), ("Days", "num")],
         rows,
         notes=[
-            "Between backups that left a start point. After such a gap the next backup lists "
-            "every message; 'now' means the next one will."
+            "Between backups that left a start point. After such a gap the next backup may "
+            "list every message, if Gmail no longer keeps its history ('expired' in Runs); "
+            "'now' means the next one may. Not for accounts backed up over IMAP, which "
+            "have no window."
         ],
         limit=False,
     )

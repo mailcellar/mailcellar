@@ -142,9 +142,19 @@ def test_state(report):
     assert a[9] == "2026-10-04 00:00"  # last backup: the failed one
     assert a[10] == "2026-09-24 00:00"  # last full listing
     assert a[11] == pytest.approx(30 - 30_000 / DAY)  # since the expired-then-full run
-    assert a[12] == "full listing: start point too old"
+    assert a[12] == "may be a full listing: old start point"
     assert b[8] == "no" and b[12] == "full listing: no start point"
     assert report(window_days=31)["state"].rows[0][12] == "history"
+
+
+def test_an_account_backed_up_over_imap_has_no_history_window(report, tmp_path):
+    con = sidecar.open_meta(tmp_path / "data" / A)
+    sidecar.set_state(con, "provider", "imap")
+    con.commit()
+    con.close()
+    t = report()
+    assert t["state"].rows[0][12] == "what changed (IMAP: no window)"
+    assert not [r for r in t["gaps"].rows if r[0] == A]
 
 
 def test_runs_gaps_and_months(report):
@@ -157,6 +167,7 @@ def test_runs_gaps_and_months(report):
         "ok",
     ]
     assert [(r[1][:10], r[2][:10]) for r in t["gaps"].rows] == [
+        ("2026-08-05", "2026-08-15"),  # 10 days: over the week Google gives
         ("2026-08-15", "2026-09-24"),
         ("2026-09-24", "now"),
     ]

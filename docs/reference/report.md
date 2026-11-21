@@ -99,7 +99,7 @@ hold hasn't run for 7 days.
 
 | Option | What it does |
 | --- | --- |
-| `--window-days DAYS` | Gmail's history retention: longer gaps between backups mean a full listing (default 28; Gmail accounts) |
+| `--window-days DAYS` | Gmail's history retention, which Google gives as at least a week: longer gaps between backups may mean a full listing (default 7). The Runs section shows when one did (`expired`). Backups through the Gmail API only: over IMAP there is no window |
 
 ### `report senders ACCOUNT`
 
