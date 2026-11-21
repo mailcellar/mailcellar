@@ -172,10 +172,13 @@ changelog has no section for the version.
    X.Y.Z` also updates `uv.lock`), rename `## Unreleased` in `CHANGELOG.md`
    to `## X.Y.Z (YYYY-MM-DD)`, and commit both as `build: release X.Y.Z`
    through a pull request like any other change.
-2. Once that is merged, tag the merge commit and push the tag:
+2. Once that is merged, tag the merge commit and push the tag. Naming
+   `origin/main` tags what was merged from any checkout or worktree; a
+   bare `git tag` tags whatever is checked out, which after a squash
+   merge is a commit main doesn't have:
    ```bash
-   git switch main && git pull
-   git tag -a vX.Y.Z -m "mailcellar X.Y.Z"
+   git fetch origin
+   git tag -a vX.Y.Z -m "mailcellar X.Y.Z" origin/main
    git push origin vX.Y.Z
    ```
 3. Approve the `pypi` environment's deployment when GitHub asks, then
