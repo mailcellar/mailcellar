@@ -39,7 +39,8 @@ by save_state, through the backup's own meta.sqlite connection
 
 An incremental scan (backup and count: incremental=True) starts from what
 the last backup saved. Where the server keeps each folder's counters
-(CONDSTORE, RFC 7162, or Yahoo's HIGHESTMODSEQ without it), a folder whose
+(CONDSTORE, RFC 7162, which each connection enables, or Yahoo's
+HIGHESTMODSEQ without it), a folder whose
 UIDVALIDITY, UIDNEXT, MESSAGES and HIGHESTMODSEQ are as saved is read from
 the map, with nothing sent; a changed one lists its UIDs and fetches only
 what changed (CHANGEDSINCE), or, without CONDSTORE, is read in full.
@@ -433,6 +434,25 @@ def next_search(before: frozenset[int], got: frozenset[int], exists: int | None)
 def capabilities_from(data) -> frozenset[str]:
     """CAPABILITY's answer as upper-case names. Pure."""
     return frozenset(b" ".join(d for d in data if d).decode("ascii", "replace").upper().split())
+
+
+def enables_condstore(capabilities) -> bool:
+    """
+    Whether a session sends ENABLE CONDSTORE (RFC 7162, 3.1) after signing
+    in, so that EXAMINE gives HIGHESTMODSEQ: where the server has both. Pure.
+    """
+    return {"CONDSTORE", "ENABLE"} <= set(capabilities)
+
+
+def examine_args(name: str, capabilities) -> str:
+    """
+    EXAMINE's argument for folder `name`: quoted, with the (CONDSTORE)
+    parameter only on a CONDSTORE server without ENABLE. Elsewhere the
+    session has enabled CONDSTORE (enables_condstore): iCloud answers any
+    EXAMINE parameter with NO [NONEXISTENT], as if the folder were gone. Pure.
+    """
+    condstore = "CONDSTORE" in capabilities and not enables_condstore(capabilities)
+    return quote(name) + (" (CONDSTORE)" if condstore else "")
 
 
 def folder_states(data) -> dict[str, FolderState]:
@@ -1788,7 +1808,27 @@ class ImapAccount:
                 raise gmailapi.AccessRefused(
                     f"{self.account}: {self.settings.host} refused the login: {said}"
                 ) from None
+            self._enable(conn)
         return self._conn
+
+    def _enable(self, conn) -> None:
+        """
+        ENABLE CONDSTORE on a new connection where the server has it
+        (enables_condstore), so each EXAMINE gives HIGHESTMODSEQ; it lasts
+        as long as the connection. A server that refuses it has its changed
+        folders read in full, since EXAMINE then gives no counters.
+        """
+        capabilities = capabilities_from(self._ok(*conn.capability(), "CAPABILITY"))
+        if not enables_condstore(capabilities):
+            return
+        try:
+            typ, data = conn.xatom("ENABLE", "CONDSTORE")
+        except imaplib.IMAP4.abort:  # a dropped connection: retried
+            raise
+        except imaplib.IMAP4.error as exc:  # BAD, which imaplib raises
+            typ, data = "BAD", [str(exc).encode()]
+        if typ != "OK":
+            logger.debug("%s: ENABLE CONDSTORE: %s %s", self.account, typ, data)
 
     def _retrying(self, what: str, fn):
         """
@@ -2020,8 +2060,7 @@ class ImapAccount:
         items = "(INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])"
         gmail = GMAIL_EXT in capabilities
         flag_items = "(FLAGS X-GM-MSGID X-GM-THRID X-GM-LABELS)" if gmail else "(FLAGS)"
-        # (CONDSTORE) has EXAMINE give HIGHESTMODSEQ, which Gmail gives anyway.
-        examine = quote(folder.name) + (" (CONDSTORE)" if "CONDSTORE" in capabilities else "")
+        examine = examine_args(folder.name, capabilities)  # HIGHESTMODSEQ with CONDSTORE
 
         def run(conn):
             typ, data = conn.select(examine, readonly=True)

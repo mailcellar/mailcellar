@@ -6,6 +6,16 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). mailcellar is
 in beta, so commands and options may still change before 1.0; what 1.0 will
 keep stable is in [What stays stable](docs/reference/stability.md).
 
+## Unreleased
+
+### Fixed
+- An iCloud account's backup, `count` and `meta` read every folder again.
+  Since 0.26.0 each folder was skipped as "Mailbox does not exist":
+  iCloud refuses the way mailcellar asked for its change counters when
+  opening a folder, so they are now turned on once for each connection
+  instead (ENABLE CONDSTORE), on every server that offers that. Nothing
+  was taken as deleted from the backup meanwhile.
+
 ## 0.27.0 (2026-11-21)
 
 **Upgrading from 0.26.0:** no database's schema changes. `report health`

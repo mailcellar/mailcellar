@@ -5,6 +5,7 @@ fetches only what changed (CHANGEDSINCE), and the Scan is the one a full
 read gives.
 """
 
+import imaplib
 from dataclasses import replace
 
 import pytest
@@ -146,6 +147,16 @@ def test_examines_counters_need_all_four():
     assert imap.examined_state(7, 3, None, b"41") is None
     assert imap.examined_state(7, None, b"9", b"41") is None
     assert imap.examined_state(7, 3, b"9", b"0") is None
+
+
+def test_condstore_is_enabled_once_signed_in_where_the_server_has_enable():
+    assert imap.enables_condstore({"CONDSTORE", "ENABLE"})
+    assert not imap.enables_condstore({"CONDSTORE"})
+    assert not imap.enables_condstore({"ENABLE", "XYMHIGHESTMODSEQ"})
+    # EXAMINE's own (CONDSTORE) only where the session couldn't enable it.
+    assert imap.examine_args("Sent Messages", {"CONDSTORE", "ENABLE"}) == '"Sent Messages"'
+    assert imap.examine_args("INBOX", {"CONDSTORE"}) == '"INBOX" (CONDSTORE)'
+    assert imap.examine_args("INBOX", {"XYMHIGHESTMODSEQ"}) == '"INBOX"'
 
 
 def test_changedsince_asks_for_every_uid_at_once_unless_a_messagelimit_says_otherwise():
@@ -364,6 +375,63 @@ def test_a_second_save_diffs_against_the_first(server, tmp_path):
     assert saved["INBOX"] == scan.maps["INBOX"]
 
 
+def test_icloud_which_refuses_examines_condstore_has_it_enabled_instead(server, tmp_path):
+    # iCloud lists CONDSTORE and ENABLE but answers EXAMINE "INBOX" (CONDSTORE)
+    # with NO [NONEXISTENT]: every folder would be skipped.
+    server.examine_params = False
+    scan = backed_up(server, tmp_path)
+    assert scan.skipped == frozenset()
+    assert not any(c[0] == "EXAMINE" and "(CONDSTORE)" in c[1] for c in server.commands)
+    assert all(m.state is not None for name, m in scan.maps.items())  # counters saved
+    assert incremental_matches_full(server, tmp_path) == [
+        ("LOGIN", "alex@example.org"),
+        ("CAPABILITY",),
+        ("ENABLE", "CONDSTORE"),
+        ("CAPABILITY",),
+        ("LIST",),
+        ("LIST", '""', '"*"', "RETURN", f"(STATUS {imap.STATUS_ITEMS})"),
+    ]
+    server.folders["INBOX"]["uids"][2]["flags"].add("\\Seen")
+    sent = incremental_matches_full(server, tmp_path)
+    assert examined(sent) == ["INBOX"]
+    assert not fetched_flags_in_full(sent)  # CHANGEDSINCE
+
+
+def test_each_new_connection_enables_condstore_again(server, tmp_path):
+    server.examine_params = False
+    box = account(server, tmp_path)
+    box.sign_in()
+    server.drops = 1  # the scan's first command: the connection is lost, and a new one made
+    scan = box._scan()[1]
+    sent = [c[0] for c in server.commands]
+    assert sent[:5] == ["LOGIN", "CAPABILITY", "ENABLE", "CAPABILITY", "SHUTDOWN"]  # dropped
+    assert sent[5:8] == ["LOGIN", "CAPABILITY", "ENABLE"]
+    assert scan.skipped == frozenset()
+    assert all(m.state is not None for m in scan.maps.values())
+
+
+def test_a_condstore_server_without_enable_has_examine_ask_for_its_counters(server, tmp_path):
+    server.signed_in = tuple(c for c in server.signed_in if c != "ENABLE")
+    scan = backed_up(server, tmp_path)
+    assert "ENABLE" not in [c[0] for c in server.commands]
+    assert all(c[1].endswith(" (CONDSTORE)") for c in server.commands if c[0] == "EXAMINE")
+    assert all(m.state is not None for m in scan.maps.values())
+
+
+def test_a_refused_enable_has_changed_folders_read_in_full(server, tmp_path):
+    def refuse(name, *args):
+        server._command(name, *args)
+        if name == "ENABLE":
+            raise imaplib.IMAP4.error("ENABLE command error: BAD [b'Unknown command']")
+        raise AssertionError(name)
+
+    server.xatom = refuse
+    server.signed_in = tuple(c for c in server.signed_in if c != "LIST-STATUS")
+    scan = backed_up(server, tmp_path)
+    assert scan.skipped == frozenset()
+    assert all(m.state is None for m in scan.maps.values())  # no counters: read in full next
+
+
 def test_a_server_with_only_folder_counters_reads_changed_folders_in_full(server, tmp_path):
     # Yahoo: HIGHESTMODSEQ in EXAMINE and STATUS, CHANGEDSINCE refused.
     server.signed_in = ("IMAP4rev1", "SPECIAL-USE", "MOVE", "UIDPLUS", "XYMHIGHESTMODSEQ")
@@ -405,8 +473,11 @@ def test_a_skipped_folder_keeps_its_map_and_is_read_in_full_next_time(server, tm
 
 def test_a_failed_list_status_reads_every_folder_in_full(server, tmp_path, caplog):
     backed_up(server, tmp_path)
+    xatom = server.xatom
 
     def refused(name, *args):
+        if name != "LIST":
+            return xatom(name, *args)  # ENABLE
         server._command(name, *args)
         raise gmailapi.GmailError("LIST-STATUS: NO")
 
