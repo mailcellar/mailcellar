@@ -250,6 +250,28 @@ def token_scopes(config: Path, account: str) -> list[str]:
     return [s for s in gmailapi.SCOPES if folder and gmailapi.token_file(folder, s).is_file()]
 
 
+def sign_in_problem(config: Path, account: str) -> str | None:
+    """
+    Why an unattended run couldn't sign in to the account, with the command
+    that fixes it; None if it can: a service-account key, an IMAP password,
+    or an OAuth token, whichever the account uses.
+    """
+    folder = gmailapi.config_accounts(config).get(account)
+    if folder is not None and gmailapi.service_account_key(folder, account) is not None:
+        return None
+    if folder is not None and gmailapi.is_imap(folder):
+        if (folder / gmailapi.IMAP_PASSWORD).is_file():
+            return None
+        try:
+            host = gmailapi.imap_settings(folder, account).host
+        except gmailapi.GmailError:
+            host = "HOST"
+        return f"no IMAP password; set it with mailcellar setup {account} --imap {host}"
+    if token_scopes(config, account):
+        return None
+    return f"no token; run mailcellar auth {account} --scope readonly"
+
+
 def token_note(config: Path, account: str, now: datetime) -> tuple[str, bool]:
     """(what to say about the account's token, whether it needs attention)."""
     folder = gmailapi.config_accounts(config).get(account)
@@ -285,12 +307,12 @@ def cmd_install(args) -> int:
     mac = sys.platform == "darwin"
 
     if not args.print:
-        # An unattended run can't sign in: without a token it would fail every time.
-        missing = [a for a in accounts if not token_scopes(config, a)]
-        if missing:
+        # An unattended run that can't sign in would fail every time.
+        problems = [(a, p) for a in accounts if (p := sign_in_problem(config, a))]
+        if problems:
             sys.exit(
-                f"error: no token for {', '.join(missing)}: a scheduled run can't sign in. "
-                f"Run mailcellar auth {missing[0]} --scope readonly first."
+                "error: a scheduled run couldn't sign in to:\n"
+                + "\n".join(f"  {a}: {p}" for a, p in problems)
             )
     if args.print or not mac:
         if mac:
