@@ -8,6 +8,12 @@ keep stable is in [What stays stable](docs/reference/stability.md).
 
 ## Unreleased
 
+### Added
+
+- `report protections` lists, for each message, which of `offload plan`'s
+  `keep` names protect it and why `plan` would leave it out, as CSV for
+  other tools, with a hash of the Message-ID to join on.
+
 ### Changed
 
 - The guides start with Gmail over IMAP, the quickest way in, and say
