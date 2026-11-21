@@ -9,6 +9,7 @@ contact Gmail or change anything, and print to stdout or write CSV files.
   threads         thread sizes, and threads seen from both accounts
   labels          user labels per account, and where accounts differ
   correspondents  who you write to and hear from; reply rates
+  protections     per message, offload's protections, for other tools
   health          backup completeness, runs, gaps, offloaded and pruned mail
   senders         top senders and domains in one backup (senders.py)
 

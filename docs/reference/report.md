@@ -1,5 +1,5 @@
 ---
-description: "Reference for mailcellar report: storage, bulk senders, volume, threads, labels, correspondents, health and senders, over the backups."
+description: "Reference for mailcellar report: storage, bulk senders, volume, threads, labels, correspondents, protections, health and senders, over the backups."
 ---
 
 # Reports: report
@@ -12,6 +12,7 @@ mailcellar report volume                  # received, sent and forwarded mail ov
 mailcellar report threads                 # thread sizes; threads in both accounts
 mailcellar report labels                  # user labels per account; unlabelled mail
 mailcellar report correspondents          # who you write to and hear from; reply rates
+mailcellar report protections --csv out   # per message, what offload's keep protects
 mailcellar report health                  # completeness, runs, gaps, forgotten mail, holds, chain heads
 mailcellar report senders personal --top 30  # top senders and domains in one backup
 ```
@@ -65,6 +66,31 @@ the body". The `Link`
 column is never cut, so it can be copied; with `--csv` it is in
 `bulk-unsubscribe.csv`. mailcellar opens no link and sends no mail.
 
+### `report protections`
+
+For tools outside mailcellar: one row per message, saying which of
+[`offload plan`'s `keep` names](offload.md) protect it. They are worked
+out as `plan` does, across the accounts named (by default all), so your
+addresses, the threads you wrote in, the messages you replied to and the
+people you wrote to come from every account. Name one account and only
+its mail counts. Use `--csv`: the text report shows only `--top` messages.
+
+`protections-messages.csv` has these columns; no address, subject or
+thread is written.
+
+| Column | Value |
+| --- | --- |
+| `account` | the account's address |
+| `id` | the backup's ID for the message, as in the plan CSV |
+| `message_id_hash` | the first 16 hex digits of SHA-256 of the Message-ID without its angle brackets or whitespace, in lower case; empty when the message has none. Hash another copy of the mail the same way to join on it |
+| `mine`, `starred`, `conversations`, `labelled`, `correspondents` | `1` when that protection applies, else `0`; `labelled` is any user label but mailcellar's own review labels, as no rule names one |
+| `left_out` | why `plan` never selects it: `offloaded`, `trash` (Trash or Spam), `gone` (no longer in its mailbox) or `unindexed` (not in the backup's index), the first that applies; empty when none does |
+
+One Message-ID can be on several rows, each with its own flags: the same
+mail in two accounts, or a duplicate within one.
+
+`protections-summary.csv` counts each column per account.
+
 ### `report health`
 
 Also lists the [legal holds](hold.md) in force, with how many messages each
@@ -87,4 +113,4 @@ Takes one account, not several.
 | `--csv FILE` | Also write every sender's figures to this file (one file, not a folder) |
 | `--no-reply-to` | Add a section of senders with no Reply-To header |
 
-`volume`, `threads`, `labels` and `correspondents` take only the common options.
+`volume`, `threads`, `labels`, `correspondents` and `protections` take only the common options.
