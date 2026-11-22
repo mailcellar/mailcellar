@@ -114,6 +114,8 @@ uv run mailcellar report <storage|bulk|volume|threads|labels|correspondents|heal
   real data as counts only; one logical change per commit, passing ruff
   and pytest; end with the Co-Authored-By trailer. The user reviews every
   commit and push: propose the message, stage explicit paths.
+- Branch before the first commit: `main` changes only by merged pull
+  requests (CONTRIBUTING.md), one per unrelated change, releases included.
 - Style: decisions are pure functions over frozen values (`@dataclass(frozen=True)`,
   tuples; `dataclasses.replace` for a changed copy); I/O happens in a thin
   layer that reads what a decision needs and carries it out. restore is the
